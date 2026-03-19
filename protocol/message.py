@@ -27,6 +27,8 @@ class Message:
             line, trailing = line.split(" :", 1)
 
         parts = line.split()
+        if not parts:
+            return cls(prefix=prefix, command="", params=[])
         command = parts[0].upper()
         params = parts[1:]
 

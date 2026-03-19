@@ -36,8 +36,11 @@ class Client:
         return f"{self.nick}!{self.user}@{self.host}"
 
     async def send(self, message: Message) -> None:
-        self.writer.write(message.format().encode("utf-8"))
-        await self.writer.drain()
+        try:
+            self.writer.write(message.format().encode("utf-8"))
+            await self.writer.drain()
+        except (ConnectionError, BrokenPipeError, OSError):
+            pass  # Client disconnected; cleanup happens in ircd._handle_connection
 
     async def send_numeric(self, code: str, *params: str) -> None:
         target = self.nick or "*"
@@ -55,13 +58,17 @@ class Client:
             if not data:
                 break
             buffer += data.decode("utf-8", errors="replace")
+            # Cap buffer to prevent unbounded memory growth (512 bytes per RFC 2812)
+            if len(buffer) > 8192:
+                buffer = buffer[-4096:]
             # Normalize bare \n to \r\n for clients that don't send proper CRLF
             buffer = buffer.replace("\r\n", "\n").replace("\r", "\n")
             while "\n" in buffer:
                 line, buffer = buffer.split("\n", 1)
-                if line:
+                if line.strip():
                     msg = Message.parse(line)
-                    await self._dispatch(msg)
+                    if msg.command:
+                        await self._dispatch(msg)
 
     async def _dispatch(self, msg: Message) -> None:
         handler = getattr(self, f"_handle_{msg.command.lower()}", None)
