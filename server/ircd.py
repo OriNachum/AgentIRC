@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import TYPE_CHECKING
 
 from server.config import ServerConfig
 from server.channel import Channel
+from server.skill import Event, Skill
 
 if TYPE_CHECKING:
     from server.client import Client
@@ -18,16 +20,44 @@ class IRCd:
         self.config = config
         self.clients: dict[str, Client] = {}  # nick -> Client
         self.channels: dict[str, Channel] = {}  # name -> Channel
+        self.skills: list[Skill] = []
         self._server: asyncio.Server | None = None
 
     async def start(self) -> None:
+        await self._register_default_skills()
         self._server = await asyncio.start_server(
             self._handle_connection,
             self.config.host,
             self.config.port,
         )
 
+    async def _register_default_skills(self) -> None:
+        from server.skills.history import HistorySkill
+
+        await self.register_skill(HistorySkill())
+
+    async def register_skill(self, skill: Skill) -> None:
+        self.skills.append(skill)
+        await skill.start(self)
+
+    async def emit_event(self, event: Event) -> None:
+        for skill in self.skills:
+            try:
+                await skill.on_event(event)
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "Skill %s failed on event %s", skill.name, event.type
+                )
+
+    def get_skill_for_command(self, command: str) -> Skill | None:
+        for skill in self.skills:
+            if command in skill.commands:
+                return skill
+        return None
+
     async def stop(self) -> None:
+        for skill in self.skills:
+            await skill.stop()
         if self._server:
             self._server.close()
             await self._server.wait_closed()
