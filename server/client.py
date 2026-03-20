@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from protocol.message import Message
 from protocol import replies
 from server.channel import Channel
+from server.skill import Event, EventType
 
 if TYPE_CHECKING:
     from server.ircd import IRCd
@@ -76,9 +77,13 @@ class Client:
         if handler:
             await handler(msg)
         else:
-            await self.send_numeric(
-                replies.ERR_UNKNOWNCOMMAND, msg.command, "Unknown command"
-            )
+            skill = self.server.get_skill_for_command(msg.command)
+            if skill and self._registered:
+                await skill.on_command(self, msg)
+            else:
+                await self.send_numeric(
+                    replies.ERR_UNKNOWNCOMMAND, msg.command, "Unknown command"
+                )
 
     async def _handle_ping(self, msg: Message) -> None:
         token = msg.params[0] if msg.params else ""
@@ -201,6 +206,10 @@ class Client:
         for member in list(channel.members):
             await member.send(join_msg)
 
+        await self.server.emit_event(
+            Event(type=EventType.JOIN, channel=channel_name, nick=self.nick)
+        )
+
         # Send topic if set
         if channel.topic:
             await self.send_numeric(
@@ -235,6 +244,15 @@ class Client:
         )
         for member in list(channel.members):
             await member.send(part_msg)
+
+        await self.server.emit_event(
+            Event(
+                type=EventType.PART,
+                channel=channel_name,
+                nick=self.nick,
+                data={"reason": reason},
+            )
+        )
 
         channel.remove(self)
         self.channels.discard(channel)
@@ -279,6 +297,14 @@ class Client:
             )
             for member in list(channel.members):
                 await member.send(topic_msg)
+            await self.server.emit_event(
+                Event(
+                    type=EventType.TOPIC,
+                    channel=channel_name,
+                    nick=self.nick,
+                    data={"topic": channel.topic},
+                )
+            )
 
     async def _handle_names(self, msg: Message) -> None:
         if not msg.params:
@@ -424,6 +450,14 @@ class Client:
             for member in list(channel.members):
                 if member is not self:
                     await member.send(relay)
+            await self.server.emit_event(
+                Event(
+                    type=EventType.MESSAGE,
+                    channel=target,
+                    nick=self.nick,
+                    data={"text": text},
+                )
+            )
             await self._notify_mentions(target, text)
         else:
             recipient = self.server.clients.get(target)
@@ -433,6 +467,14 @@ class Client:
                 )
                 return
             await recipient.send(relay)
+            await self.server.emit_event(
+                Event(
+                    type=EventType.MESSAGE,
+                    channel=None,
+                    nick=self.nick,
+                    data={"text": text},
+                )
+            )
             await self._notify_mentions(None, text)
 
     async def _notify_mentions(
@@ -486,10 +528,26 @@ class Client:
             for member in list(channel.members):
                 if member is not self:
                     await member.send(relay)
+            await self.server.emit_event(
+                Event(
+                    type=EventType.MESSAGE,
+                    channel=target,
+                    nick=self.nick,
+                    data={"text": text},
+                )
+            )
         else:
             recipient = self.server.clients.get(target)
             if recipient:
                 await recipient.send(relay)
+                await self.server.emit_event(
+                    Event(
+                        type=EventType.MESSAGE,
+                        channel=None,
+                        nick=self.nick,
+                        data={"text": text},
+                    )
+                )
 
     async def _handle_who(self, msg: Message) -> None:
         if not msg.params:
@@ -597,10 +655,20 @@ class Client:
         )
 
         notified: set[Client] = set()
+        channel_names = [ch.name for ch in self.channels]
         for channel in list(self.channels):
             for member in list(channel.members):
                 if member is not self and member not in notified:
                     await member.send(quit_msg)
                     notified.add(member)
+
+        await self.server.emit_event(
+            Event(
+                type=EventType.QUIT,
+                channel=None,
+                nick=self.nick,
+                data={"reason": reason, "channels": channel_names},
+            )
+        )
 
         raise ConnectionError("Client quit")

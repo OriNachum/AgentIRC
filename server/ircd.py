@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from server.config import ServerConfig
 from server.channel import Channel
+from server.skill import Event, Skill
 
 if TYPE_CHECKING:
     from server.client import Client
@@ -18,6 +19,7 @@ class IRCd:
         self.config = config
         self.clients: dict[str, Client] = {}  # nick -> Client
         self.channels: dict[str, Channel] = {}  # name -> Channel
+        self.skills: list[Skill] = []
         self._server: asyncio.Server | None = None
 
     async def start(self) -> None:
@@ -27,7 +29,23 @@ class IRCd:
             self.config.port,
         )
 
+    async def register_skill(self, skill: Skill) -> None:
+        self.skills.append(skill)
+        await skill.start(self)
+
+    async def emit_event(self, event: Event) -> None:
+        for skill in self.skills:
+            await skill.on_event(event)
+
+    def get_skill_for_command(self, command: str) -> Skill | None:
+        for skill in self.skills:
+            if command in skill.commands:
+                return skill
+        return None
+
     async def stop(self) -> None:
+        for skill in self.skills:
+            await skill.stop()
         if self._server:
             self._server.close()
             await self._server.wait_closed()
