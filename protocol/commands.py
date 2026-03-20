@@ -14,3 +14,6 @@ NAMES = "NAMES"
 MODE = "MODE"
 WHO = "WHO"
 WHOIS = "WHOIS"
+
+# Extensions
+HISTORY = "HISTORY"
