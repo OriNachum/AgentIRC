@@ -61,7 +61,7 @@ class AgentDaemon:
         # 1. Message buffer
         self._buffer = MessageBuffer(max_per_channel=self.config.buffer_size)
 
-        # 2. IRC transport
+        # 2. IRC transport (with @mention → agent activation)
         self._transport = IRCTransport(
             host=self.config.server.host,
             port=self.config.server.port,
@@ -69,6 +69,7 @@ class AgentDaemon:
             user=self.agent.nick,
             channels=list(self.agent.channels),
             buffer=self._buffer,
+            on_mention=self._on_mention,
         )
         await self._transport.connect()
 
@@ -90,7 +91,10 @@ class AgentDaemon:
             window_size=self.config.supervisor.window_size,
             eval_interval=self.config.supervisor.eval_interval,
             escalation_threshold=self.config.supervisor.escalation_threshold,
-            evaluate_fn=make_sdk_evaluate_fn(model=self.config.supervisor.model),
+            evaluate_fn=make_sdk_evaluate_fn(
+                model=self.config.supervisor.model,
+                thinking=self.config.supervisor.thinking,
+            ),
             on_whisper=self._on_supervisor_whisper,
             on_escalation=self._on_supervisor_escalation,
         )
@@ -133,6 +137,18 @@ class AgentDaemon:
         )
         await self._agent_runner.start()
         logger.info("AgentRunner started via SDK for %s", self.agent.nick)
+
+    def _on_mention(self, target: str, sender: str, text: str) -> None:
+        """Called by IRCTransport when the agent is @mentioned or DM'd.
+
+        Formats a prompt and enqueues it so the SDK session picks it up.
+        """
+        if self._agent_runner and self._agent_runner.is_running():
+            if target.startswith("#"):
+                prompt = f"[IRC @mention in {target}] <{sender}> {text}"
+            else:
+                prompt = f"[IRC DM] <{sender}> {text}"
+            asyncio.create_task(self._agent_runner.send_prompt(prompt))
 
     async def _on_agent_message(self, msg: dict) -> None:
         """Feed agent activity to the supervisor for observation."""

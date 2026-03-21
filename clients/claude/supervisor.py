@@ -39,10 +39,13 @@ class SupervisorVerdict:
     @classmethod
     def parse(cls, text: str) -> SupervisorVerdict:
         text = text.strip()
-        if text == "OK":
+        if not text or text == "OK":
             return cls(action="OK", message="")
         parts = text.split(" ", 1)
         action = parts[0]
+        if action not in ("OK", "CORRECTION", "THINK_DEEPER", "ESCALATION"):
+            logger.warning("Unknown supervisor verdict %r, defaulting to OK", action)
+            return cls(action="OK", message="")
         message = parts[1] if len(parts) > 1 else ""
         return cls(action=action, message=message)
 
@@ -109,21 +112,24 @@ def _format_window(window: list[dict[str, Any]], task: str) -> str:
     return "\n".join(lines)
 
 
-def make_sdk_evaluate_fn(model: str = "claude-sonnet-4-6") -> EvaluateFn:
+def make_sdk_evaluate_fn(
+    model: str = "claude-sonnet-4-6",
+    thinking: str | None = None,
+) -> EvaluateFn:
     """Create an evaluate_fn that uses the Claude Agent SDK."""
 
     async def evaluate(window: list[dict[str, Any]], task: str) -> SupervisorVerdict:
         prompt = _format_window(window, task)
         result_text = ""
-        async for message in query(
-            prompt=prompt,
-            options=ClaudeAgentOptions(
-                model=model,
-                max_turns=1,
-                system_prompt=_SUPERVISOR_SYSTEM_PROMPT,
-                tools=[],
-            ),
-        ):
+        opts = ClaudeAgentOptions(
+            model=model,
+            max_turns=1,
+            system_prompt=_SUPERVISOR_SYSTEM_PROMPT,
+            tools=[],
+        )
+        if thinking:
+            opts.effort = thinking
+        async for message in query(prompt=prompt, options=opts):
             if isinstance(message, AssistantMessage):
                 for block in message.content:
                     if isinstance(block, TextBlock):

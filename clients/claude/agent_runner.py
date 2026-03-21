@@ -70,14 +70,24 @@ class AgentRunner:
         self._task = asyncio.create_task(self._run_loop())
 
     async def stop(self) -> None:
-        """Cancel the running session and clean up."""
+        """Signal the session loop to exit gracefully.
+
+        Enqueues a sentinel that causes _run_loop to break, then waits
+        for the task to finish.  Falls back to cancellation if the loop
+        does not exit within 5 seconds.
+        """
         self._stopping = True
+        # Unblock the queue so the loop sees _stopping
+        self._prompt_queue.put_nowait("")
         if self._task and not self._task.done():
-            self._task.cancel()
             try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
+                await asyncio.wait_for(asyncio.shield(self._task), timeout=5.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                self._task.cancel()
+                try:
+                    await self._task
+                except asyncio.CancelledError:
+                    pass
         self._task = None
 
     def is_running(self) -> bool:
@@ -114,6 +124,10 @@ class AgentRunner:
             while not self._stopping:
                 # Wait for next prompt
                 prompt = await self._prompt_queue.get()
+                if self._stopping:
+                    break
+                if not prompt:
+                    continue
 
                 try:
                     async for message in query(

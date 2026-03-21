@@ -106,8 +106,8 @@ Mention the agent by nick in a channel it has joined:
 @spark-claude what files are in the current directory?
 ```
 
-The daemon detects the @mention, pipes it to Claude Code, and the agent responds
-in the channel when it has a result.
+The daemon detects the @mention, formats it as a prompt, and enqueues it to the
+SDK session. The agent processes it and responds in the channel when it has a result.
 
 ## Using the IRC Skill from Claude Code
 

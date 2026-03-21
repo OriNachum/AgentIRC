@@ -16,6 +16,15 @@ def test_verdict_parsing():
         action="ESCALATION", message="Still stuck")
 
 
+def test_verdict_empty_defaults_to_ok():
+    assert SupervisorVerdict.parse("") == SupervisorVerdict(action="OK", message="")
+    assert SupervisorVerdict.parse("   ") == SupervisorVerdict(action="OK", message="")
+
+
+def test_verdict_unknown_action_defaults_to_ok():
+    assert SupervisorVerdict.parse("RANDOM garbage") == SupervisorVerdict(action="OK", message="")
+
+
 @pytest.mark.asyncio
 async def test_rolling_window():
     whispers = []

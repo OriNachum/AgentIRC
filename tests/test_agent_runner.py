@@ -40,12 +40,6 @@ class FakeResultMessage:
     structured_output: Any = None
 
 
-# Patch isinstance checks to work with fakes
-import claude_agent_sdk.types as sdk_types
-_orig_assistant = sdk_types.AssistantMessage
-_orig_result = sdk_types.ResultMessage
-
-
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -73,7 +67,7 @@ async def test_start_stop(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_on_exit_clean(monkeypatch):
-    """on_exit fires with code 0 when the session loop ends normally."""
+    """on_exit fires with code 0 when graceful stop completes."""
     exit_codes = []
 
     async def on_exit(code):
@@ -91,11 +85,11 @@ async def test_on_exit_clean(monkeypatch):
     await runner.start()
     # Let the turn complete, then the loop waits for next prompt
     await asyncio.sleep(0.2)
-    # Stop triggers clean exit
+    # Graceful stop sends sentinel and lets loop exit normally
     await runner.stop()
     await asyncio.sleep(0.1)
-    # Cancelled tasks don't fire on_exit(0) — that's the stop path
     assert not runner.is_running()
+    assert exit_codes == [0]
 
 
 @pytest.mark.asyncio
