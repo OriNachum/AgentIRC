@@ -2,103 +2,152 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Callable, Awaitable
+from typing import Any, Callable, Awaitable
+
+from claude_agent_sdk import (
+    query,
+    ClaudeAgentOptions,
+    AssistantMessage,
+    ResultMessage,
+    TextBlock,
+    ToolUseBlock,
+    ToolResultBlock,
+    ThinkingBlock,
+)
 
 logger = logging.getLogger(__name__)
 
 
-class AgentRunner:
-    def __init__(self, command: list[str], directory: str,
-                 on_exit: Callable[[int], Awaitable[None]] | None = None,
-                 on_stdout: Callable[[str], Awaitable[None]] | None = None):
-        self.command = command
-        self.directory = directory
-        self.on_exit = on_exit
-        self.on_stdout = on_stdout
-        self._process: asyncio.subprocess.Process | None = None
-        self._monitor_task: asyncio.Task | None = None
-        self._stdout_task: asyncio.Task | None = None
-        self._stderr_task: asyncio.Task | None = None
+def _content_block_to_dict(block: Any) -> dict[str, Any]:
+    """Convert an SDK content block to a plain dict for supervisor observation."""
+    if isinstance(block, TextBlock):
+        return {"type": "text", "text": block.text}
+    if isinstance(block, ToolUseBlock):
+        return {"type": "tool_use", "name": block.name, "input": block.input}
+    if isinstance(block, ToolResultBlock):
+        return {"type": "tool_result", "content": block.content}
+    if isinstance(block, ThinkingBlock):
+        return {"type": "thinking", "text": block.thinking}
+    return {"type": "unknown", "repr": repr(block)}
 
-    async def start(self) -> None:
-        self._process = await asyncio.create_subprocess_exec(
-            *self.command,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=self.directory,
-        )
-        self._monitor_task = asyncio.create_task(self._monitor())
-        self._stderr_task = asyncio.create_task(self._drain_stderr())
-        if self.on_stdout:
-            self._stdout_task = asyncio.create_task(self._read_stdout_loop())
+
+class AgentRunner:
+    """Manages a Claude Agent SDK session for a single agent nick.
+
+    Replaces the previous subprocess-based runner with the SDK's ``query()``
+    async generator, providing structured messages, session resume, and
+    proper lifecycle management.
+    """
+
+    def __init__(
+        self,
+        model: str,
+        directory: str,
+        system_prompt: str = "",
+        on_exit: Callable[[int], Awaitable[None]] | None = None,
+        on_message: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    ) -> None:
+        self.model = model
+        self.directory = directory
+        self.system_prompt = system_prompt
+        self.on_exit = on_exit
+        self.on_message = on_message
+
+        self._session_id: str | None = None
+        self._task: asyncio.Task | None = None
+        self._stopping = False
+        self._prompt_queue: asyncio.Queue[str] = asyncio.Queue()
+
+    # ------------------------------------------------------------------
+    # Public interface
+    # ------------------------------------------------------------------
+
+    async def start(self, initial_prompt: str = "") -> None:
+        """Start the SDK session loop as a background task."""
+        self._stopping = False
+        if initial_prompt:
+            self._prompt_queue.put_nowait(initial_prompt)
+        self._task = asyncio.create_task(self._run_loop())
 
     async def stop(self) -> None:
-        if self._process and self._process.returncode is None:
-            self._process.terminate()
+        """Cancel the running session and clean up."""
+        self._stopping = True
+        if self._task and not self._task.done():
+            self._task.cancel()
             try:
-                await asyncio.wait_for(self._process.wait(), timeout=5.0)
-            except asyncio.TimeoutError:
-                self._process.kill()
-                await self._process.wait()
-        if self._monitor_task:
-            self._monitor_task.cancel()
-            try:
-                await self._monitor_task
+                await self._task
             except asyncio.CancelledError:
                 pass
-        if self._stderr_task:
-            self._stderr_task.cancel()
-            try:
-                await self._stderr_task
-            except asyncio.CancelledError:
-                pass
-        if self._stdout_task:
-            self._stdout_task.cancel()
-            try:
-                await self._stdout_task
-            except asyncio.CancelledError:
-                pass
+        self._task = None
 
     def is_running(self) -> bool:
-        return self._process is not None and self._process.returncode is None
+        return self._task is not None and not self._task.done()
 
-    async def write_stdin(self, text: str) -> None:
-        if self._process and self._process.stdin:
-            self._process.stdin.write(text.encode())
-            await self._process.stdin.drain()
+    async def send_prompt(self, text: str) -> None:
+        """Queue a prompt for the next SDK turn (e.g. /compact, /clear)."""
+        await self._prompt_queue.put(text)
 
-    async def read_stdout_line(self) -> str:
-        if self._process and self._process.stdout:
-            line = await self._process.stdout.readline()
-            return line.decode().rstrip("\n")
-        return ""
+    @property
+    def session_id(self) -> str | None:
+        return self._session_id
 
-    async def _monitor(self) -> None:
-        if not self._process:
+    # ------------------------------------------------------------------
+    # Internal session loop
+    # ------------------------------------------------------------------
+
+    def _make_options(self) -> ClaudeAgentOptions:
+        opts = ClaudeAgentOptions(
+            model=self.model,
+            cwd=self.directory,
+            permission_mode="bypassPermissions",
+            setting_sources=["project"],
+        )
+        if self.system_prompt:
+            opts.system_prompt = self.system_prompt
+        if self._session_id:
+            opts.resume = self._session_id
+        return opts
+
+    async def _run_loop(self) -> None:
+        """Main session loop: run turns, process prompt queue between turns."""
+        try:
+            while not self._stopping:
+                # Wait for next prompt
+                prompt = await self._prompt_queue.get()
+
+                try:
+                    async for message in query(
+                        prompt=prompt,
+                        options=self._make_options(),
+                    ):
+                        if isinstance(message, ResultMessage):
+                            self._session_id = message.session_id
+                            if message.is_error:
+                                logger.warning(
+                                    "SDK session error: %s", message.result
+                                )
+                        elif isinstance(message, AssistantMessage):
+                            if self.on_message:
+                                msg_dict = self._assistant_to_dict(message)
+                                await self.on_message(msg_dict)
+                except Exception:
+                    logger.exception("SDK session turn error")
+                    if not self._stopping and self.on_exit:
+                        await self.on_exit(1)
+                    return
+
+        except asyncio.CancelledError:
             return
-        code = await self._process.wait()
+
+        # Loop exited normally (stopping flag set)
         if self.on_exit:
-            await self.on_exit(code)
+            await self.on_exit(0)
 
-    async def _drain_stderr(self) -> None:
-        """Drain stderr to prevent pipe buffer deadlock."""
-        try:
-            while self._process and self._process.stderr:
-                line = await self._process.stderr.readline()
-                if not line:
-                    break
-                logger.debug("agent stderr: %s", line.decode().rstrip("\n"))
-        except asyncio.CancelledError:
-            return
-
-    async def _read_stdout_loop(self) -> None:
-        try:
-            while self._process and self._process.stdout:
-                line = await self._process.stdout.readline()
-                if not line:
-                    break
-                if self.on_stdout:
-                    await self.on_stdout(line.decode().rstrip("\n"))
-        except asyncio.CancelledError:
-            return
+    @staticmethod
+    def _assistant_to_dict(message: AssistantMessage) -> dict[str, Any]:
+        """Convert an AssistantMessage to a dict for supervisor observation."""
+        return {
+            "type": "assistant",
+            "model": message.model,
+            "content": [_content_block_to_dict(b) for b in message.content],
+        }

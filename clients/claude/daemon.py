@@ -12,7 +12,7 @@ from clients.claude.message_buffer import MessageBuffer
 from clients.claude.socket_server import SocketServer
 from clients.claude.webhook import WebhookClient, AlertEvent
 from clients.claude.agent_runner import AgentRunner
-from clients.claude.supervisor import Supervisor, SupervisorVerdict
+from clients.claude.supervisor import Supervisor, SupervisorVerdict, make_sdk_evaluate_fn
 
 logger = logging.getLogger(__name__)
 
@@ -85,15 +85,12 @@ class AgentDaemon:
         )
         await self._socket_server.start()
 
-        # 5. Supervisor (placeholder evaluate_fn — real Agent SDK evaluator deferred)
-        async def _placeholder_eval(window, task):
-            return SupervisorVerdict(action="OK", message="")
-
+        # 5. Supervisor with SDK-based evaluator
         self._supervisor = Supervisor(
             window_size=self.config.supervisor.window_size,
             eval_interval=self.config.supervisor.eval_interval,
             escalation_threshold=self.config.supervisor.escalation_threshold,
-            evaluate_fn=_placeholder_eval,
+            evaluate_fn=make_sdk_evaluate_fn(model=self.config.supervisor.model),
             on_whisper=self._on_supervisor_whisper,
             on_escalation=self._on_supervisor_escalation,
         )
@@ -127,19 +124,29 @@ class AgentDaemon:
     # ------------------------------------------------------------------
 
     async def _start_agent_runner(self) -> None:
-        command = [
-            "claude",
-            "--dangerously-skip-permissions",
-            "--model", self.agent.model,
-            "--directory", self.agent.directory,
-        ]
         self._agent_runner = AgentRunner(
-            command=command,
+            model=self.agent.model,
             directory=self.agent.directory,
+            system_prompt=self._build_system_prompt(),
             on_exit=self._on_agent_exit,
+            on_message=self._on_agent_message,
         )
         await self._agent_runner.start()
-        logger.info("AgentRunner started with command: %s", command)
+        logger.info("AgentRunner started via SDK for %s", self.agent.nick)
+
+    async def _on_agent_message(self, msg: dict) -> None:
+        """Feed agent activity to the supervisor for observation."""
+        if self._supervisor:
+            await self._supervisor.observe(msg)
+
+    def _build_system_prompt(self) -> str:
+        return (
+            f"You are {self.agent.nick}, an AI agent on the agentirc IRC network.\n"
+            f"You have IRC tools available via the irc skill. Use them to communicate.\n"
+            f"Your working directory is {self.agent.directory}.\n"
+            f"Check IRC channels periodically with irc_read() for new messages.\n"
+            f"When you finish a task, share results in the appropriate channel with irc_send()."
+        )
 
     async def _on_agent_exit(self, exit_code: int) -> None:
         """Handle agent process exit with crash recovery and circuit breaker."""
@@ -359,11 +366,11 @@ class AgentDaemon:
     async def _ipc_compact(self, req_id: str) -> dict:
         if self._agent_runner is None or not self._agent_runner.is_running():
             return make_response(req_id, ok=False, error="Agent runner is not running")
-        await self._agent_runner.write_stdin("/compact\n")
+        await self._agent_runner.send_prompt("/compact")
         return make_response(req_id, ok=True)
 
     async def _ipc_clear(self, req_id: str) -> dict:
         if self._agent_runner is None or not self._agent_runner.is_running():
             return make_response(req_id, ok=False, error="Agent runner is not running")
-        await self._agent_runner.write_stdin("/clear\n")
+        await self._agent_runner.send_prompt("/clear")
         return make_response(req_id, ok=True)

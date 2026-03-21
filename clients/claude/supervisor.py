@@ -1,11 +1,34 @@
 from __future__ import annotations
 
+import json
 import logging
 from collections import deque
 from dataclasses import dataclass
 from typing import Any, Callable, Awaitable
 
+from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, TextBlock
+
 logger = logging.getLogger(__name__)
+
+_SUPERVISOR_SYSTEM_PROMPT = """\
+You are a supervisor monitoring an AI agent's work session.
+
+Your job: detect when the agent is unproductive and intervene minimally.
+
+Watch for:
+- SPIRALING: Same approach retried 3+ times, no progress
+- DRIFT: Work diverging from the original task
+- STALLING: Long gaps with no meaningful output
+- SHALLOW: Complex decisions made without sufficient reasoning
+
+Respond with exactly one line:
+- OK — agent is productive, no action needed
+- CORRECTION <message> — agent needs redirection
+- THINK_DEEPER <message> — agent should use extended thinking
+- ESCALATION <message> — humans need to be notified
+
+Be conservative. Only intervene when clearly warranted.
+Most evaluations should return OK."""
 
 
 @dataclass
@@ -70,3 +93,41 @@ class Supervisor:
         else:
             if self.on_whisper:
                 await self.on_whisper(verdict.message, verdict.action)
+
+
+def _format_window(window: list[dict[str, Any]], task: str) -> str:
+    """Format the rolling window into a prompt for the supervisor."""
+    lines = [f"Task: {task}" if task else "Task: (none provided)"]
+    lines.append(f"\nRecent agent activity ({len(window)} turns):\n")
+    for i, turn in enumerate(window, 1):
+        turn_type = turn.get("type", "unknown")
+        content = turn.get("content", "")
+        if isinstance(content, list):
+            content = json.dumps(content, default=str)
+        lines.append(f"Turn {i} [{turn_type}]: {content}")
+    lines.append("\nEvaluate the agent's productivity. Respond with your verdict.")
+    return "\n".join(lines)
+
+
+def make_sdk_evaluate_fn(model: str = "claude-sonnet-4-6") -> EvaluateFn:
+    """Create an evaluate_fn that uses the Claude Agent SDK."""
+
+    async def evaluate(window: list[dict[str, Any]], task: str) -> SupervisorVerdict:
+        prompt = _format_window(window, task)
+        result_text = ""
+        async for message in query(
+            prompt=prompt,
+            options=ClaudeAgentOptions(
+                model=model,
+                max_turns=1,
+                system_prompt=_SUPERVISOR_SYSTEM_PROMPT,
+                tools=[],
+            ),
+        ):
+            if isinstance(message, AssistantMessage):
+                for block in message.content:
+                    if isinstance(block, TextBlock):
+                        result_text += block.text
+        return SupervisorVerdict.parse(result_text)
+
+    return evaluate

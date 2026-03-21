@@ -1,6 +1,9 @@
 import asyncio
+from dataclasses import dataclass, field
+from typing import Any
+
 import pytest
-from clients.claude.supervisor import Supervisor, SupervisorVerdict
+from clients.claude.supervisor import Supervisor, SupervisorVerdict, make_sdk_evaluate_fn
 
 
 def test_verdict_parsing():
@@ -99,3 +102,112 @@ async def test_ok_resets_escalation_counter():
         await sup.observe({"turn": i})
     assert len(escalated) == 0
     assert len(whispers) == 4
+
+
+# ---------------------------------------------------------------------------
+# SDK-based evaluate_fn tests
+# ---------------------------------------------------------------------------
+
+@dataclass
+class FakeTextBlock:
+    text: str
+    type: str = "text"
+
+
+@dataclass
+class FakeAssistantMessage:
+    content: list = field(default_factory=list)
+    model: str = "fake-model"
+    parent_tool_use_id: str | None = None
+    error: str | None = None
+    usage: dict[str, Any] | None = None
+
+
+@dataclass
+class FakeResultMessage:
+    session_id: str = "sess-sup-test"
+    subtype: str = "result"
+    duration_ms: int = 50
+    duration_api_ms: int = 40
+    is_error: bool = False
+    num_turns: int = 1
+    stop_reason: str | None = "end_turn"
+    total_cost_usd: float | None = 0.001
+    usage: dict[str, Any] | None = None
+    result: str | None = None
+    structured_output: Any = None
+
+
+@pytest.mark.asyncio
+async def test_sdk_evaluate_fn_ok(monkeypatch):
+    """SDK evaluate_fn parses OK verdict."""
+    async def fake_query(*, prompt, options=None, transport=None):
+        yield FakeAssistantMessage(content=[FakeTextBlock(text="OK")])
+        yield FakeResultMessage()
+
+    monkeypatch.setattr("clients.claude.supervisor.query", fake_query)
+    monkeypatch.setattr("clients.claude.supervisor.AssistantMessage", FakeAssistantMessage)
+    monkeypatch.setattr("clients.claude.supervisor.TextBlock", FakeTextBlock)
+
+    evaluate = make_sdk_evaluate_fn()
+    verdict = await evaluate(
+        [{"type": "response", "content": "working"}], "test task"
+    )
+    assert verdict.action == "OK"
+    assert verdict.message == ""
+
+
+@pytest.mark.asyncio
+async def test_sdk_evaluate_fn_correction(monkeypatch):
+    """SDK evaluate_fn parses CORRECTION verdict."""
+    async def fake_query(*, prompt, options=None, transport=None):
+        yield FakeAssistantMessage(
+            content=[FakeTextBlock(text="CORRECTION Stop retrying the same approach")]
+        )
+        yield FakeResultMessage()
+
+    monkeypatch.setattr("clients.claude.supervisor.query", fake_query)
+    monkeypatch.setattr("clients.claude.supervisor.AssistantMessage", FakeAssistantMessage)
+    monkeypatch.setattr("clients.claude.supervisor.TextBlock", FakeTextBlock)
+
+    evaluate = make_sdk_evaluate_fn()
+    verdict = await evaluate(
+        [{"type": "response", "content": "retrying"}], "fix bug"
+    )
+    assert verdict.action == "CORRECTION"
+    assert "Stop retrying" in verdict.message
+
+
+@pytest.mark.asyncio
+async def test_sdk_evaluate_fn_escalation(monkeypatch):
+    """SDK evaluate_fn parses ESCALATION verdict."""
+    async def fake_query(*, prompt, options=None, transport=None):
+        yield FakeAssistantMessage(
+            content=[FakeTextBlock(text="ESCALATION Agent is stuck, human needed")]
+        )
+        yield FakeResultMessage()
+
+    monkeypatch.setattr("clients.claude.supervisor.query", fake_query)
+    monkeypatch.setattr("clients.claude.supervisor.AssistantMessage", FakeAssistantMessage)
+    monkeypatch.setattr("clients.claude.supervisor.TextBlock", FakeTextBlock)
+
+    evaluate = make_sdk_evaluate_fn()
+    verdict = await evaluate(
+        [{"type": "response", "content": "stuck"}], "deploy fix"
+    )
+    assert verdict.action == "ESCALATION"
+    assert "human needed" in verdict.message
+
+
+@pytest.mark.asyncio
+async def test_sdk_evaluate_fn_error_handling(monkeypatch):
+    """SDK evaluate_fn raises on query failure (caught by Supervisor._evaluate)."""
+    async def fake_query(*, prompt, options=None, transport=None):
+        raise RuntimeError("API error")
+        yield  # noqa: F841
+
+    monkeypatch.setattr("clients.claude.supervisor.query", fake_query)
+
+    evaluate = make_sdk_evaluate_fn()
+    with pytest.raises(RuntimeError, match="API error"):
+        await evaluate([{"type": "response", "content": "test"}], "task")
