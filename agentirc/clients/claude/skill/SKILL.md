@@ -16,7 +16,7 @@ $XDG_RUNTIME_DIR/agentirc-<nick>.sock   (falls back to /tmp/agentirc-<nick>.sock
 ## Invocation
 
 ```bash
-python -m clients.claude.skill.irc_client <subcommand> [args...]
+python3 -m agentirc.clients.claude.skill.irc_client <subcommand> [args...]
 ```
 
 All commands print a JSON result to stdout. Whispers from the daemon are printed
@@ -29,13 +29,13 @@ to stderr as `[whisper:<type>] <message>`.
 ### send — post a message to a channel
 
 ```bash
-python -m clients.claude.skill.irc_client send <channel> <message>
+python3 -m agentirc.clients.claude.skill.irc_client send <channel> <message>
 ```
 
 Example:
 
 ```bash
-python -m clients.claude.skill.irc_client send "#general" "hello from Claude"
+python3 -m agentirc.clients.claude.skill.irc_client send "#general" "hello from Claude"
 ```
 
 Output:
@@ -49,13 +49,13 @@ Output:
 ### read — read recent messages from a channel
 
 ```bash
-python -m clients.claude.skill.irc_client read <channel> [limit]
+python3 -m agentirc.clients.claude.skill.irc_client read <channel> [limit]
 ```
 
 `limit` defaults to 50. Example:
 
 ```bash
-python -m clients.claude.skill.irc_client read "#general" 20
+python3 -m agentirc.clients.claude.skill.irc_client read "#general" 20
 ```
 
 Output:
@@ -78,13 +78,13 @@ Output:
 ### ask — send a question and trigger a webhook alert
 
 ```bash
-python -m clients.claude.skill.irc_client ask <channel> [--timeout N] <question>
+python3 -m agentirc.clients.claude.skill.irc_client ask <channel> [--timeout N] <question>
 ```
 
 `--timeout` is in seconds (default 30). Example:
 
 ```bash
-python -m clients.claude.skill.irc_client ask "#general" --timeout 60 "What is the status of the deploy?"
+python3 -m agentirc.clients.claude.skill.irc_client ask "#general" --timeout 60 "What is the status of the deploy?"
 ```
 
 ---
@@ -92,7 +92,7 @@ python -m clients.claude.skill.irc_client ask "#general" --timeout 60 "What is t
 ### join — join a channel
 
 ```bash
-python -m clients.claude.skill.irc_client join <channel>
+python3 -m agentirc.clients.claude.skill.irc_client join <channel>
 ```
 
 ---
@@ -100,7 +100,7 @@ python -m clients.claude.skill.irc_client join <channel>
 ### part — leave a channel
 
 ```bash
-python -m clients.claude.skill.irc_client part <channel>
+python3 -m agentirc.clients.claude.skill.irc_client part <channel>
 ```
 
 ---
@@ -108,7 +108,7 @@ python -m clients.claude.skill.irc_client part <channel>
 ### channels — list joined channels
 
 ```bash
-python -m clients.claude.skill.irc_client channels
+python3 -m agentirc.clients.claude.skill.irc_client channels
 ```
 
 Output:
@@ -127,7 +127,7 @@ Output:
 ### who — send a WHO query
 
 ```bash
-python -m clients.claude.skill.irc_client who <target>
+python3 -m agentirc.clients.claude.skill.irc_client who <target>
 ```
 
 `target` can be a channel or a nick.
@@ -137,7 +137,7 @@ python -m clients.claude.skill.irc_client who <target>
 ### compact — compact the agent's context window
 
 ```bash
-python -m clients.claude.skill.irc_client compact
+python3 -m agentirc.clients.claude.skill.irc_client compact
 ```
 
 Sends `/compact` to the agent session via the daemon's prompt queue.
@@ -147,7 +147,7 @@ Sends `/compact` to the agent session via the daemon's prompt queue.
 ### clear — clear the agent's context window
 
 ```bash
-python -m clients.claude.skill.irc_client clear
+python3 -m agentirc.clients.claude.skill.irc_client clear
 ```
 
 Sends `/clear` to the agent session via the daemon's prompt queue.
@@ -157,7 +157,7 @@ Sends `/clear` to the agent session via the daemon's prompt queue.
 ### set-directory — change the agent's working directory
 
 ```bash
-python -m clients.claude.skill.irc_client set-directory /path/to/project
+python3 -m agentirc.clients.claude.skill.irc_client set-directory /path/to/project
 ```
 
 ---
@@ -179,7 +179,7 @@ Always read stderr after calling this skill.
 For use from Python (e.g. tests or other scripts):
 
 ```python
-from clients.claude.skill.irc_client import SkillClient
+from agentirc.clients.claude.skill.irc_client import SkillClient
 
 client = SkillClient("/tmp/agentirc-thor-claude.sock")
 await client.connect()
