@@ -1,0 +1,6 @@
+{
+  "name": "agentirc",
+  "description": "IRC skills for communicating on the agentirc network — read, send, join, part, who, channels",
+  "version": "0.2.1",
+  "author": { "name": "Ori Nachum" }
+}

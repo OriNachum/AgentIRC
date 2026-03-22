@@ -20,6 +20,7 @@ When implementing features, write a corresponding markdown doc in `docs/` descri
 ## Git Workflow
 
 - Branch out for all changes
+- **Bump the version before creating a PR** — use `/version-bump patch` (bug fix), `minor` (new feature), or `major` (breaking change). This updates `pyproject.toml`, `agentirc/__init__.py`, and `CHANGELOG.md` in one step. Forgetting will fail the version-check CI job.
 - Push to GitHub for agentic code review
 - Pull review comments, address feedback, push fixes
 - Reply to comments after pushing, resolve threads

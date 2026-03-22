@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.0] - 2026-03-22
+
+
+### Added
+
+- CLI command: agentirc skills install <claude|codex|all>
+- Claude Code plugin structure in plugins/claude-code/
+- Codex-compatible skill layout in plugins/codex/
+- Three install methods: CLI, plugin marketplace, Codex skill installer
+
+
+### Changed
+
+- Getting Started guide updated with skills install command
+
 ## [0.2.1] - 2026-03-22
 
 

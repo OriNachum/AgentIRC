@@ -1,6 +1,6 @@
 [project]
 name = "agentirc-cli"
-version = "0.2.1"
+version = "0.3.0"
 description = "IRC protocol chatrooms for AI agents (and humans allowed)"
 readme = "README.md"
 license = "MIT"
@@ -31,6 +31,10 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["agentirc"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"agentirc/clients/claude/skill/SKILL.md" = "agentirc/clients/claude/skill/SKILL.md"
+"agentirc/clients/codex/skill/SKILL.md" = "agentirc/clients/codex/skill/SKILL.md"
 
 [dependency-groups]
 dev = [

@@ -122,6 +122,15 @@ def main() -> None:
     channels_parser = sub.add_parser("channels", help="List active channels")
     channels_parser.add_argument("--config", default=DEFAULT_CONFIG, help="Config file path")
 
+    # -- skills subcommand -------------------------------------------------
+    skills_parser = sub.add_parser("skills", help="Install IRC skills for AI agents")
+    skills_sub = skills_parser.add_subparsers(dest="skills_command")
+    skills_install = skills_sub.add_parser("install", help="Install IRC skill for an agent")
+    skills_install.add_argument(
+        "target", choices=["claude", "codex", "all"],
+        help="Target agent: claude, codex, or all",
+    )
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -143,6 +152,7 @@ def main() -> None:
             "read": _cmd_read,
             "who": _cmd_who,
             "channels": _cmd_channels,
+            "skills": _cmd_skills,
         }
         handler = dispatch.get(args.command)
         if handler:
@@ -649,3 +659,60 @@ def _cmd_channels(args: argparse.Namespace) -> None:
     print("Active channels:")
     for ch in channels:
         print(f"  {ch}")
+
+
+# -----------------------------------------------------------------------
+# Skills install
+# -----------------------------------------------------------------------
+
+def _get_bundled_skill_path() -> str:
+    """Return the path to the bundled SKILL.md in the installed package."""
+    import agentirc
+    return os.path.join(os.path.dirname(agentirc.__file__), "clients", "claude", "skill", "SKILL.md")
+
+
+def _install_skill_claude() -> None:
+    """Install IRC skill for Claude Code."""
+    src = _get_bundled_skill_path()
+    dest_dir = os.path.expanduser("~/.claude/skills/irc")
+    dest = os.path.join(dest_dir, "SKILL.md")
+
+    os.makedirs(dest_dir, exist_ok=True)
+    import shutil
+    shutil.copy2(src, dest)
+    print(f"Installed Claude Code skill: {dest}")
+
+
+def _get_bundled_codex_skill_path() -> str:
+    """Return the path to the bundled Codex SKILL.md in the installed package."""
+    import agentirc
+    return os.path.join(os.path.dirname(agentirc.__file__), "clients", "codex", "skill", "SKILL.md")
+
+
+def _install_skill_codex() -> None:
+    """Install IRC skill for Codex."""
+    src = _get_bundled_codex_skill_path()
+    dest_dir = os.path.expanduser("~/.agents/skills/agentirc-irc")
+    dest = os.path.join(dest_dir, "SKILL.md")
+
+    os.makedirs(dest_dir, exist_ok=True)
+    import shutil
+    shutil.copy2(src, dest)
+    print(f"Installed Codex skill: {dest}")
+
+
+def _cmd_skills(args: argparse.Namespace) -> None:
+    if not hasattr(args, "skills_command") or args.skills_command != "install":
+        print("Usage: agentirc skills install <claude|codex|all>", file=sys.stderr)
+        sys.exit(1)
+
+    target = args.target
+
+    if target in ("claude", "all"):
+        _install_skill_claude()
+    if target in ("codex", "all"):
+        _install_skill_codex()
+
+    if target == "all":
+        print("\nSkills installed for both Claude Code and Codex.")
+    print(f"\nSet AGENTIRC_NICK in your shell profile to enable the skill.")
