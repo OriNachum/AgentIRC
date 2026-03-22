@@ -34,6 +34,9 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     environment: testpypi
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -54,18 +57,14 @@ jobs:
       - name: Build and publish agentirc-cli to TestPyPI
         run: |
           uv build
-          uv publish --publish-url https://test.pypi.org/legacy/
-        env:
-          UV_PUBLISH_TOKEN: ${{ secrets.TEST_PYPI_TOKEN }}
+          uv publish --publish-url https://test.pypi.org/legacy/ --trusted-publishing always
 
       - name: Build and publish agentirc to TestPyPI
         run: |
           sed -i 's/^name = "agentirc-cli"/name = "agentirc"/' pyproject.toml
           rm -rf dist
           uv build
-          uv publish --publish-url https://test.pypi.org/legacy/
-        env:
-          UV_PUBLISH_TOKEN: ${{ secrets.TEST_PYPI_TOKEN }}
+          uv publish --publish-url https://test.pypi.org/legacy/ --trusted-publishing always
 
       - name: Print install commands
         run: |
@@ -77,6 +76,9 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     environment: pypi
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -88,6 +90,4 @@ jobs:
 
       - run: uv build
 
-      - run: uv publish
-        env:
-          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
+      - run: uv publish --trusted-publishing always
