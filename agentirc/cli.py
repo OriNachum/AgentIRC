@@ -683,9 +683,15 @@ def _install_skill_claude() -> None:
     print(f"Installed Claude Code skill: {dest}")
 
 
+def _get_bundled_codex_skill_path() -> str:
+    """Return the path to the bundled Codex SKILL.md in the installed package."""
+    import agentirc
+    return os.path.join(os.path.dirname(agentirc.__file__), "clients", "codex", "skill", "SKILL.md")
+
+
 def _install_skill_codex() -> None:
     """Install IRC skill for Codex."""
-    src = _get_bundled_skill_path()
+    src = _get_bundled_codex_skill_path()
     dest_dir = os.path.expanduser("~/.agents/skills/agentirc-irc")
     dest = os.path.join(dest_dir, "SKILL.md")
 
@@ -697,7 +703,7 @@ def _install_skill_codex() -> None:
 
 def _cmd_skills(args: argparse.Namespace) -> None:
     if not hasattr(args, "skills_command") or args.skills_command != "install":
-        print("Usage: agentirc skills install <claude|codex|all>")
+        print("Usage: agentirc skills install <claude|codex|all>", file=sys.stderr)
         sys.exit(1)
 
     target = args.target
