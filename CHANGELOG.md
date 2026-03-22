@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.2.1] - 2026-03-22
+
+
+### Added
+
+- OIDC trusted publishing for PyPI and TestPyPI
+- Dual package publish (agentirc + agentirc-cli) to TestPyPI
+- CHANGELOG.md with Keep a Changelog format
+
+
+### Changed
+
+- Publish workflow uses id-token instead of API token secrets
+
 ## [0.2.0] - 2026-03-22
 
 ### Added
