@@ -345,6 +345,14 @@ class Client:
             replies.RPL_ENDOFNAMES, channel.name, "End of /NAMES list"
         )
 
+    async def _handle_list(self, msg: Message) -> None:
+        for name, channel in self.server.channels.items():
+            topic = channel.topic or ""
+            await self.send_numeric(
+                replies.RPL_LIST, name, str(len(channel.members)), topic
+            )
+        await self.send_numeric(replies.RPL_LISTEND, "End of LIST")
+
     async def _handle_mode(self, msg: Message) -> None:
         if not msg.params:
             await self.send_numeric(

@@ -34,6 +34,23 @@ from agentirc.pidfile import is_process_alive, read_pid, remove_pid, write_pid
 
 logger = logging.getLogger("agentirc")
 
+
+def _parse_link(value: str):
+    """Parse a link spec: name:host:port:password"""
+    from agentirc.server.config import LinkConfig
+
+    parts = value.split(":", 3)
+    if len(parts) != 4:
+        raise argparse.ArgumentTypeError(
+            f"Link must be name:host:port:password, got: {value}"
+        )
+    name, host, port_str, password = parts
+    try:
+        port = int(port_str)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"Invalid port: {port_str}")
+    return LinkConfig(name=name, host=host, port=port, password=password)
+
 DEFAULT_CONFIG = os.path.expanduser("~/.agentirc/agents.yaml")
 LOG_DIR = os.path.expanduser("~/.agentirc/logs")
 
@@ -57,6 +74,10 @@ def main() -> None:
     srv_start.add_argument("--name", default="agentirc", help="Server name")
     srv_start.add_argument("--host", default="0.0.0.0", help="Listen address")
     srv_start.add_argument("--port", type=int, default=6667, help="Listen port")
+    srv_start.add_argument(
+        "--link", type=_parse_link, action="append", default=[],
+        help="Link to peer: name:host:port:password",
+    )
 
     srv_stop = server_sub.add_parser("stop", help="Stop the IRC server daemon")
     srv_stop.add_argument("--name", default="agentirc", help="Server name")
@@ -197,21 +218,29 @@ def _server_start(args: argparse.Namespace) -> None:
 
     # Run the server
     try:
-        asyncio.run(_run_server(args.name, args.host, args.port))
+        asyncio.run(_run_server(args.name, args.host, args.port, args.link))
     finally:
         remove_pid(pid_name)
         os._exit(0)
 
 
-async def _run_server(name: str, host: str, port: int) -> None:
+async def _run_server(name: str, host: str, port: int, links: list | None = None) -> None:
     """Run the IRC server (called in the daemon child process)."""
     from agentirc.server.config import ServerConfig
     from agentirc.server.ircd import IRCd
 
-    config = ServerConfig(name=name, host=host, port=port)
+    config = ServerConfig(name=name, host=host, port=port, links=links or [])
     ircd = IRCd(config)
     await ircd.start()
     logger.info("Server '%s' listening on %s:%d", name, host, port)
+
+    # Connect to configured peers
+    for lc in config.links:
+        try:
+            await ircd.connect_to_peer(lc.host, lc.port, lc.password)
+            logger.info("Linking to %s at %s:%d", lc.name, lc.host, lc.port)
+        except Exception as e:
+            logger.error("Failed to link to %s: %s", lc.name, e)
 
     stop_event = asyncio.Event()
     loop = asyncio.get_event_loop()
@@ -597,7 +626,7 @@ def _cmd_read(args: argparse.Namespace) -> None:
 
 def _cmd_who(args: argparse.Namespace) -> None:
     observer = _get_observer(args.config)
-    target = args.channel if args.channel.startswith("#") else f"#{args.channel}"
+    target = args.channel
     nicks = asyncio.run(observer.who(target))
 
     if not nicks:

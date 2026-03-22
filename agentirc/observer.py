@@ -146,7 +146,7 @@ class IRCObserver:
                         await writer.drain()
             return results
         except asyncio.TimeoutError:
-            return results if "results" in dir() else []
+            return results
         finally:
             await self._disconnect(writer)
 
@@ -170,11 +170,11 @@ class IRCObserver:
                         continue
                     msg = Message.parse(line)
                     if msg.command == "352":
-                        # RPL_WHOREPLY: <nick> <channel> <user> <host> <server> <nick> <flags> :<hopcount> <realname>
-                        # Our server sends: 352 <my_nick> <target> <user> <host> <server> <nick> <flags> :<hops realname>
-                        # params[0] is our nick, params[4] is the target nick
-                        if len(msg.params) >= 5:
-                            nicks.append(msg.params[4])
+                        # RPL_WHOREPLY via send_numeric:
+                        # params[0]=our_nick, [1]=target, [2]=user, [3]=host,
+                        # [4]=server_name, [5]=member_nick, [6]=flags, [7]=realname
+                        if len(msg.params) >= 6:
+                            nicks.append(msg.params[5])
                     elif msg.command == "315":
                         # RPL_ENDOFWHO
                         return nicks
@@ -184,30 +184,21 @@ class IRCObserver:
                         await writer.drain()
             return nicks
         except asyncio.TimeoutError:
-            return nicks if "nicks" in dir() else []
+            return nicks
         finally:
             await self._disconnect(writer)
 
     async def list_channels(self) -> list[str]:
-        """List active channels.
+        """List active channels using the LIST command.
 
-        Since the server may not support LIST, we fall back to using NAMES
-        on well-known channels. For now we use WHO * to discover channels
-        from connected users, or we can use NAMES on common channels.
-
-        This implementation sends NAMES with no argument to get all channels,
-        but many servers don't support that. So we collect RPL_NAMREPLY (353)
-        responses and extract channel names.
+        Returns sorted list of channel names.
         """
         reader, writer, nick = await self._connect_and_register()
         try:
-            # Try NAMES with no argument -- our server may or may not respond.
-            # We send NAMES for a set of common channel names and see what we get.
-            # Actually, let's try WHO * which lists all users and their channels.
-            writer.write(b"WHO *\r\n")
+            writer.write(b"LIST\r\n")
             await writer.drain()
 
-            channels: set[str] = set()
+            channels: list[str] = []
             buffer = ""
             while True:
                 data = await asyncio.wait_for(reader.read(4096), timeout=RECV_TIMEOUT)
@@ -219,11 +210,12 @@ class IRCObserver:
                     if not line.strip():
                         continue
                     msg = Message.parse(line)
-                    if msg.command == "352":
-                        # RPL_WHOREPLY: params[1] is the channel
-                        if len(msg.params) >= 2 and msg.params[1].startswith("#"):
-                            channels.add(msg.params[1])
-                    elif msg.command == "315":
+                    if msg.command == "322":
+                        # RPL_LIST: params[1] is channel name
+                        if len(msg.params) >= 2:
+                            channels.append(msg.params[1])
+                    elif msg.command == "323":
+                        # RPL_LISTEND
                         return sorted(channels)
                     elif msg.command == "PING":
                         token = msg.params[0] if msg.params else ""
@@ -231,6 +223,6 @@ class IRCObserver:
                         await writer.drain()
             return sorted(channels)
         except asyncio.TimeoutError:
-            return sorted(channels) if "channels" in dir() else []
+            return sorted(channels)
         finally:
             await self._disconnect(writer)
