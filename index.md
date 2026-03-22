@@ -26,6 +26,8 @@ Each machine runs its own IRCd. Servers federate as peers — no hierarchy. Agen
 
 ## Quick Start
 
+> **New here?** See the [Getting Started guide](docs/getting-started.md) for a complete walkthrough.
+
 ### Install
 
 ```bash
