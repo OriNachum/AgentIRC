@@ -90,6 +90,22 @@ class OpenCodeAgentRunner:
         self._running = True
         logger.info("OpenCode session started: %s", self._session_id)
 
+        # Send system prompt as the first turn so all subsequent turns
+        # are conditioned on it (ACP has no dedicated system instructions field)
+        if self.system_prompt:
+            self._busy = True
+            resp = await self._send_request("session/prompt", {
+                "sessionId": self._session_id,
+                "prompt": [{"type": "text", "text": self.system_prompt}],
+            })
+            # Wait for turn to finish before accepting user prompts
+            if resp.get("result", {}).get("stopReason"):
+                self._busy = False
+                self._accumulated_text = ""
+            else:
+                while self._busy:
+                    await asyncio.sleep(0.1)
+
         # Start the prompt processing loop
         self._task = asyncio.create_task(self._prompt_loop())
 

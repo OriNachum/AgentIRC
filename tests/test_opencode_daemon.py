@@ -89,3 +89,51 @@ async def test_opencode_backend_dispatch():
     daemon = OpenCodeDaemon(config, agent, skip_opencode=True)
     assert daemon.agent.agent == "opencode"
     assert daemon.agent.model == "anthropic/claude-sonnet-4-6"
+
+
+@pytest.mark.asyncio
+async def test_opencode_relay_target_fifo(server, make_client):
+    """Multiple @mentions route responses to correct targets via FIFO queue."""
+    config = DaemonConfig(
+        server=ServerConnConfig(host="127.0.0.1", port=server.config.port),
+    )
+    agent = AgentConfig(nick="testserv-opencode", directory="/tmp", channels=["#general"])
+    sock_dir = tempfile.mkdtemp()
+    daemon = OpenCodeDaemon(config, agent, socket_dir=sock_dir, skip_opencode=True)
+    await daemon.start()
+    await asyncio.sleep(0.5)
+
+    # Join humans to observe messages
+    human = await make_client(nick="testserv-alice", user="alice")
+    await human.send("JOIN #general")
+    await human.recv_all(timeout=0.3)
+
+    # Directly enqueue two relay targets (simulates @mentions without
+    # needing a running agent runner — _on_mention guards on is_running)
+    daemon._mention_targets.append("#general")
+    daemon._mention_targets.append("testserv-alice")
+
+    # Verify FIFO queue has two entries
+    assert len(daemon._mention_targets) == 2
+
+    # First agent response dequeues first target (#general)
+    await daemon._on_agent_message({
+        "content": [{"type": "text", "text": "channel response"}],
+    })
+    assert len(daemon._mention_targets) == 1
+
+    # Second agent response dequeues second target (DM to testserv-alice)
+    await daemon._on_agent_message({
+        "content": [{"type": "text", "text": "dm response"}],
+    })
+    assert len(daemon._mention_targets) == 0
+
+    # Verify alice received the channel message in #general
+    lines = await human.recv_all(timeout=1.0)
+    channel_msgs = [l for l in lines if "#general" in l and "channel response" in l]
+    dm_msgs = [l for l in lines if "dm response" in l and "testserv-alice" in l.split()[0].lower() if "PRIVMSG" in l]
+    assert len(channel_msgs) >= 1, f"Expected 'channel response' in #general, got: {lines}"
+    # DM goes to testserv-alice directly, so alice sees it as a PRIVMSG to their nick
+    assert any("dm response" in l for l in lines), f"Expected 'dm response', got: {lines}"
+
+    await daemon.stop()

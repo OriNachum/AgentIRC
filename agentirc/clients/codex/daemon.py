@@ -10,6 +10,7 @@ import asyncio
 import logging
 import os
 import time
+from collections import deque
 from typing import Any
 
 from agentirc.clients.codex.config import DaemonConfig, AgentConfig
@@ -56,8 +57,10 @@ class CodexDaemon:
         self._agent_runner: CodexAgentRunner | None = None
         self._supervisor: CodexSupervisor | None = None
 
-        # Track mention context for relaying agent responses
-        self._last_mention_target: str | None = None
+        # FIFO queue of relay targets — each @mention enqueues a target,
+        # each agent response dequeues one, ensuring correct routing even
+        # when multiple mentions arrive while the agent is busy.
+        self._mention_targets: deque[str] = deque()
 
         # Crash-recovery state
         self._crash_times: list[float] = []
@@ -177,8 +180,8 @@ class CodexDaemon:
         Formats a prompt and enqueues it so the Codex session picks it up.
         """
         if self._agent_runner and self._agent_runner.is_running():
-            # Track where to relay the response
-            self._last_mention_target = target if target.startswith("#") else sender
+            # Enqueue relay target (FIFO matches prompt queue order)
+            self._mention_targets.append(target if target.startswith("#") else sender)
             if target.startswith("#"):
                 prompt = f"[IRC @mention in {target}] <{sender}> {text}"
             else:
@@ -187,8 +190,9 @@ class CodexDaemon:
 
     async def _on_agent_message(self, msg: dict) -> None:
         """Relay agent text to IRC and feed to supervisor."""
-        # Relay text response to the channel/user that triggered the mention
-        if self._transport and self._last_mention_target:
+        # Dequeue the relay target that corresponds to this turn
+        relay_target = self._mention_targets.popleft() if self._mention_targets else None
+        if self._transport and relay_target:
             content = msg.get("content", [])
             for item in content:
                 if item.get("type") == "text":
@@ -199,7 +203,7 @@ class CodexDaemon:
                             line = line.strip()
                             if line:
                                 await self._transport.send_privmsg(
-                                    self._last_mention_target, line
+                                    relay_target, line
                                 )
 
         if self._supervisor:
@@ -423,14 +427,19 @@ class CodexDaemon:
         path = msg.get("path", "")
         if not path:
             return make_response(req_id, ok=False, error="Missing 'path'")
+        new_cwd = os.path.abspath(path)
+        if not os.path.isdir(new_cwd):
+            return make_response(req_id, ok=False, error=f"Not a directory: {new_cwd}")
+        # Update the daemon's working directory
+        self.agent.directory = new_cwd
         # Check for AGENTS.md (Codex equivalent of CLAUDE.md)
-        agents_md = os.path.join(path, "AGENTS.md")
+        agents_md = os.path.join(new_cwd, "AGENTS.md")
         agents_md_content = None
         if os.path.isfile(agents_md):
             with open(agents_md) as f:
                 agents_md_content = f.read()
         return make_response(req_id, ok=True, data={
-            "directory": path,
+            "directory": new_cwd,
             "agents_md": agents_md_content,
         })
 
