@@ -73,10 +73,11 @@ class CodexAgentRunner:
         resp = await self._send_request("thread/start", {
             "cwd": self.directory,
             "model": self.model,
-            "approvalPolicy": {"mode": "auto-edit"},
+            "approvalPolicy": "never",
             "baseInstructions": self.system_prompt or None,
         })
 
+        logger.info("Codex thread/start raw response: %s", json.dumps(resp)[:500])
         thread = resp.get("result", {}).get("thread", {})
         self._thread_id = thread.get("id")
         self._running = True

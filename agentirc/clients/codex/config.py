@@ -20,7 +20,7 @@ class ServerConnConfig:
 @dataclass
 class SupervisorConfig:
     """Supervisor sub-agent settings."""
-    model: str = "o3-mini"
+    model: str = "gpt-5.4"
     window_size: int = 20
     eval_interval: int = 5
     escalation_threshold: int = 3
@@ -44,7 +44,7 @@ class AgentConfig:
     agent: str = "codex"
     directory: str = "."
     channels: list[str] = field(default_factory=lambda: ["#general"])
-    model: str = "o3"
+    model: str = "gpt-5.4"
 
 
 @dataclass

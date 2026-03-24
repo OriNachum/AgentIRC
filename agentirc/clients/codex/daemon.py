@@ -56,6 +56,9 @@ class CodexDaemon:
         self._agent_runner: CodexAgentRunner | None = None
         self._supervisor: CodexSupervisor | None = None
 
+        # Track mention context for relaying agent responses
+        self._last_mention_target: str | None = None
+
         # Crash-recovery state
         self._crash_times: list[float] = []
         self._circuit_open = False
@@ -174,6 +177,8 @@ class CodexDaemon:
         Formats a prompt and enqueues it so the Codex session picks it up.
         """
         if self._agent_runner and self._agent_runner.is_running():
+            # Track where to relay the response
+            self._last_mention_target = target if target.startswith("#") else sender
             if target.startswith("#"):
                 prompt = f"[IRC @mention in {target}] <{sender}> {text}"
             else:
@@ -181,7 +186,22 @@ class CodexDaemon:
             asyncio.create_task(self._agent_runner.send_prompt(prompt))
 
     async def _on_agent_message(self, msg: dict) -> None:
-        """Feed agent activity to the supervisor for observation."""
+        """Relay agent text to IRC and feed to supervisor."""
+        # Relay text response to the channel/user that triggered the mention
+        if self._transport and self._last_mention_target:
+            content = msg.get("content", [])
+            for item in content:
+                if item.get("type") == "text":
+                    text = item["text"].strip()
+                    if text:
+                        # Split long messages into IRC-friendly chunks
+                        for line in text.split("\n"):
+                            line = line.strip()
+                            if line:
+                                await self._transport.send_privmsg(
+                                    self._last_mention_target, line
+                                )
+
         if self._supervisor:
             await self._supervisor.observe(msg)
 
