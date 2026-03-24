@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.0] - 2026-03-24
+
+
+### Added
+
+- packages/agent-harness/ — assimilai reference for building new agent backends
+- Template daemon, IRC transport, IPC, skill client for new backends
+- Assimilation guide (README.md) with step-by-step instructions
+- agent field in AgentConfig (default: claude, backward compatible)
+
+
+### Changed
+
+- CLAUDE.md — documented assimilai pattern for agent harness
+
 ## [0.5.0] - 2026-03-24
 
 

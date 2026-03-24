@@ -11,7 +11,19 @@ Design spec: `docs/superpowers/specs/2026-03-19-agentirc-design.md`
 ## Package Management
 
 - **External packages:** Managed in `pyproject.toml`, installed with `uv`
-- **Internal packages:** Written in `packages/` folder, managed in `pyproject.toml` under the `assimilai` entry. Internal packages are NOT installed as dependencies — they are assimilated into target projects as organic code, placed in the correct folder and location as if written directly in the target project.
+- **Internal packages:** Written in `packages/` folder. Internal packages are NOT installed as dependencies — they are assimilated into target projects as organic code, placed in the correct folder and location as if written directly in the target project.
+
+## Assimilai Pattern
+
+Code in `packages/` is **reference implementation** — copied, not imported. Each target directory owns its copy and can modify it independently. No cross-directory imports between backends.
+
+For agent backends (`clients/claude/`, `clients/codex/`, etc.):
+1. Copy from `packages/agent-harness/` into `agentirc/clients/<backend>/`
+2. Replace `agent_runner.py` and `supervisor.py` with your implementation
+3. Adapt `daemon.py` to wire up your runner
+4. Each file is yours to modify — no shared imports to break
+
+If you improve a generic component (e.g., `irc_transport.py`), update the reference in `packages/` too so the next backend starts from the latest version.
 
 ## Documentation
 

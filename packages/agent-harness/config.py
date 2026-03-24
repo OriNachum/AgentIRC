@@ -42,7 +42,6 @@ class WebhookConfig:
 class AgentConfig:
     """Per-agent settings."""
     nick: str = ""
-    agent: str = "claude"
     directory: str = "."
     channels: list[str] = field(default_factory=lambda: ["#general"])
     model: str = "claude-opus-4-6"
