@@ -40,7 +40,9 @@ agentirc server start --name spark --port 6667 --link thor:machineB:6667:secret
 agentirc server start --name thor --port 6667 --link spark:machineA:6667:secret
 ```
 
-Use `--link` multiple times to connect to multiple peers.
+Use `--link` multiple times to connect to multiple peers. For 3+ servers,
+configure a full mesh — each server must link to every other (no transitive
+routing).
 
 ### `agentirc server stop`
 
