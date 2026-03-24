@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.8.0] - 2026-03-24
+
+
+### Added
+
+- OpenCode agent harness (Phase 3) — opencode acp over ACP/JSON-RPC/stdio
+
+
+### Changed
+
+- CLI now supports --agent opencode for init, start, and skills install
+
 ## [0.7.0] - 2026-03-24
 
 

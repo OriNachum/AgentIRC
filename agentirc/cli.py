@@ -98,7 +98,7 @@ def main() -> None:
     init_parser = sub.add_parser("init", help="Register an agent for the current directory")
     init_parser.add_argument("--server", default=None, help="Server name prefix")
     init_parser.add_argument("--nick", default=None, help="Agent suffix (after server-)")
-    init_parser.add_argument("--agent", default="claude", choices=["claude", "codex"], help="Agent backend")
+    init_parser.add_argument("--agent", default="claude", choices=["claude", "codex", "opencode"], help="Agent backend")
     init_parser.add_argument("--config", default=DEFAULT_CONFIG, help="Config file path")
 
     # -- start subcommand --------------------------------------------------
@@ -137,8 +137,8 @@ def main() -> None:
     skills_sub = skills_parser.add_subparsers(dest="skills_command")
     skills_install = skills_sub.add_parser("install", help="Install IRC skill for an agent")
     skills_install.add_argument(
-        "target", choices=["claude", "codex", "all"],
-        help="Target agent: claude, codex, or all",
+        "target", choices=["claude", "codex", "opencode", "all"],
+        help="Target agent: claude, codex, opencode, or all",
     )
 
     args = parser.parse_args()
@@ -355,6 +355,14 @@ def _cmd_init(args: argparse.Namespace) -> None:
             directory=os.getcwd(),
             channels=["#general"],
         )
+    elif args.agent == "opencode":
+        from agentirc.clients.opencode.config import AgentConfig as OpenCodeAgentConfig
+        agent = OpenCodeAgentConfig(
+            nick=full_nick,
+            agent="opencode",
+            directory=os.getcwd(),
+            channels=["#general"],
+        )
     else:
         agent = AgentConfig(
             nick=full_nick,
@@ -435,6 +443,19 @@ async def _run_single_agent(config: DaemonConfig, agent: AgentConfig) -> None:
             agents=config.agents,
         )
         daemon = CodexDaemon(codex_config, agent)
+    elif backend == "opencode":
+        from agentirc.clients.opencode.daemon import OpenCodeDaemon
+        from agentirc.clients.opencode.config import (
+            DaemonConfig as OpenCodeDaemonConfig,
+        )
+        # Re-load config through OpenCode module for correct supervisor defaults
+        opencode_config = OpenCodeDaemonConfig(
+            server=config.server,
+            webhooks=config.webhooks,
+            buffer_size=config.buffer_size,
+            agents=config.agents,
+        )
+        daemon = OpenCodeDaemon(opencode_config, agent)
     else:
         from agentirc.clients.claude.daemon import AgentDaemon
         daemon = AgentDaemon(config, agent)
@@ -737,9 +758,27 @@ def _install_skill_codex() -> None:
     print(f"Installed Codex skill: {dest}")
 
 
+def _get_bundled_opencode_skill_path() -> str:
+    """Return the path to the bundled OpenCode SKILL.md in the installed package."""
+    import agentirc
+    return os.path.join(os.path.dirname(agentirc.__file__), "clients", "opencode", "skill", "SKILL.md")
+
+
+def _install_skill_opencode() -> None:
+    """Install IRC skill for OpenCode."""
+    src = _get_bundled_opencode_skill_path()
+    dest_dir = os.path.expanduser("~/.opencode/skills/agentirc-irc")
+    dest = os.path.join(dest_dir, "SKILL.md")
+
+    os.makedirs(dest_dir, exist_ok=True)
+    import shutil
+    shutil.copy2(src, dest)
+    print(f"Installed OpenCode skill: {dest}")
+
+
 def _cmd_skills(args: argparse.Namespace) -> None:
     if not hasattr(args, "skills_command") or args.skills_command != "install":
-        print("Usage: agentirc skills install <claude|codex|all>", file=sys.stderr)
+        print("Usage: agentirc skills install <claude|codex|opencode|all>", file=sys.stderr)
         sys.exit(1)
 
     target = args.target
@@ -748,7 +787,9 @@ def _cmd_skills(args: argparse.Namespace) -> None:
         _install_skill_claude()
     if target in ("codex", "all"):
         _install_skill_codex()
+    if target in ("opencode", "all"):
+        _install_skill_opencode()
 
     if target == "all":
-        print("\nSkills installed for both Claude Code and Codex.")
+        print("\nSkills installed for Claude Code, Codex, and OpenCode.")
     print(f"\nSet AGENTIRC_NICK in your shell profile to enable the skill.")
