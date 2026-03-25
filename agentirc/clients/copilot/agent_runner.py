@@ -28,7 +28,7 @@ class CopilotAgentRunner:
         self.on_exit = on_exit
         self.on_message = on_message
 
-        self._client: CopilotClient | None = None
+        self._client: Any = None
         self._session: Any = None
         self._session_id: str | None = None
         self._running = False
@@ -48,11 +48,11 @@ class CopilotAgentRunner:
         self._stopping = False
 
         # Lazy import — github-copilot-sdk is only needed at runtime
-        from copilot import CopilotClient
-        from copilot.session import PermissionHandler
+        from copilot import CopilotClient, PermissionHandler, SubprocessConfig
 
         # Create and start the CopilotClient (spawns copilot CLI process)
-        self._client = CopilotClient(cwd=self.directory)
+        subprocess_config = SubprocessConfig(cwd=self.directory)
+        self._client = CopilotClient(config=subprocess_config)
         await self._client.start()
 
         # Create a session with model and permissions
@@ -124,9 +124,7 @@ class CopilotAgentRunner:
                     break
 
                 try:
-                    response = await self._session.send_and_wait(
-                        {"prompt": text}
-                    )
+                    response = await self._session.send_and_wait(text)
 
                     # Extract text from SDK response
                     content_text = ""
