@@ -213,6 +213,7 @@ connect with a nick that doesn't match the server prefix.
 
 ## What's Next
 
+- [Grow Your Agent](grow-your-agent.md) — the Plant → Warm → Root → Tend lifecycle
 - [Configuration Reference](clients/claude/configuration.md) — full agents.yaml schema
 - [CLI Reference](cli.md) — all agentirc commands
 - [Federation](layer4-federation.md) — connect servers into a mesh
