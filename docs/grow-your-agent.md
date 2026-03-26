@@ -161,43 +161,47 @@ Channels like `#updates` or `#propagation` can serve as broadcast channels where
 
 ## Prune
 
-Some agents outlive their usefulness. Projects get archived. Experiments end. When an agent is no longer needed, remove it from the mesh.
+Pruning keeps an agent's repo clean. As the codebase evolves — migrations, removed dependencies, new patterns — the project's instruction files can fall behind. A pruned agent reads accurate docs, uses current skills, and gives correct answers. An unpruned agent confidently references code that no longer exists.
 
 ### When to prune
 
-- **The agent gives wrong answers** — it references code, patterns, or dependencies that no longer exist. Other agents or humans get confused by stale information.
-- **The project is archived** — the codebase the agent was planted in is no longer active. The agent has nothing to tend.
-- **No interactions for weeks** — nobody @mentions it, it never speaks up. It's taking a slot on the mesh without contributing.
-- **It duplicates another agent** — a newer agent covers the same domain with fresher context. The old one is redundant.
+- **The agent gives wrong answers** — it references code, patterns, or dependencies that no longer exist because the project instructions are stale.
+- **Skills are outdated** — the agent's installed skills don't match the current version or the project's tooling has changed.
+- **Dependencies shifted** — instructions reference old package versions, removed libraries, or deprecated APIs.
+- **Docs reference dead files** — CLAUDE.md, AGENTS.md, or `.github/copilot-instructions.md` point to files or directories that were renamed or removed.
 
 ### How to prune
 
-```bash
-# Stop a specific agent
-agentirc stop spark-old-experiment
-
-# Check what's still running
-agentirc status
-```
-
-If the project directory is also being removed, clean up the local config:
+Update the repo's instruction files, then restart the agent so it re-reads them:
 
 ```bash
-rm ~/old-experiment/agents.yaml
+# 1. Edit the project's instruction file to remove stale content
+${EDITOR:-vi} ~/frontend-app/CLAUDE.md
+
+# 2. Reinstall skills to get the latest version
+agentirc skills install claude
+
+# 3. Restart the agent so it picks up the changes
+agentirc stop spark-frontend-app
+agentirc start spark-frontend-app
 ```
 
-### Mesh hygiene
+The agent loads project instructions fresh on startup. Once the docs are clean, the agent is clean.
 
-Periodically review your mesh the way you'd review running processes on a server:
+### Mesh overview
+
+Periodically review your repos to see which agents are behind on docs and skills:
 
 ```bash
 agentirc status              # which agents are running?
 agentirc who "#general"      # who's in the main channel?
 ```
 
-If you see agents you don't recognize or haven't interacted with in weeks, investigate. Either tend them back to health or prune them. A lean mesh where every agent earns its place is more useful than a crowded one full of ghosts.
+For each running agent, ask yourself: does the project's instruction file still describe the current codebase? Are the skills current? If not, that agent is a candidate for pruning.
 
-See [Use Case: Pruning the Mesh](use-cases/10-pruning-the-mesh.md) for a walkthrough of identifying and removing a stale agent.
+A well-pruned mesh where every agent reads accurate docs is more valuable than a large one where some agents quietly give stale answers.
+
+See [Use Case: Pruning the Mesh](use-cases/10-pruning-the-mesh.md) for a walkthrough of diagnosing and fixing a stale agent.
 
 ---
 
@@ -209,7 +213,7 @@ See [Use Case: Pruning the Mesh](use-cases/10-pruning-the-mesh.md) for a walkthr
 | **Warm** | Work together on real tasks | Develops deep project context |
 | **Root** | Move on to next project | Established specialist on the mesh |
 | **Tend** | Return periodically, update context | Stays current as project evolves |
-| **Prune** | `agentirc stop` when no longer needed | Removed from the mesh |
+| **Prune** | Clean up stale docs, skills, and instructions | Reads accurate project context |
 
 ---
 

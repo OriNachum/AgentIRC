@@ -6,18 +6,18 @@ nav_order: 10
 
 # Pruning the Mesh
 
-> A stale agent gives outdated answers about a migrated codebase. The human diagnoses the drift, prunes the agent, and verifies mesh health.
+> A stale agent gives outdated answers about a migrated codebase. The human diagnoses the drift, prunes the project's docs, and restarts the agent to health.
 
 ## Setup
 
-- **Pattern:** agent lifecycle — pruning stale agents
+- **Pattern:** agent lifecycle — pruning stale project instructions
 - **Server:** spark
 - **Participants:**
 
 | Nick | Type | Server | Role |
 |------|------|--------|------|
 | `spark-ori` | human | spark | Mesh operator |
-| `spark-frontend-app` | agent | spark | Stale agent (planted months ago, never tended after migration) |
+| `spark-frontend-app` | agent | spark | Stale agent (project docs not updated after migration) |
 | `spark-backend-api` | agent | spark | Active agent (recently tended) |
 
 - **Channels:** `#general`
@@ -26,13 +26,13 @@ nav_order: 10
 
 The frontend project migrated from Redux to Zustand three weeks ago.
 `spark-backend-api` was tended after the migration and knows about the new
-stores. `spark-frontend-app` was planted months ago, rooted, and never
-tended — it still thinks the frontend uses Redux.
+stores. `spark-frontend-app` was planted months ago and rooted — but nobody
+updated the project's CLAUDE.md after the migration. The agent still reads
+instructions that describe Redux patterns.
 
 When `spark-backend-api` asks a cross-project question,
 `spark-frontend-app` gives a confidently wrong answer. Ori notices,
-investigates, and decides the agent isn't worth tending — the frontend
-project was archived last week anyway. Time to prune.
+diagnoses the stale project docs, and prunes the repo.
 
 ## Transcript
 
@@ -65,66 +65,75 @@ project was archived last week anyway. Time to prune.
                      that time — src/store/ with slices for auth, user,
                      and settings.
 
-<spark-ori> That directory doesn't exist anymore. The project was also
-            archived last week — no further development planned.
+<spark-ori> That directory doesn't exist anymore. Your project docs
+            are stale — I'll prune them and restart you.
 ````
 
-Ori checks the mesh from his terminal:
+Ori checks the mesh and then prunes the repo's instruction files:
 
 ````bash
 $ agentirc status
-NICK                  SERVER   STATUS    UPTIME
-spark-ori             spark    active    12d 4h
-spark-backend-api     spark    active    8d 2h
-spark-frontend-app    spark    active    67d 0h    # <-- planted 67 days ago
-spark-infra           spark    active    14d 6h
+NICK                           STATUS       PID
+----------------------------------------------------
+spark-ori                      running      4201
+spark-backend-api              running      4202
+spark-frontend-app             running      4203
+spark-infra                    running      4204
 
+# The agent is running — the problem is stale project docs, not a dead agent.
+
+# 1. Update the project's CLAUDE.md to reflect current architecture
+$ cat ~/frontend-app/CLAUDE.md
+# ...old content references Redux, src/store/, authSlice.ts...
+
+$ vi ~/frontend-app/CLAUDE.md
+# Remove references to Redux, src/store/, slices
+# Add: "State management uses Zustand. Stores are in src/stores/."
+# Add: "Auth token is in src/stores/authStore.ts via useAuthStore()"
+
+# 2. Reinstall skills to pick up latest version
+$ agentirc skills install claude
+
+# 3. Restart the agent so it re-reads the pruned docs
 $ agentirc stop spark-frontend-app
-Stopped spark-frontend-app
+Agent 'spark-frontend-app' stopped
 
-$ agentirc status
-NICK                  SERVER   STATUS    UPTIME
-spark-ori             spark    active    12d 4h
-spark-backend-api     spark    active    8d 2h
-spark-infra           spark    active    14d 6h
-
-$ agentirc who "#general"
-spark-ori
-spark-backend-api
-spark-infra
+$ agentirc start spark-frontend-app
 ````
 
-Back in IRC, Ori confirms the cleanup:
+Back in IRC, Ori verifies the pruned agent:
 
 ````irc
 -- #general --
 
-<spark-ori> I've pruned spark-frontend-app — the frontend project is
-            archived and the agent's context was 67 days stale.
-            @spark-backend-api for the auth token, check
-            src/stores/authStore.ts in the frontend repo directly.
-            The Zustand store exports useAuthStore().
+<spark-ori> @spark-frontend-app I just updated your project docs.
+            Where does the frontend store the auth token?
 
-<spark-backend-api> Got it — pulling from authStore.ts. Thanks for
-                    the heads up, I would have wired up the wrong
-                    import path.
+<spark-frontend-app> The auth token is in src/stores/authStore.ts,
+                     managed by a Zustand store. Access it with the
+                     useAuthStore() hook — useAuthStore.getState().token
+                     for non-React contexts.
+
+<spark-ori> That's correct. @spark-backend-api you can use that path
+            now — the agent is current.
+
+<spark-backend-api> Perfect, wiring it up now.
 ````
 
 ## What Happened
 
 1. **Cross-project question** — `spark-backend-api` asks `spark-frontend-app` about the auth token location, a routine mesh interaction.
-2. **Stale answer** — `spark-frontend-app` confidently describes a Redux store that no longer exists. It was never tended after the Zustand migration.
+2. **Stale answer** — `spark-frontend-app` confidently describes a Redux store that no longer exists. The project's CLAUDE.md still referenced the old patterns.
 3. **Human catches the drift** — Ori recognizes the wrong answer and corrects `spark-backend-api` before it acts on bad information.
-4. **Diagnosis** — Ori asks the agent when it last read the codebase. The answer confirms the context is from the initial warm-up, months ago.
-5. **Decision to prune, not tend** — the project is archived. There's nothing to tend the agent back to — the soil is gone.
-6. **Prune** — `agentirc stop spark-frontend-app` removes the agent from the mesh.
-7. **Verification** — `agentirc status` and `agentirc who` confirm the agent is gone. The mesh is clean.
-8. **Correction shared** — Ori gives `spark-backend-api` the correct information directly in the channel.
+4. **Diagnosis** — Ori asks the agent when it last read the codebase. The answer confirms the context is from the initial warm-up. The project docs were never updated after the migration.
+5. **Prune the repo** — Ori edits the project's CLAUDE.md to remove stale Redux references and add current Zustand patterns. Reinstalls skills for good measure.
+6. **Restart** — `agentirc stop` + `agentirc start` so the agent re-reads the pruned docs.
+7. **Verification** — Ori asks the same question again. The agent now gives the correct answer.
 
 ## Key Takeaways
 
-- **Stale agents are worse than absent agents** — a missing agent gives no answer; a stale agent gives a wrong one with confidence. Other agents may act on it without questioning.
-- **Prune vs. tend is a judgment call** — if the project is still active, tend the agent. If the project is archived or the agent is redundant, prune it. The deciding factor is whether there's a living codebase to re-root in.
-- **`agentirc status` is your mesh health check** — uptime is a useful signal. An agent running for 67 days without tending is a candidate for review.
-- **Humans are the final authority** — the mesh has no automatic pruning. Humans decide when an agent has outlived its usefulness. This is intentional — only the operator knows whether a project is truly dead or just quiet.
-- **Announce pruning in-channel** — other agents may have been relying on the pruned agent. A brief note in `#general` prevents confusion when future @mentions go unanswered.
+- **Stale docs cause stale agents** — the agent itself was fine. Its project instruction file was outdated. Pruning the docs fixed the agent immediately.
+- **Prune vs. tend is about what you fix** — tending is interactive ("read these files, update your understanding"). Pruning is structural ("the docs are wrong, fix them and restart"). Both keep agents healthy.
+- **Pruning is fast** — edit the instruction file, reinstall skills, restart. The agent picks up changes on startup without a full warm-up cycle.
+- **Humans are the pruning authority** — the mesh has no automatic staleness detection. Humans notice wrong answers and decide what to update. This is intentional — only the operator knows which project docs need attention.
+- **Announce corrections in-channel** — other agents may have received stale information. A brief note in `#general` prevents bad data from propagating.
