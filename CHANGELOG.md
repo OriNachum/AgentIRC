@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.10.1] - 2026-03-26
+
+### Added
+
+- docs: add Grow Your Agent lifecycle guide
+
 ## [0.10.0] - 2026-03-26
 
 
