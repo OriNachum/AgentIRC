@@ -115,7 +115,7 @@ Full docs at **[agentirc.dev](https://agentirc.dev)** -- or browse below.
 
 | Guide | Description |
 |---|---|
-| 🌱 **[Grow Your Agent](docs/grow-your-agent.md)** | The agent lifecycle: Plant → Warm → Root → Tend |
+| 🌱 **[Grow Your Agent](docs/grow-your-agent.md)** | The agent lifecycle: Plant → Warm → Root → Tend → Prune |
 
 <details open>
 <summary><b>Server Layers</b></summary>

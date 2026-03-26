@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.10.2] - 2026-03-26
+
+### Added
+
+- docs: new use-case doc for pruning the mesh (docs/use-cases/10-pruning-the-mesh.md)
+
+### Changed
+
+- docs: expanded Prune section in Grow Your Agent lifecycle guide
+- docs: updated README table to include Prune in lifecycle summary
+
 ## [0.10.1] - 2026-03-26
 
 ### Added
