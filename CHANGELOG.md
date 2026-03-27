@@ -9,7 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ### Changed
 
 - Revamped all 10 user stories to reflect real mesh (6 agents, 3 servers, 5 repos)
-- Rewrote grow-your-agent guide with DaRe (Data Refinery) user story
+- Rewrote grow-your-agent guide with DaRIA (Data Refinery Intelligent Agent) user story
 - Replaced all fictional agents with real agent roster across documentation
 
 ## [0.10.2] - 2026-03-26
