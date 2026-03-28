@@ -82,10 +82,14 @@ class IRCTransport:
     async def send_who(self, target: str) -> None:
         await self._send_raw(f"WHO {target}")
 
-    async def _send_raw(self, line: str) -> None:
+    async def send_raw(self, line: str) -> None:
+        """Send a raw IRC line. Public for commands like HISTORY."""
         if self._writer:
             self._writer.write(f"{line}\r\n".encode())
             await self._writer.drain()
+
+    async def _send_raw(self, line: str) -> None:
+        await self.send_raw(line)
 
     async def _read_loop(self) -> None:
         buf = ""

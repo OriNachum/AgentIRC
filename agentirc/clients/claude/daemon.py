@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 import logging
 import os
 import time
@@ -52,6 +53,10 @@ class AgentDaemon:
         # Crash-recovery state
         self._crash_times: list[float] = []
         self._circuit_open = False
+
+        # Pause/sleep state
+        self._paused: bool = False
+        self._last_activation: float | None = None
 
         # Graceful shutdown
         self._stop_event: asyncio.Event | None = None
@@ -112,12 +117,19 @@ class AgentDaemon:
         if not self.skip_claude:
             await self._start_agent_runner()
 
+        # 7. Sleep scheduler background task
+        self._sleep_task = asyncio.create_task(self._sleep_scheduler())
+
         logger.info(
             "AgentDaemon started for %s (socket=%s)", self.agent.nick, self._socket_path
         )
 
     async def stop(self) -> None:
         """Cleanly shut down all components."""
+        if hasattr(self, "_sleep_task") and self._sleep_task:
+            self._sleep_task.cancel()
+            self._sleep_task = None
+
         if self._agent_runner is not None:
             await self._agent_runner.stop()
             self._agent_runner = None
@@ -135,6 +147,44 @@ class AgentDaemon:
             remove_pid(self._pid_name)
 
         logger.info("AgentDaemon stopped for %s", self.agent.nick)
+
+    async def _sleep_scheduler(self) -> None:
+        """Background task that auto-pauses/resumes based on sleep schedule."""
+        while True:
+            try:
+                await asyncio.sleep(60)  # Check every minute
+                now = datetime.datetime.now()
+                current_minutes = now.hour * 60 + now.minute
+
+                sleep_h, sleep_m = (int(x) for x in self.config.sleep_start.split(":"))
+                wake_h, wake_m = (int(x) for x in self.config.sleep_end.split(":"))
+                sleep_minutes = sleep_h * 60 + sleep_m
+                wake_minutes = wake_h * 60 + wake_m
+
+                if sleep_minutes > wake_minutes:
+                    # Overnight: e.g., 23:00-08:00
+                    should_sleep = current_minutes >= sleep_minutes or current_minutes < wake_minutes
+                else:
+                    # Same day: e.g., 13:00-14:00
+                    should_sleep = sleep_minutes <= current_minutes < wake_minutes
+
+                if should_sleep and not self._paused:
+                    self._paused = True
+                    logger.info("Sleep schedule: pausing %s", self.agent.nick)
+                elif not should_sleep and self._paused:
+                    self._paused = False
+                    logger.info("Sleep schedule: resuming %s", self.agent.nick)
+                    # Catch up on missed messages
+                    if self._transport:
+                        for channel in self.agent.channels:
+                            try:
+                                await self._transport.send_raw(f"HISTORY RECENT {channel} 200")
+                            except Exception:
+                                pass
+            except asyncio.CancelledError:
+                return
+            except Exception:
+                logger.exception("Sleep scheduler error")
 
     async def _graceful_shutdown(self) -> None:
         """Trigger a graceful shutdown, signaling any waiting stop event."""
@@ -169,7 +219,10 @@ class AgentDaemon:
 
         Formats a prompt and enqueues it so the SDK session picks it up.
         """
+        if self._paused:
+            return
         if self._agent_runner and self._agent_runner.is_running():
+            self._last_activation = time.time()
             if target.startswith("#"):
                 prompt = f"[IRC @mention in {target}] <{sender}> {text}"
             else:
@@ -305,6 +358,15 @@ class AgentDaemon:
             elif msg_type == "clear":
                 return await self._ipc_clear(req_id)
 
+            elif msg_type == "status":
+                return self._ipc_status(req_id)
+
+            elif msg_type == "pause":
+                return await self._ipc_pause(req_id)
+
+            elif msg_type == "resume":
+                return await self._ipc_resume(req_id)
+
             elif msg_type == "shutdown":
                 asyncio.create_task(self._graceful_shutdown())
                 return make_response(req_id, ok=True)
@@ -319,6 +381,34 @@ class AgentDaemon:
     # ------------------------------------------------------------------
     # IPC sub-handlers
     # ------------------------------------------------------------------
+
+    async def _ipc_pause(self, req_id: str) -> dict:
+        self._paused = True
+        logger.info("Agent %s paused", self.agent.nick)
+        return make_response(req_id, ok=True)
+
+    async def _ipc_resume(self, req_id: str) -> dict:
+        self._paused = False
+        logger.info("Agent %s resumed", self.agent.nick)
+        # Catch up on missed messages by reading recent history
+        if self._transport:
+            for channel in self.agent.channels:
+                try:
+                    await self._transport.send_raw(f"HISTORY RECENT {channel} 200")
+                except Exception:
+                    pass
+        return make_response(req_id, ok=True)
+
+    def _ipc_status(self, req_id: str) -> dict:
+        running = self._agent_runner is not None and self._agent_runner.is_running()
+        turn_count = self._supervisor._turn_count if self._supervisor else 0
+        return make_response(req_id, ok=True, data={
+            "running": running,
+            "paused": self._paused,
+            "turn_count": turn_count,
+            "last_activation": self._last_activation,
+            "activity": "paused" if self._paused else ("working" if running else "idle"),
+        })
 
     async def _ipc_irc_send(self, req_id: str, msg: dict) -> dict:
         channel = msg.get("channel", "")

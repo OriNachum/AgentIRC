@@ -56,6 +56,8 @@ class DaemonConfig:
     supervisor: SupervisorConfig = field(default_factory=SupervisorConfig)
     webhooks: WebhookConfig = field(default_factory=WebhookConfig)
     buffer_size: int = 500
+    sleep_start: str = "23:00"
+    sleep_end: str = "08:00"
     agents: list[AgentConfig] = field(default_factory=list)
 
     def get_agent(self, nick: str) -> AgentConfig | None:
