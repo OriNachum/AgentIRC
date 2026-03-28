@@ -351,6 +351,8 @@ def _cmd_init(args: argparse.Namespace) -> None:
             print(f"  Channels:  {', '.join(channels)}", file=sys.stderr)
             print(f"  Model:     {existing.model}", file=sys.stderr)
             print(f"  Config:    {args.config}", file=sys.stderr)
+            print(file=sys.stderr)
+            print(f"Start with: agentirc start {full_nick}", file=sys.stderr)
             sys.exit(1)
 
     # Use backend-specific config for correct defaults

@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.10.6] - 2026-03-28
+
+
+### Changed
+
+- Add start command suggestion to init collision output
+
 ## [0.10.5] - 2026-03-28
 
 
