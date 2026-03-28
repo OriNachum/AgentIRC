@@ -5,10 +5,13 @@ Subcommands:
     agentirc init                       Register an agent for the current directory
     agentirc start [nick] [--all]       Start agent daemon(s)
     agentirc stop [nick] [--all]        Stop agent daemon(s)
-    agentirc status                     List running agents
+    agentirc status [nick] [--full]     List running agents (--full queries activity)
+    agentirc send <target> <message>    Send a message to a channel or agent
     agentirc read <channel>             Read recent channel messages
     agentirc who <channel>              List channel members
     agentirc channels                   List active channels
+    agentirc sleep [nick] [--all]       Pause agent(s) — stay connected but idle
+    agentirc wake [nick] [--all]        Resume paused agent(s)
 """
 from __future__ import annotations
 
@@ -115,6 +118,8 @@ def main() -> None:
 
     # -- status subcommand -------------------------------------------------
     status_parser = sub.add_parser("status", help="List running agents")
+    status_parser.add_argument("nick", nargs="?", help="Show detailed status for a specific agent")
+    status_parser.add_argument("--full", action="store_true", help="Query agents for activity status")
     status_parser.add_argument("--config", default=DEFAULT_CONFIG, help="Config file path")
 
     # -- read subcommand ---------------------------------------------------
@@ -128,9 +133,27 @@ def main() -> None:
     who_parser.add_argument("channel", help="Channel or nick target")
     who_parser.add_argument("--config", default=DEFAULT_CONFIG, help="Config file path")
 
+    # -- send subcommand ---------------------------------------------------
+    send_parser = sub.add_parser("send", help="Send a message to a channel or agent")
+    send_parser.add_argument("target", help="Channel (e.g. #general) or agent nick")
+    send_parser.add_argument("message", help="Message text to send")
+    send_parser.add_argument("--config", default=DEFAULT_CONFIG, help="Config file path")
+
     # -- channels subcommand -----------------------------------------------
     channels_parser = sub.add_parser("channels", help="List active channels")
     channels_parser.add_argument("--config", default=DEFAULT_CONFIG, help="Config file path")
+
+    # -- sleep subcommand --------------------------------------------------
+    sleep_parser = sub.add_parser("sleep", help="Pause agent(s) — stay connected but idle")
+    sleep_parser.add_argument("nick", nargs="?", help="Agent nick to pause")
+    sleep_parser.add_argument("--all", action="store_true", help="Pause all agents")
+    sleep_parser.add_argument("--config", default=DEFAULT_CONFIG, help="Config file path")
+
+    # -- wake subcommand ---------------------------------------------------
+    wake_parser = sub.add_parser("wake", help="Resume paused agent(s)")
+    wake_parser.add_argument("nick", nargs="?", help="Agent nick to resume")
+    wake_parser.add_argument("--all", action="store_true", help="Resume all agents")
+    wake_parser.add_argument("--config", default=DEFAULT_CONFIG, help="Config file path")
 
     # -- skills subcommand -------------------------------------------------
     skills_parser = sub.add_parser("skills", help="Install IRC skills for AI agents")
@@ -159,9 +182,12 @@ def main() -> None:
             "start": _cmd_start,
             "stop": _cmd_stop,
             "status": _cmd_status,
+            "send": _cmd_send,
             "read": _cmd_read,
             "who": _cmd_who,
             "channels": _cmd_channels,
+            "sleep": _cmd_sleep,
+            "wake": _cmd_wake,
             "skills": _cmd_skills,
         }
         handler = dispatch.get(args.command)
@@ -652,21 +678,33 @@ def _stop_agent(nick: str) -> None:
     print(f"Agent '{nick}' killed")
 
 
-async def _ipc_shutdown(socket_path: str) -> bool:
-    """Send a shutdown command via Unix socket IPC."""
+async def _ipc_request(socket_path: str, msg_type: str, **kwargs) -> dict | None:
+    """Send an IPC request via Unix socket and return the response."""
     from agentirc.clients.claude.ipc import decode_message, encode_message, make_request
 
-    reader, writer = await asyncio.wait_for(
-        asyncio.open_unix_connection(socket_path),
-        timeout=3.0,
-    )
     try:
-        req = make_request("shutdown")
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_unix_connection(socket_path),
+            timeout=3.0,
+        )
+    except (ConnectionRefusedError, FileNotFoundError, OSError):
+        return None
+    try:
+        req = make_request(msg_type, **kwargs)
         writer.write(encode_message(req))
         await writer.drain()
-        data = await asyncio.wait_for(reader.readline(), timeout=3.0)
-        resp = decode_message(data)
-        return resp is not None and resp.get("ok", False)
+        # Read lines until we get a response (skip whispers)
+        deadline = asyncio.get_event_loop().time() + 3.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                return None
+            data = await asyncio.wait_for(reader.readline(), timeout=remaining)
+            msg = decode_message(data)
+            if msg and msg.get("type") == "response":
+                return msg
+    except (asyncio.TimeoutError, ConnectionError, BrokenPipeError, OSError):
+        return None
     finally:
         writer.close()
         try:
@@ -675,9 +713,36 @@ async def _ipc_shutdown(socket_path: str) -> bool:
             pass
 
 
+async def _ipc_shutdown(socket_path: str) -> bool:
+    """Send a shutdown command via Unix socket IPC."""
+    resp = await _ipc_request(socket_path, "shutdown")
+    return resp is not None and resp.get("ok", False)
+
+
 # -----------------------------------------------------------------------
 # Agent status
 # -----------------------------------------------------------------------
+
+def _agent_socket_path(nick: str) -> str:
+    return os.path.join(
+        os.environ.get("XDG_RUNTIME_DIR", "/tmp"),
+        f"agentirc-{nick}.sock",
+    )
+
+
+def _agent_process_status(agent) -> tuple[str, int | None]:
+    """Return (status_str, pid_or_none) for an agent."""
+    pid_name = f"agent-{agent.nick}"
+    pid = read_pid(pid_name)
+    if pid and is_process_alive(pid):
+        socket_path = _agent_socket_path(agent.nick)
+        if os.path.exists(socket_path):
+            return "running", pid
+        return "starting", pid
+    if pid:
+        remove_pid(pid_name)
+    return "stopped", None
+
 
 def _cmd_status(args: argparse.Namespace) -> None:
     config = load_config_or_default(args.config)
@@ -686,30 +751,64 @@ def _cmd_status(args: argparse.Namespace) -> None:
         print("No agents configured")
         return
 
-    print(f"{'NICK':<30} {'STATUS':<12} {'PID':<10}")
-    print("-" * 52)
+    # Single agent detailed view
+    if args.nick:
+        agent = None
+        for a in config.agents:
+            if a.nick == args.nick:
+                agent = a
+                break
+        if not agent:
+            print(f"Agent '{args.nick}' not found in config", file=sys.stderr)
+            sys.exit(1)
+
+        status, pid = _agent_process_status(agent)
+        print(agent.nick)
+        print(f"  Status:     {status}")
+        print(f"  PID:        {pid or '-'}")
+
+        # Query IPC for activity if running
+        if status == "running":
+            resp = asyncio.run(_ipc_request(_agent_socket_path(agent.nick), "status"))
+            if resp and resp.get("ok"):
+                data = resp.get("data", {})
+                print(f"  Activity:   {data.get('activity', 'unknown')}")
+                print(f"  Turns:      {data.get('turn_count', 0)}")
+                print(f"  Paused:     {'yes' if data.get('paused') else 'no'}")
+        else:
+            print(f"  Activity:   -")
+
+        channels = agent.channels if isinstance(agent.channels, list) else []
+        print(f"  Directory:  {agent.directory}")
+        print(f"  Backend:    {agent.agent}")
+        print(f"  Channels:   {', '.join(channels)}")
+        print(f"  Model:      {agent.model}")
+        print(f"  Config:     {args.config}")
+        return
+
+    # All agents view
+    show_activity = args.full
+
+    if show_activity:
+        print(f"{'NICK':<30} {'STATUS':<12} {'PID':<10} {'ACTIVITY':<10}")
+        print("-" * 62)
+    else:
+        print(f"{'NICK':<30} {'STATUS':<12} {'PID':<10}")
+        print("-" * 52)
 
     for agent in config.agents:
-        pid_name = f"agent-{agent.nick}"
-        pid = read_pid(pid_name)
-        status = "stopped"
+        status, pid = _agent_process_status(agent)
+        activity = "-"
 
-        if pid and is_process_alive(pid):
-            # Also check if socket is connectable
-            socket_path = os.path.join(
-                os.environ.get("XDG_RUNTIME_DIR", "/tmp"),
-                f"agentirc-{agent.nick}.sock",
-            )
-            if os.path.exists(socket_path):
-                status = "running"
-            else:
-                status = "starting"
-            print(f"{agent.nick:<30} {status:<12} {pid:<10}")
-        elif pid:
-            remove_pid(pid_name)
-            print(f"{agent.nick:<30} {'stopped':<12} {'-':<10}")
+        if show_activity and status == "running":
+            resp = asyncio.run(_ipc_request(_agent_socket_path(agent.nick), "status"))
+            if resp and resp.get("ok"):
+                activity = resp.get("data", {}).get("activity", "unknown")
+
+        if show_activity:
+            print(f"{agent.nick:<30} {status:<12} {str(pid or '-'):<10} {activity:<10}")
         else:
-            print(f"{agent.nick:<30} {'stopped':<12} {'-':<10}")
+            print(f"{agent.nick:<30} {status:<12} {str(pid or '-'):<10}")
 
 
 # -----------------------------------------------------------------------
@@ -726,6 +825,52 @@ def _get_observer(config_path: str):
         port=config.server.port,
         server_name=config.server.name,
     )
+
+
+def _ipc_to_agents(args: argparse.Namespace, msg_type: str, action_verb: str) -> None:
+    """Send an IPC message (pause/resume) to one or all agents."""
+    config = load_config_or_default(args.config)
+
+    if args.nick and args.all:
+        print(f"Cannot specify both nick and --all", file=sys.stderr)
+        sys.exit(1)
+
+    if not args.nick and not args.all:
+        print(f"Usage: agentirc {action_verb} <nick> or --all", file=sys.stderr)
+        sys.exit(1)
+
+    targets = config.agents if args.all else []
+    if args.nick:
+        for a in config.agents:
+            if a.nick == args.nick:
+                targets = [a]
+                break
+        else:
+            print(f"Agent '{args.nick}' not found in config", file=sys.stderr)
+            sys.exit(1)
+
+    for agent in targets:
+        socket_path = _agent_socket_path(agent.nick)
+        resp = asyncio.run(_ipc_request(socket_path, msg_type))
+        if resp and resp.get("ok"):
+            print(f"{agent.nick}: {action_verb}")
+        else:
+            print(f"{agent.nick}: failed (not running?)", file=sys.stderr)
+
+
+def _cmd_sleep(args: argparse.Namespace) -> None:
+    _ipc_to_agents(args, "pause", "paused")
+
+
+def _cmd_wake(args: argparse.Namespace) -> None:
+    _ipc_to_agents(args, "resume", "resumed")
+
+
+def _cmd_send(args: argparse.Namespace) -> None:
+    observer = _get_observer(args.config)
+    target = args.target if args.target.startswith("#") else args.target
+    asyncio.run(observer.send_message(target, args.message))
+    print(f"Sent to {target}")
 
 
 def _cmd_read(args: argparse.Namespace) -> None:

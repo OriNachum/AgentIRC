@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.11.0] - 2026-03-28
+
+
+### Added
+
+- agentirc send command for sending messages to channels and agents
+- agentirc status --full flag and per-agent detailed view
+- agentirc sleep/wake commands with configurable schedule (default 23:00-08:00)
+
+
+### Changed
+
+- Extended IPC protocol with status, pause, and resume handlers
+- Added sleep_start/sleep_end config fields to DaemonConfig
+
 ## [0.10.7] - 2026-03-28
 
 

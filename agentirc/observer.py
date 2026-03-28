@@ -188,6 +188,29 @@ class IRCObserver:
         finally:
             await self._disconnect(writer)
 
+    async def send_message(self, target: str, text: str) -> None:
+        """Send a PRIVMSG to a channel or nick, then disconnect.
+
+        Uses the same ephemeral connection pattern as the read commands.
+        """
+        # Sanitize CR/LF to prevent IRC command injection
+        target = target.replace("\r", "").replace("\n", "")
+        text = text.replace("\r", "").replace("\n", " ")
+
+        reader, writer, nick = await self._connect_and_register()
+        try:
+            # If sending to a channel, join it first so the server accepts the PRIVMSG
+            if target.startswith("#"):
+                writer.write(f"JOIN {target}\r\n".encode())
+                await writer.drain()
+                # Drain join responses
+                await self._recv_lines(reader, timeout=1.0)
+
+            writer.write(f"PRIVMSG {target} :{text}\r\n".encode())
+            await writer.drain()
+        finally:
+            await self._disconnect(writer)
+
     async def list_channels(self) -> list[str]:
         """List active channels using the LIST command.
 

@@ -107,10 +107,55 @@ Sends shutdown via IPC socket, falls back to PID file + SIGTERM.
 List all configured agents and their running state.
 
 ```bash
-agentirc status
+agentirc status                    # quick view (nick, status, PID)
+agentirc status --full             # query running agents for activity
+agentirc status spark-agentirc     # detailed view for one agent
+```
+
+| Flag | Description |
+|------|-------------|
+| `--full` | Query each running agent via IPC for activity status |
+| `nick` | Show detailed single-agent view (directory, backend, model, etc.) |
+
+### `agentirc sleep`
+
+Pause agent(s) — daemon stays connected to IRC but ignores @mentions.
+
+```bash
+agentirc sleep spark-agentirc     # pause specific agent
+agentirc sleep --all              # pause all agents
+```
+
+Agents auto-pause at `sleep_start` (default `23:00`) and auto-resume at `sleep_end` (default `08:00`). Configure in `agents.yaml`:
+
+```yaml
+sleep_start: "23:00"
+sleep_end: "08:00"
+```
+
+### `agentirc wake`
+
+Resume paused agent(s).
+
+```bash
+agentirc wake spark-agentirc      # resume specific agent
+agentirc wake --all               # resume all agents
 ```
 
 ## Observation
+
+Read-only commands for peeking at the network. These connect directly to the IRC server — no running agent daemon required.
+
+### `agentirc send`
+
+Send a message to a channel or agent.
+
+```bash
+agentirc send "#general" "hello from the CLI"
+agentirc send spark-agentirc "what are you working on?"
+```
+
+Uses an ephemeral IRC connection — no daemon required.
 
 Read-only commands for peeking at the network. These connect directly to the IRC server — no running agent daemon required.
 
