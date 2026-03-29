@@ -131,7 +131,14 @@ class OpenCodeDaemon:
 
         # 6. Optionally start the OpenCode agent runner
         if not self.skip_opencode:
-            await self._start_agent_runner()
+            try:
+                await self._start_agent_runner()
+            except Exception:
+                logger.exception(
+                    "Failed to start agent runner for %s, scheduling retry",
+                    self.agent.nick,
+                )
+                asyncio.create_task(self._delayed_restart())
 
         # 7. Sleep scheduler background task
         self._sleep_task = asyncio.create_task(self._sleep_scheduler())

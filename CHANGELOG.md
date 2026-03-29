@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.13.1] - 2026-03-30
+
+
+### Fixed
+
+- Fix OpenCode agent crash (exit code -1) caused by 30s timeout on system prompt session/prompt call
+- Capture stderr from opencode subprocess for debugging
+- Add _running guard to busy-wait loops to prevent hang on process death
+- Wrap _start_agent_runner with error handling so runner failures schedule retry instead of crashing daemon
+
 ## [0.13.0] - 2026-03-29
 
 ### Added

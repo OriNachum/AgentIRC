@@ -38,6 +38,7 @@ class OpenCodeAgentRunner:
         self._prompt_queue: asyncio.Queue[str] = asyncio.Queue()
         self._task: asyncio.Task | None = None
         self._reader_task: asyncio.Task | None = None
+        self._stderr_task: asyncio.Task | None = None
         self._stopping = False
         self._request_id = 0
         self._pending: dict[int, asyncio.Future] = {}
@@ -68,13 +69,14 @@ class OpenCodeAgentRunner:
                 "opencode", "acp",
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
                 limit=1024 * 1024,  # 1MB line buffer
                 env=isolated_env,
             )
 
-            # Start reading responses
+            # Start reading responses and stderr
             self._reader_task = asyncio.create_task(self._read_loop())
+            self._stderr_task = asyncio.create_task(self._stderr_loop())
 
             # Initialize with ACP protocol
             resp = await self._send_request("initialize", {
@@ -102,24 +104,14 @@ class OpenCodeAgentRunner:
             self._running = True
             logger.info("OpenCode session started: %s", self._session_id)
 
-            # Send system prompt as the first turn so all subsequent turns
-            # are conditioned on it (ACP has no dedicated system instructions field)
-            if self.system_prompt:
-                self._busy = True
-                resp = await self._send_request("session/prompt", {
-                    "sessionId": self._session_id,
-                    "prompt": [{"type": "text", "text": self.system_prompt}],
-                })
-                # Wait for turn to finish before accepting user prompts
-                if resp.get("result", {}).get("stopReason"):
-                    self._busy = False
-                    self._accumulated_text = ""
-                else:
-                    while self._busy:
-                        await asyncio.sleep(0.1)
-
             # Start the prompt processing loop
             self._task = asyncio.create_task(self._prompt_loop())
+
+            # Queue system prompt as the first turn so all subsequent turns
+            # are conditioned on it (ACP has no dedicated system instructions field).
+            # Queued rather than awaited to avoid blocking start() on LLM completion.
+            if self.system_prompt:
+                await self.send_prompt(self.system_prompt)
 
             if initial_prompt:
                 await self.send_prompt(initial_prompt)
@@ -144,6 +136,13 @@ class OpenCodeAgentRunner:
             self._reader_task.cancel()
             try:
                 await self._reader_task
+            except asyncio.CancelledError:
+                pass
+
+        if self._stderr_task:
+            self._stderr_task.cancel()
+            try:
+                await self._stderr_task
             except asyncio.CancelledError:
                 pass
 
@@ -179,7 +178,7 @@ class OpenCodeAgentRunner:
         self._request_id += 1
         return self._request_id
 
-    async def _send_request(self, method: str, params: dict) -> dict:
+    async def _send_request(self, method: str, params: dict, timeout: float = 30) -> dict:
         """Send a JSON-RPC request and wait for the response."""
         if not self._process or not self._process.stdin:
             raise ConnectionError("ACP server not running")
@@ -196,7 +195,7 @@ class OpenCodeAgentRunner:
         await self._process.stdin.drain()
 
         try:
-            return await asyncio.wait_for(future, timeout=30)
+            return await asyncio.wait_for(future, timeout=timeout)
         except (asyncio.TimeoutError, asyncio.CancelledError):
             self._pending.pop(req_id, None)
             if not future.done():
@@ -266,6 +265,21 @@ class OpenCodeAgentRunner:
             if not self._stopping and self.on_exit:
                 await self.on_exit(returncode)
 
+    async def _stderr_loop(self) -> None:
+        """Log stderr output from the opencode process."""
+        if not self._process or not self._process.stderr:
+            return
+        try:
+            while True:
+                line = await self._process.stderr.readline()
+                if not line:
+                    break
+                text = line.decode("utf-8", errors="replace").rstrip()
+                if text:
+                    logger.warning("opencode stderr: %s", text)
+        except (asyncio.CancelledError, ConnectionError):
+            pass
+
     async def _handle_notification(self, msg: dict) -> None:
         """Handle ACP server notifications."""
         method = msg.get("method", "")
@@ -321,7 +335,7 @@ class OpenCodeAgentRunner:
                     resp = await self._send_request("session/prompt", {
                         "sessionId": self._session_id,
                         "prompt": [{"type": "text", "text": text}],
-                    })
+                    }, timeout=120)
 
                     # Check if response itself signals turn completion
                     result = resp.get("result", {})
@@ -338,7 +352,7 @@ class OpenCodeAgentRunner:
                         self._busy = False
 
                     # Wait for turn to complete (via notifications)
-                    while self._busy:
+                    while self._busy and self._running:
                         await asyncio.sleep(0.1)
 
                 except Exception:
