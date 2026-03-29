@@ -34,8 +34,12 @@ Before adding new work to an existing branch, check if there's already an
 open PR:
 
 ```bash
-gh pr view --json number,title,state --jq '{number,title,state}' 2>/dev/null
+gh pr view --json number,title,state --jq '{number,title,state}'
 ```
+
+If the command fails with "no pull requests found", there is no open PR —
+proceed normally. Only act on the result if it returns valid JSON with
+`state: "OPEN"`.
 
 If an open PR exists and your new changes are **unrelated** to that PR's
 scope, **stop and ask the user**:
