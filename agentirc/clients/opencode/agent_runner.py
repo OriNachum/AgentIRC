@@ -116,8 +116,7 @@ class OpenCodeAgentRunner:
             if initial_prompt:
                 await self.send_prompt(initial_prompt)
         except Exception:
-            shutil.rmtree(self._isolated_home, ignore_errors=True)
-            self._isolated_home = None
+            await self.stop()
             raise
 
     async def stop(self) -> None:
@@ -261,6 +260,11 @@ class OpenCodeAgentRunner:
             self._pending.clear()
 
             self._running = False
+
+            # Cancel companion tasks so they don't outlive the process
+            for task in (self._task, self._stderr_task):
+                if task and not task.done():
+                    task.cancel()
 
             if not self._stopping and self.on_exit:
                 await self.on_exit(returncode)
