@@ -20,13 +20,15 @@ def daemon():
     return AgentDaemon(config, agent, skip_claude=True)
 
 
-def test_ipc_status_initial(daemon):
+@pytest.mark.asyncio
+async def test_ipc_status_initial(daemon):
     """Status should report idle and not paused initially."""
-    resp = daemon._ipc_status("req-1")
+    resp = await daemon._ipc_status("req-1")
     assert resp["ok"] is True
     data = resp["data"]
     assert data["paused"] is False
     assert data["activity"] == "idle"
+    assert data["description"] == "nothing"
     assert data["turn_count"] == 0
     assert data["last_activation"] is None
 
@@ -38,9 +40,10 @@ async def test_ipc_pause(daemon):
     assert resp["ok"] is True
     assert daemon._paused is True
 
-    status = daemon._ipc_status("req-3")
+    status = await daemon._ipc_status("req-3")
     assert status["data"]["paused"] is True
     assert status["data"]["activity"] == "paused"
+    assert status["data"]["description"] == "paused"
 
 
 @pytest.mark.asyncio
@@ -51,15 +54,15 @@ async def test_ipc_resume(daemon):
     assert resp["ok"] is True
     assert daemon._paused is False
 
-    status = daemon._ipc_status("req-5")
+    status = await daemon._ipc_status("req-5")
     assert status["data"]["paused"] is False
     assert status["data"]["activity"] == "idle"
+    assert status["data"]["description"] == "nothing"
 
 
 def test_on_mention_ignored_when_paused(daemon):
     """Mentions should be ignored when paused."""
     daemon._paused = True
-    # This should not raise even without an agent runner
     daemon._on_mention("#general", "someone", "hello")
     assert daemon._last_activation is None
 
@@ -79,3 +82,24 @@ def test_sleep_schedule_invalid():
     agent = AgentConfig(nick="test", directory="/tmp")
     d = AgentDaemon(config, agent, skip_claude=True)
     assert d._parse_sleep_schedule() is None
+
+
+@pytest.mark.asyncio
+async def test_on_agent_message_captures_activity(daemon):
+    """Agent messages should be captured for status reporting."""
+    msg = {"type": "assistant", "content": [{"type": "text", "text": "Working on fixing tests"}]}
+    await daemon._on_agent_message(msg)
+    assert daemon._last_activity_text == "Working on fixing tests"
+
+    status = await daemon._ipc_status("req-6")
+    assert status["data"]["description"] == "Working on fixing tests"
+
+
+@pytest.mark.asyncio
+async def test_describe_activity_truncates(daemon):
+    """Long activity text should be truncated."""
+    long_text = "x" * 200
+    daemon._last_activity_text = long_text
+    desc = daemon._describe_activity()
+    assert len(desc) <= 120
+    assert desc.endswith("...")

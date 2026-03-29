@@ -774,14 +774,18 @@ def _cmd_status(args: argparse.Namespace) -> None:
         print(f"  Status:     {status}")
         print(f"  PID:        {pid or '-'}")
 
-        # Query IPC for activity if running
+        # Query IPC for activity if running — ask the agent directly
         if status == "running":
-            resp = asyncio.run(_ipc_request(_agent_socket_path(agent.nick), "status"))
+            resp = asyncio.run(_ipc_request(
+                _agent_socket_path(agent.nick), "status", query=True
+            ))
             if resp and resp.get("ok"):
                 data = resp.get("data", {})
-                print(f"  Activity:   {data.get('activity', 'unknown')}")
+                print(f"  Activity:   {data.get('description', 'nothing')}")
                 print(f"  Turns:      {data.get('turn_count', 0)}")
                 print(f"  Paused:     {'yes' if data.get('paused') else 'no'}")
+            else:
+                print(f"  Activity:   unknown (daemon may need restart)")
         else:
             print(f"  Activity:   -")
 
@@ -797,8 +801,8 @@ def _cmd_status(args: argparse.Namespace) -> None:
     show_activity = args.full
 
     if show_activity:
-        print(f"{'NICK':<30} {'STATUS':<12} {'PID':<10} {'ACTIVITY':<10}")
-        print("-" * 62)
+        print(f"{'NICK':<30} {'STATUS':<12} {'PID':<10} {'ACTIVITY'}")
+        print("-" * 72)
     else:
         print(f"{'NICK':<30} {'STATUS':<12} {'PID':<10}")
         print("-" * 52)
@@ -808,12 +812,13 @@ def _cmd_status(args: argparse.Namespace) -> None:
         activity = "-"
 
         if show_activity and status == "running":
+            # Use cached description (no live query — too slow for all agents)
             resp = asyncio.run(_ipc_request(_agent_socket_path(agent.nick), "status"))
             if resp and resp.get("ok"):
-                activity = resp.get("data", {}).get("activity", "unknown")
+                activity = resp.get("data", {}).get("description", "nothing")
 
         if show_activity:
-            print(f"{agent.nick:<30} {status:<12} {str(pid or '-'):<10} {activity:<10}")
+            print(f"{agent.nick:<30} {status:<12} {str(pid or '-'):<10} {activity}")
         else:
             print(f"{agent.nick:<30} {status:<12} {str(pid or '-'):<10}")
 
