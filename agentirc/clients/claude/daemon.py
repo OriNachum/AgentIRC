@@ -58,6 +58,11 @@ class AgentDaemon:
         self._paused: bool = False
         self._last_activation: float | None = None
 
+        # Status query state — for asking the agent what it's doing
+        self._status_query_event: asyncio.Event | None = None
+        self._status_query_response: str = ""
+        self._last_activity_text: str = ""
+
         # Graceful shutdown
         self._stop_event: asyncio.Event | None = None
         self._pid_name: str = ""
@@ -248,6 +253,21 @@ class AgentDaemon:
         if self._supervisor:
             await self._supervisor.observe(msg)
 
+        # Capture last assistant text for status reporting
+        if msg.get("type") == "assistant":
+            for block in msg.get("content", []):
+                if isinstance(block, dict) and block.get("type") == "text":
+                    self._last_activity_text = block["text"]
+                    break
+                elif isinstance(block, str):
+                    self._last_activity_text = block
+                    break
+
+            # If a status query is pending, fulfill it
+            if self._status_query_event and not self._status_query_event.is_set():
+                self._status_query_response = self._last_activity_text
+                self._status_query_event.set()
+
     def _build_system_prompt(self) -> str:
         return (
             f"You are {self.agent.nick}, an AI agent on the agentirc IRC network.\n"
@@ -373,7 +393,7 @@ class AgentDaemon:
                 return await self._ipc_clear(req_id)
 
             elif msg_type == "status":
-                return self._ipc_status(req_id)
+                return await self._ipc_status(req_id, msg)
 
             elif msg_type == "pause":
                 return await self._ipc_pause(req_id)
@@ -409,16 +429,65 @@ class AgentDaemon:
         # The agent resumes and will see new messages going forward.
         return make_response(req_id, ok=True)
 
-    def _ipc_status(self, req_id: str) -> dict:
+    async def _ipc_status(self, req_id: str, msg: dict | None = None) -> dict:
         running = self._agent_runner is not None and self._agent_runner.is_running()
         turn_count = self._supervisor._turn_count if self._supervisor else 0
+
+        # Determine activity description
+        query = msg.get("query", False) if msg else False
+        description = self._describe_activity(live_query=query)
+
+        # If live query requested and agent is active, ask the agent directly
+        if query and running and not self._paused:
+            description = await self._query_agent_status()
+
         return make_response(req_id, ok=True, data={
             "running": running,
             "paused": self._paused,
             "turn_count": turn_count,
             "last_activation": self._last_activation,
             "activity": "paused" if self._paused else ("working" if running else "idle"),
+            "description": description,
         })
+
+    def _describe_activity(self, live_query: bool = False) -> str:
+        """Return a human-readable description of what the agent is doing."""
+        if self._paused:
+            return "paused"
+        if not self._last_activity_text:
+            return "nothing"
+        # Return first line of last activity, truncated
+        first_line = self._last_activity_text.strip().split("\n")[0]
+        if len(first_line) > 120:
+            first_line = first_line[:117] + "..."
+        return first_line
+
+    async def _query_agent_status(self) -> str:
+        """Ask the agent directly what it's working on."""
+        if not self._agent_runner or not self._agent_runner.is_running():
+            return "nothing"
+
+        self._status_query_event = asyncio.Event()
+        self._status_query_response = ""
+
+        try:
+            await self._agent_runner.send_prompt(
+                "[SYSTEM] Briefly describe what you are currently working on "
+                "in one sentence. Reply with just the description, no preamble."
+            )
+            # Wait up to 10s for the agent to respond
+            await asyncio.wait_for(self._status_query_event.wait(), timeout=10.0)
+            response = self._status_query_response.strip()
+            # Take first line, truncate
+            first_line = response.split("\n")[0]
+            if len(first_line) > 120:
+                first_line = first_line[:117] + "..."
+            return first_line or "nothing"
+        except asyncio.TimeoutError:
+            return "busy (no response)"
+        finally:
+            self._status_query_event = None
+            self._status_query_response = ""
 
     async def _ipc_irc_send(self, req_id: str, msg: dict) -> dict:
         channel = msg.get("channel", "")
