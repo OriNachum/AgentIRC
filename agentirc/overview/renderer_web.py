@@ -1,14 +1,23 @@
 """Render mesh overview as HTML and serve via HTTP."""
 from __future__ import annotations
 
+import atexit
 import asyncio
 from http.server import HTTPServer, SimpleHTTPRequestHandler
+import os
 from pathlib import Path
+import signal
+import threading
+import time
 
 import re
 
 import mistune
 
+from agentirc.pidfile import (
+    is_process_alive, read_pid, read_port,
+    remove_pid, remove_port, write_pid, write_port,
+)
 from .collector import collect_mesh_state
 from .model import MeshState
 from .renderer_text import render_text
@@ -72,6 +81,34 @@ def render_html(
 </html>"""
 
 
+def _stop_existing_overview(pid_name: str) -> None:
+    """Kill a previous overview instance if running, clean up its files."""
+    existing_pid = read_pid(pid_name)
+    if existing_pid and is_process_alive(existing_pid):
+        existing_port = read_port(pid_name)
+        os.kill(existing_pid, signal.SIGTERM)
+        for _ in range(20):
+            if not is_process_alive(existing_pid):
+                break
+            time.sleep(0.1)
+        else:
+            try:
+                os.kill(existing_pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        remove_pid(pid_name)
+        remove_port(pid_name)
+        port_msg = f", port {existing_port}" if existing_port else ""
+        print(
+            f"Stopped previous overview for '{pid_name.removeprefix('overview-')}'"
+            f" (PID {existing_pid}{port_msg})",
+            flush=True,
+        )
+    elif existing_pid:
+        remove_pid(pid_name)
+        remove_port(pid_name)
+
+
 def serve_web(
     host: str,
     port: int,
@@ -84,6 +121,8 @@ def serve_web(
     serve_port: int = 0,
 ) -> None:
     """Start a local HTTP server serving the live overview."""
+    pid_name = f"overview-{server_name}"
+    _stop_existing_overview(pid_name)
 
     class OverviewHandler(SimpleHTTPRequestHandler):
         def do_GET(self):
@@ -110,11 +149,25 @@ def serve_web(
 
     httpd = HTTPServer(("127.0.0.1", serve_port), OverviewHandler)
     actual_port = httpd.server_address[1]
-    print(f"Overview dashboard: http://localhost:{actual_port}")
-    print("Press Ctrl+C to stop.")
+
+    write_pid(pid_name, os.getpid())
+    write_port(pid_name, actual_port)
+
+    def _cleanup():
+        remove_pid(pid_name)
+        remove_port(pid_name)
+
+    atexit.register(_cleanup)
+    if threading.current_thread() is threading.main_thread():
+        signal.signal(signal.SIGTERM, lambda _sig, _frame: httpd.shutdown())
+
+    print(f"Overview dashboard: http://localhost:{actual_port}", flush=True)
+    print("Press Ctrl+C to stop.", flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopped.")
+        print("\nStopped.", flush=True)
     finally:
         httpd.server_close()
+        _cleanup()
+        atexit.unregister(_cleanup)

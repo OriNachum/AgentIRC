@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.15.1] - 2026-03-30
+
+
+### Fixed
+
+- Overview serve: flush stdout so port URL is visible when backgrounded
+- Overview serve: auto-kill previous instance for same server via PID/port files
+
 ## [0.15.0] - 2026-03-30
 
 

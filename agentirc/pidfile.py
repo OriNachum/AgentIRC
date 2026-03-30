@@ -37,6 +37,35 @@ def remove_pid(name: str) -> None:
         pass
 
 
+def write_port(name: str, port: int) -> Path:
+    """Write a port file for the named daemon. Creates the directory if needed."""
+    pid_dir = Path(PID_DIR)
+    pid_dir.mkdir(parents=True, exist_ok=True)
+    port_path = pid_dir / f"{name}.port"
+    port_path.write_text(str(port))
+    return port_path
+
+
+def read_port(name: str) -> int | None:
+    """Read the port for the named daemon. Returns None if file is missing."""
+    port_path = Path(PID_DIR) / f"{name}.port"
+    if not port_path.exists():
+        return None
+    try:
+        return int(port_path.read_text().strip())
+    except (ValueError, OSError):
+        return None
+
+
+def remove_port(name: str) -> None:
+    """Remove the port file for the named daemon if it exists."""
+    port_path = Path(PID_DIR) / f"{name}.port"
+    try:
+        port_path.unlink()
+    except FileNotFoundError:
+        pass
+
+
 def is_process_alive(pid: int) -> bool:
     """Check whether a process with the given PID is alive."""
     try:
