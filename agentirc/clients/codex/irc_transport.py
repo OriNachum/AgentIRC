@@ -162,8 +162,8 @@ class IRCTransport:
             sender = msg.prefix.split("!")[0] if msg.prefix else "server"
             if target.startswith("#"):
                 self.buffer.add(target, sender, text)
-        elif msg.command == "ROOMINVITE" and len(msg.params) >= 2:
+        elif msg.command == "ROOMINVITE" and len(msg.params) >= 3:
             channel = msg.params[0]
-            meta_text = msg.params[1]
+            meta_text = msg.params[2]
             if self.on_roominvite:
                 self.on_roominvite(channel, meta_text)

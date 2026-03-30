@@ -265,26 +265,23 @@ async def _query_roommeta(
     """Query ROOMMETA and return a dict with room metadata fields."""
     writer.write(f"ROOMMETA {channel}\r\n".encode())
     await writer.drain()
-    messages = await _recv_until(reader, writer, {"ROOMMETA", "ERR_NOSUCHCHANNEL", "ERR_UNKNOWNCOMMAND"})
+    messages = await _recv_until(reader, writer, {"ROOMETAEND", "ERR_NOSUCHCHANNEL", "ERR_UNKNOWNCOMMAND"})
     result: dict = {}
     for msg in messages:
-        if msg.command == "ROOMMETA" and len(msg.params) >= 2:
-            # Expected format: ROOMMETA <channel> <key>=<value> [<key>=<value> ...]
-            # or individual param pairs depending on server implementation
-            for param in msg.params[1:]:
-                if "=" in param:
-                    key, _, value = param.partition("=")
-                    key = key.strip().lower()
-                    if key == "room_id":
-                        result["room_id"] = value
-                    elif key == "owner":
-                        result["owner"] = value
-                    elif key == "purpose":
-                        result["purpose"] = value
-                    elif key == "tags":
-                        result["tags"] = [t.strip() for t in value.split(",") if t.strip()]
-                    elif key == "persistent":
-                        result["persistent"] = value.lower() in ("1", "true", "yes")
+        if msg.command == "ROOMMETA" and len(msg.params) >= 3:
+            # Server sends: ROOMMETA <channel> <key> <value>
+            key = msg.params[1].strip().lower()
+            value = msg.params[2]
+            if key == "room_id":
+                result["room_id"] = value
+            elif key == "owner":
+                result["owner"] = value
+            elif key == "purpose":
+                result["purpose"] = value
+            elif key == "tags":
+                result["tags"] = [t.strip() for t in value.split(",") if t.strip()]
+            elif key == "persistent":
+                result["persistent"] = value.lower() in ("1", "true", "yes")
     return result
 
 
@@ -297,7 +294,7 @@ async def _query_tags(
     """Query TAGS for an agent and return a list of tag strings."""
     writer.write(f"TAGS {target_nick}\r\n".encode())
     await writer.drain()
-    messages = await _recv_until(reader, writer, {"TAGS", "ERR_NOSUCHNICK", "ERR_UNKNOWNCOMMAND"})
+    messages = await _recv_until(reader, writer, {"TAGSEND", "ERR_NOSUCHNICK", "ERR_UNKNOWNCOMMAND"})
     for msg in messages:
         if msg.command == "TAGS" and len(msg.params) >= 2:
             # Expected format: TAGS <nick> <tag1,tag2,...>

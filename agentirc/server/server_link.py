@@ -491,16 +491,15 @@ class ServerLink:
         channel_name = msg.params[0]
         meta_json = msg.params[1]
 
-        # Trust check: same pattern as _handle_sjoin
+        # Trust check: for SROOMMETA we accept metadata for channels that the
+        # sender already filtered via should_relay(). Don't block new channel
+        # creation for metadata-only (no membership changes).
         existing = self.server.channels.get(channel_name)
-        if existing:
-            if existing.restricted:
-                return
-            if self.trust == "restricted" and self.peer_name not in existing.shared_with:
-                return
-        else:
-            if self.trust == "restricted":
-                return
+        if existing and existing.restricted:
+            return
+        # For restricted trust, only accept if channel exists and is shared
+        if self.trust == "restricted" and existing and self.peer_name not in existing.shared_with:
+            return
 
         try:
             meta = json.loads(meta_json)
@@ -553,11 +552,29 @@ class ServerLink:
         if self.trust == "restricted" and self.peer_name not in channel.shared_with:
             return
 
-        # Rename and archive
+        # Notify and part local members
+        notice = Message(
+            prefix=self.server.config.name, command="NOTICE",
+            params=["*", f"Room {channel_name} has been archived"],
+        )
+        for member in list(channel.members):
+            if not isinstance(member, RemoteClient):
+                await member.send(notice)
+                part_msg = Message(
+                    prefix=member.prefix, command="PART",
+                    params=[channel_name, "Room archived"],
+                )
+                await member.send(part_msg)
+            if hasattr(member, "channels"):
+                member.channels.discard(channel)
+
+        channel.members.clear()
+        channel.operators.clear()
+        channel.voiced.clear()
+
         del self.server.channels[channel_name]
         channel.name = archive_name
         channel.archived = True
-        channel.members.clear()
         self.server.channels[archive_name] = channel
 
     # --- Backfill ---

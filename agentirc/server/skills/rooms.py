@@ -60,7 +60,10 @@ class RoomsSkill(Skill):
         channel.owner = client.nick
         channel.purpose = meta.get("purpose")
         channel.instructions = meta.get("instructions")
-        channel.persistent = meta.get("persistent", "").lower() == "true"
+        if "persistent" in meta:
+            channel.persistent = meta["persistent"].lower() == "true"
+        else:
+            channel.persistent = True  # managed rooms default to persistent
         channel.created_at = time.time()
         channel.extra_meta = {}
 
@@ -383,7 +386,7 @@ class RoomsSkill(Skill):
         await client.send(Message(
             prefix=self.server.config.name,
             command="ROOMINVITE",
-            params=[client.nick, channel.name, ";".join(parts[1:]) or channel.name],
+            params=[channel.name, client.nick, ";".join(parts[1:]) or channel.name],
         ))
 
     async def _handle_roominvite(self, client: Client, msg: Message) -> None:
@@ -429,7 +432,7 @@ class RoomsSkill(Skill):
         await target.send(Message(
             prefix=client.prefix,
             command="ROOMINVITE",
-            params=[target_nick, channel_name, context],
+            params=[channel_name, target_nick, f"requestor={client.nick};{context}" if context != channel_name else f"requestor={client.nick}"],
         ))
 
         # Confirmation notice to inviter
@@ -492,7 +495,7 @@ class RoomsSkill(Skill):
         channel.remove(target)
         target.channels.discard(channel)
 
-        if not channel.members:
+        if not channel.members and not channel.persistent:
             del self.server.channels[channel_name]
 
     def _next_archive_name(self, base_name: str) -> str:

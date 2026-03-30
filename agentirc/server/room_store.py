@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-import os
+import re
 from pathlib import Path
 
 
@@ -16,6 +16,10 @@ class RoomStore:
     def save(self, channel) -> None:
         """Persist a managed room's metadata to disk."""
         if not channel.room_id:
+            return
+        # Sanitize room_id to prevent path traversal
+        safe_id = re.sub(r'[^A-Z0-9]', '', channel.room_id)
+        if not safe_id:
             return
         data = {
             "room_id": channel.room_id,
@@ -32,7 +36,7 @@ class RoomStore:
             "created_at": channel.created_at,
             "topic": channel.topic,
         }
-        path = self._rooms_dir / f"{channel.room_id}.json"
+        path = self._rooms_dir / f"{safe_id}.json"
         tmp = path.with_suffix(".tmp")
         with open(tmp, "w") as f:
             json.dump(data, f, indent=2)
@@ -40,7 +44,11 @@ class RoomStore:
 
     def delete(self, room_id: str) -> None:
         """Remove a room's persisted data."""
-        path = self._rooms_dir / f"{room_id}.json"
+        # Sanitize room_id to prevent path traversal
+        safe_id = re.sub(r'[^A-Z0-9]', '', room_id)
+        if not safe_id:
+            return
+        path = self._rooms_dir / f"{safe_id}.json"
         if path.exists():
             path.unlink()
 
