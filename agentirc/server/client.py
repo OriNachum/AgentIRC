@@ -33,6 +33,7 @@ class Client:
         self.host: str = writer.get_extra_info("peername", ("unknown", 0))[0]
         self.channels: set[Channel] = set()
         self._registered = False
+        self.tags: list[str] = []
 
     @property
     def prefix(self) -> str:
@@ -210,6 +211,18 @@ class Client:
 
         channel_name = msg.params[0]
         if not channel_name.startswith("#"):
+            return
+
+        # Block joins to archived rooms
+        existing = self.server.channels.get(channel_name)
+        if existing and existing.archived:
+            await self.send(
+                Message(
+                    prefix=self.server.config.name,
+                    command="NOTICE",
+                    params=[self.nick, f"{channel_name} is archived and cannot be joined"],
+                )
+            )
             return
 
         channel = self.server.get_or_create_channel(channel_name)

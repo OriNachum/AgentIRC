@@ -76,3 +76,98 @@ def test_parse_room_meta_empty():
     from agentirc.server.rooms_util import parse_room_meta
 
     assert parse_room_meta("") == {}
+
+
+@pytest.mark.asyncio
+async def test_roomcreate_basic(server, make_client):
+    """ROOMCREATE creates a managed room and returns room ID."""
+    alice = await make_client(nick="testserv-alice", user="alice")
+    await alice.send(
+        "ROOMCREATE #pyhelp :purpose=Python help;tags=python,code-help;persistent=true"
+    )
+    lines = await alice.recv_all(timeout=1.0)
+    joined = " ".join(lines)
+
+    # Should get a ROOMCREATED response with room ID
+    assert "ROOMCREATED" in joined
+    assert "#pyhelp" in joined
+    assert " R" in joined  # room ID starts with R
+
+    # Should have auto-joined the channel
+    assert "JOIN" in joined
+    assert "353" in joined  # RPL_NAMREPLY
+
+
+@pytest.mark.asyncio
+async def test_roomcreate_stores_metadata(server, make_client):
+    """ROOMCREATE stores metadata on the channel."""
+    alice = await make_client(nick="testserv-alice", user="alice")
+    await alice.send(
+        "ROOMCREATE #pyhelp :purpose=Python help;tags=python,code-help;persistent=true;agent_limit=5"
+    )
+    await alice.recv_all(timeout=1.0)
+
+    channel = server.channels.get("#pyhelp")
+    assert channel is not None
+    assert channel.is_managed
+    assert channel.room_id is not None
+    assert channel.room_id.startswith("R")
+    assert channel.creator == "testserv-alice"
+    assert channel.owner == "testserv-alice"
+    assert channel.purpose == "Python help"
+    assert channel.tags == ["python", "code-help"]
+    assert channel.persistent is True
+    assert channel.agent_limit == 5
+    assert channel.created_at is not None
+
+
+@pytest.mark.asyncio
+async def test_roomcreate_with_instructions(server, make_client):
+    """ROOMCREATE handles instructions field (may contain semicolons)."""
+    alice = await make_client(nick="testserv-alice", user="alice")
+    await alice.send(
+        "ROOMCREATE #help :purpose=Help;tags=py;instructions=Do this; then that; done"
+    )
+    await alice.recv_all(timeout=1.0)
+
+    channel = server.channels["#help"]
+    assert channel.instructions == "Do this; then that; done"
+
+
+@pytest.mark.asyncio
+async def test_roomcreate_duplicate_name(server, make_client):
+    """ROOMCREATE on existing channel fails."""
+    alice = await make_client(nick="testserv-alice", user="alice")
+    await alice.send("ROOMCREATE #pyhelp :purpose=first")
+    await alice.recv_all(timeout=1.0)
+
+    await alice.send("ROOMCREATE #pyhelp :purpose=second")
+    lines = await alice.recv_all(timeout=1.0)
+    joined = " ".join(lines)
+    assert "already exists" in joined.lower() or "403" in joined
+
+
+@pytest.mark.asyncio
+async def test_roomcreate_requires_hash(server, make_client):
+    """ROOMCREATE requires channel name starting with #."""
+    alice = await make_client(nick="testserv-alice", user="alice")
+    await alice.send("ROOMCREATE badname :purpose=test")
+    lines = await alice.recv_all(timeout=1.0)
+    assert "badname" not in server.channels
+
+
+@pytest.mark.asyncio
+async def test_roomcreate_no_params(server, make_client):
+    """ROOMCREATE with missing params returns error."""
+    alice = await make_client(nick="testserv-alice", user="alice")
+    await alice.send("ROOMCREATE")
+    resp = await alice.recv()
+    assert "461" in resp  # ERR_NEEDMOREPARAMS
+
+
+@pytest.mark.asyncio
+async def test_client_tags_default_empty(server, make_client):
+    """Client tags default to empty list."""
+    alice = await make_client(nick="testserv-alice", user="alice")
+    client = server.clients["testserv-alice"]
+    assert client.tags == []

@@ -42,8 +42,10 @@ class IRCd:
 
     async def _register_default_skills(self) -> None:
         from agentirc.server.skills.history import HistorySkill
+        from agentirc.server.skills.rooms import RoomsSkill
 
         await self.register_skill(HistorySkill())
+        await self.register_skill(RoomsSkill())
 
     async def register_skill(self, skill: Skill) -> None:
         self.skills.append(skill)
@@ -164,7 +166,7 @@ class IRCd:
             del self.clients[client.nick]
         for channel in list(client.channels):
             channel.remove(client)
-            if not channel.members:
+            if not channel.members and not channel.persistent:
                 del self.channels[channel.name]
 
     def _remove_link(self, link: ServerLink) -> None:
