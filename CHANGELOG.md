@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.15.2] - 2026-03-31
+
+
+### Changed
+
+- Extended .pr_agent.toml with harness conformance checks for cross-backend validation
+
 ## [0.15.1] - 2026-03-30
 
 

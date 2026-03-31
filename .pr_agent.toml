@@ -1,9 +1,38 @@
 [pr_reviewer]
 extra_instructions = """
+## Project Context
+
 - The `packages/` directory is ONLY for the "assimilai" pattern (internal packages copied into other projects). Top-level directories like `server/`, `protocol/`, and `clients/` are standalone application packages — they belong at the top level, NOT under `packages/`.
 - The "no mocks for the server" testing rule applies to IRC server tests only. Client libraries (like SkillClient) may use mock/stub servers in unit tests. Integration tests in `test_integration_layer5.py` exercise the real server stack.
 - Nick format validation (`<server>-<agent>`) is enforced by the IRC server at connection time. Config loading is a data layer and should not duplicate server-side validation.
 - Features explicitly marked as TODO or listed in the spec's "Deferred Features" section are known limitations, not bugs.
 - The `clients/` directory contains agent client harnesses (daemons). It is NOT an internal package for assimilation.
+
+## Harness Conformance (CRITICAL)
+
+The authoritative spec is `docs/agent-harness-spec.md`. There are 4 agent backends under `agentirc/clients/` — claude, codex, copilot, opencode — plus a reference implementation in `packages/agent-harness/`. The all-backends rule: a feature that exists in only one backend is a bug.
+
+When reviewing changes to any file under `agentirc/clients/` or `packages/agent-harness/`, apply these checks:
+
+### Cross-backend propagation
+When a PR changes a file in `agentirc/clients/<backend>/`, check whether the same change must be applied to the other 3 backends. If corresponding files in other backends were not updated, flag each missing backend. Exception: `agent_runner.py` and `supervisor.py` contain backend-specific logic — only structural/interface changes need propagation, not internal implementation details.
+
+### Generic file identity
+These files MUST be identical across all 4 backends and `packages/agent-harness/`, except for import paths (`from agentirc.clients.<backend>.`): `irc_transport.py`, `message_buffer.py`, `socket_server.py`, `ipc.py`, `webhook.py`, `skill/irc_client.py`. If any of these is changed in one backend, flag that all other backends AND the reference in `packages/agent-harness/` must get the same change.
+
+### Interface contract
+If `agent_runner.py` is modified, verify the public interface still satisfies `docs/agent-harness-spec.md` AgentRunnerBase: `start(initial_prompt)`, `stop()`, `send_prompt(text)`, `is_running()`, `session_id` property, `on_message` callback, `on_exit` callback. If `supervisor.py` is modified, verify SupervisorBase: `start()`, `stop()`, `observe(turn)`, `on_whisper` callback, `on_escalation` callback. Flag any missing or renamed interface members.
+
+### Daemon contract
+If `daemon.py` is modified, verify all IPC dispatch handlers are still present: `irc_send`, `irc_read`, `irc_ask`, `irc_join`, `irc_part`, `irc_who`, `irc_channels`, `compact`, `clear`, `shutdown`. Also verify structural features (crash recovery, `_mention_targets`, sleep scheduler) are consistent across backends. If a structural feature is added to one daemon, flag its absence in the others.
+
+### Config schema
+If `config.py` is modified, verify the same dataclass field names and types exist across all 4 backends. Only default values may differ by backend (e.g., model names). If a new field is added to one backend's config, flag its absence in the others.
+
+### SKILL.md consistency
+If any `SKILL.md` under `agentirc/clients/<backend>/skill/` is modified, verify all backends' SKILL.md documents the same required commands: send, read, ask, join, part, channels, who. Flag format or content inconsistencies.
+
+### Spec-doc alignment
+If `docs/agent-harness-spec.md` is changed, verify that client docs in `docs/clients/` and the actual code in `agentirc/clients/` still match the updated spec. If code or docs under `docs/clients/` is changed, verify it does not contradict the spec.
 """
-num_max_findings = 5
+num_max_findings = 10
