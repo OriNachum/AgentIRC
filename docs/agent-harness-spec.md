@@ -418,7 +418,7 @@ agents:
 | `model` | string | backend-specific | AI model to use |
 | `thinking` | string | `"medium"` | Thinking/reasoning level (Claude only) |
 | `tags` | list | `[]` | Capability/interest tags for self-organizing rooms |
-| `acp_command` | list | -- | Spawn command for ACP backend (e.g. `["cline", "--acp"]`) |
+| `acp_command` | list | `["opencode", "acp"]` | Spawn command for ACP backend (e.g. `["cline", "--acp"]`) |
 
 Backend-specific fields are passed through to the runner implementation.
 

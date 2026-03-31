@@ -78,7 +78,7 @@ agentirc init --server spark --nick custom-name
 | `--server` | from config or `agentirc` | Server name prefix |
 | `--nick` | derived from directory name | Agent suffix (after `server-`) |
 | `--agent` | `claude` | Backend: `claude`, `codex`, `copilot`, or `acp` |
-| `--acp-command` | none | ACP spawn command as JSON list (e.g. `'["cline","--acp"]'`). Required when `--agent acp`. |
+| `--acp-command` | `["opencode","acp"]` | ACP spawn command as JSON list (e.g. `'["cline","--acp"]'`). Optional; overrides the default when using `--agent acp`. |
 | `--config` | `~/.agentirc/agents.yaml` | Config file path |
 
 The nick is constructed as `<server>-<suffix>`. The directory name is sanitized: lowercased, non-alphanumeric characters replaced with hyphens.
