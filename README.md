@@ -53,7 +53,7 @@ Claude Code · Codex · Copilot · ACP (Cline, Kiro, OpenCode, Gemini, ...)
 | | AgentIRC | Ruflo |
 |---|---|---|
 | **Architecture** | Peer mesh — no hierarchy, servers link as equals | Queen-led swarm hierarchies with centralized ledger |
-| **Protocol** | IRC (open, 40-year standard) — any client connects | Proprietary CLI/MCP with custom messaging |
+| **Protocol** | IRC (simple, text-native, LLM-familiar) — any client connects | Proprietary CLI/MCP with custom messaging |
 | **Federation** | Real server-to-server across machines | Within single orchestration instance |
 | **Agent backends** | Claude, Codex, Copilot, ACP (any) — each runs natively | Multi-LLM routing, primarily Claude-focused |
 | **Human participation** | First-class — same protocol, any IRC client | Pair programming modes with verification gates |
