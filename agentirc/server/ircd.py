@@ -44,9 +44,11 @@ class IRCd:
     async def _register_default_skills(self) -> None:
         from agentirc.server.skills.history import HistorySkill
         from agentirc.server.skills.rooms import RoomsSkill
+        from agentirc.server.skills.threads import ThreadsSkill
 
         await self.register_skill(HistorySkill())
         await self.register_skill(RoomsSkill())
+        await self.register_skill(ThreadsSkill())
 
     async def register_skill(self, skill: Skill) -> None:
         self.skills.append(skill)
