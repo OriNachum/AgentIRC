@@ -11,6 +11,7 @@ from agentirc.protocol import replies
 from agentirc.server.skill import Event, EventType, Skill
 
 if TYPE_CHECKING:
+    from agentirc.server.channel import Channel
     from agentirc.server.client import Client
 
 # Thread name: alphanumeric + hyphens, 1-32 chars, must start/end with alnum
@@ -138,8 +139,7 @@ class ThreadsSkill(Skill):
         self._threads[key] = thread
 
         # Deliver prefixed PRIVMSG to channel members
-        prefixed = f"[thread:{thread_name}] {text}"
-        await self._deliver_thread_msg(client, channel, thread_name, text)
+        prefixed = await self._deliver_thread_msg(client, channel, thread_name, text)
 
         # Emit event
         await self.server.emit_event(Event(
@@ -202,8 +202,7 @@ class ThreadsSkill(Skill):
             thread.messages = thread.messages[-thread.max_messages:]
 
         # Deliver prefixed PRIVMSG to channel members
-        prefixed = f"[thread:{thread_name}] {text}"
-        await self._deliver_thread_msg(client, channel, thread_name, text)
+        prefixed = await self._deliver_thread_msg(client, channel, thread_name, text)
 
         # Emit event
         await self.server.emit_event(Event(
@@ -213,19 +212,29 @@ class ThreadsSkill(Skill):
             data={"text": prefixed, "thread": thread_name, "raw_text": text},
         ))
 
-    async def _deliver_thread_msg(self, sender, channel, thread_name: str, text: str) -> None:
-        """Send a [thread:name] prefixed PRIVMSG to all channel members except sender."""
+    @staticmethod
+    def _format_thread_msg(thread_name: str, text: str) -> str:
+        return f"[thread:{thread_name}] {text}"
+
+    async def _deliver_thread_msg(
+        self, sender: Client, channel: Channel, thread_name: str, text: str,
+    ) -> str:
+        """Send a [thread:name] prefixed PRIVMSG to all channel members except sender.
+
+        Returns the prefixed text for use in event data.
+        """
         from agentirc.server.remote_client import RemoteClient
 
-        prefixed_text = f"[thread:{thread_name}] {text}"
+        prefixed = self._format_thread_msg(thread_name, text)
         relay = Message(
             prefix=sender.prefix,
             command="PRIVMSG",
-            params=[channel.name, prefixed_text],
+            params=[channel.name, prefixed],
         )
         for member in list(channel.members):
             if member is not sender and not isinstance(member, RemoteClient):
                 await member.send(relay)
+        return prefixed
 
     # ---- THREADS (list) ---------------------------------------------------
 
