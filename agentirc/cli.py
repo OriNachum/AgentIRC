@@ -310,7 +310,8 @@ async def _run_server(name: str, host: str, port: int, links: list | None = None
             await ircd.connect_to_peer(lc.host, lc.port, lc.password, lc.trust)
             logger.info("Linking to %s at %s:%d", lc.name, lc.host, lc.port)
         except Exception as e:
-            logger.error("Failed to link to %s: %s", lc.name, e)
+            logger.error("Failed to link to %s: %s — will retry", lc.name, e)
+            ircd._maybe_retry_link(lc.name)
 
     stop_event = asyncio.Event()
     loop = asyncio.get_event_loop()

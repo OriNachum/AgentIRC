@@ -189,3 +189,33 @@ async def test_incoming_connection_cancels_retry():
     # Cleanup
     await server_a.stop()
     await server_b2.stop()
+
+
+@pytest.mark.asyncio
+async def test_reconnect_after_initial_failure():
+    """If initial connect_to_peer fails, server schedules retry."""
+    password = "testlink123"
+    config_a = ServerConfig(
+        name="alpha",
+        host="127.0.0.1",
+        port=0,
+        links=[LinkConfig(name="beta", host="127.0.0.1", port=16999, password=password)],
+    )
+
+    server_a = IRCd(config_a)
+    await server_a.start()
+    server_a.config.port = server_a._server.sockets[0].getsockname()[1]
+
+    # Simulate initial connection failure (port 16999 has nothing listening)
+    for lc in config_a.links:
+        try:
+            await server_a.connect_to_peer(lc.host, lc.port, lc.password, lc.trust)
+        except Exception:
+            server_a._maybe_retry_link(lc.name)
+
+    # Retry should be scheduled
+    assert "beta" in server_a._link_retry_state
+
+    # Clean up
+    server_a._link_retry_state["beta"]["task"].cancel()
+    await server_a.stop()
