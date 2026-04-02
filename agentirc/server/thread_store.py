@@ -39,6 +39,12 @@ class ThreadStore:
         if not self._threads_dir.exists():
             return threads
         for path in sorted(self._threads_dir.glob("*.json")):
-            with open(path) as f:
-                threads.append(json.load(f))
+            try:
+                with open(path) as f:
+                    threads.append(json.load(f))
+            except (json.JSONDecodeError, OSError) as exc:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Skipping corrupt thread file %s: %s", path, exc
+                )
         return threads

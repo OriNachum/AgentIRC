@@ -613,6 +613,9 @@ class ServerLink:
             data={"text": text, "thread": thread_name, "_origin": self.peer_name},
         ))
 
+        # Notify @mentions for remote thread messages
+        await self._notify_remote_mentions(channel_name, sender_nick, text)
+
     async def _handle_sthreadclose(self, msg: Message) -> None:
         """Handle inbound S2S STHREADCLOSE — deliver thread close notice."""
         if len(msg.params) < 4:
@@ -624,6 +627,8 @@ class ServerLink:
 
         channel = self.server.channels.get(channel_name)
         if channel is None:
+            return
+        if not self.should_relay(channel_name):
             return
 
         notice = Message(

@@ -23,7 +23,6 @@ class ThreadMessage:
     nick: str
     text: str
     timestamp: float
-    seq: int
 
 
 @dataclass
@@ -74,7 +73,7 @@ class ThreadsSkill(Skill):
             for m in data.get("messages", []):
                 thread.messages.append(ThreadMessage(
                     nick=m["nick"], text=m["text"],
-                    timestamp=m["timestamp"], seq=m.get("seq", 0),
+                    timestamp=m["timestamp"],
                 ))
             self._threads[(data["channel"], data["name"])] = thread
 
@@ -93,7 +92,7 @@ class ThreadsSkill(Skill):
             "summary": thread.summary,
             "messages": [
                 {"nick": m.nick, "text": m.text,
-                 "timestamp": m.timestamp, "seq": m.seq}
+                 "timestamp": m.timestamp}
                 for m in thread.messages
             ],
         })
@@ -169,7 +168,6 @@ class ThreadsSkill(Skill):
 
         # Create thread
         now = time.time()
-        seq = self.server.next_seq()
         thread = Thread(
             name=thread_name,
             channel=channel_name,
@@ -181,7 +179,6 @@ class ThreadsSkill(Skill):
             nick=client.nick,
             text=text,
             timestamp=now,
-            seq=seq,
         ))
         self._threads[key] = thread
 
@@ -241,12 +238,10 @@ class ThreadsSkill(Skill):
 
         # Append message (cap at max_messages)
         now = time.time()
-        seq = self.server.next_seq()
         thread.messages.append(ThreadMessage(
             nick=client.nick,
             text=text,
             timestamp=now,
-            seq=seq,
         ))
         if len(thread.messages) > thread.max_messages:
             thread.messages = thread.messages[-thread.max_messages:]
@@ -287,6 +282,33 @@ class ThreadsSkill(Skill):
         for member in list(channel.members):
             if member is not sender and not isinstance(member, RemoteClient):
                 await member.send(relay)
+
+        # Notify @mentioned users in the thread message
+        mentioned_nicks = re.findall(r"@(\S+)", text)
+        if mentioned_nicks:
+            seen: set[str] = set()
+            for raw_nick in mentioned_nicks:
+                nick = raw_nick.rstrip(".,;:!?")
+                if nick in seen or nick == sender.nick:
+                    continue
+                seen.add(nick)
+                target_client = self.server.clients.get(nick)
+                if not target_client:
+                    continue
+                if target_client not in channel.members:
+                    continue
+                if isinstance(target_client, RemoteClient):
+                    continue
+                notice = Message(
+                    prefix=self.server.config.name,
+                    command="NOTICE",
+                    params=[
+                        nick,
+                        f"{sender.nick} mentioned you in thread {thread_name} on {channel.name}",
+                    ],
+                )
+                await target_client.send(notice)
+
         return prefixed
 
     # ---- THREADS (list) ---------------------------------------------------
@@ -421,7 +443,12 @@ class ThreadsSkill(Skill):
             type=EventType.THREAD_CLOSE,
             channel=channel_name,
             nick=client.nick,
-            data={"thread": thread_name, "summary": summary_text},
+            data={
+                "thread": thread_name,
+                "summary": summary,  # raw summary text from user
+                "participants": n_participants,
+                "messages": n_messages,
+            },
         ))
 
     async def _handle_promote(self, client: Client, msg: Message) -> None:
@@ -473,6 +500,18 @@ class ThreadsSkill(Skill):
         # Determine breakout channel name
         channel_base = channel_name  # e.g. "#general"
         breakout_name = custom_breakout or f"{channel_base}-{thread_name}"
+
+        # Check if breakout channel already exists (allow reuse only for same thread)
+        existing = self.server.channels.get(breakout_name)
+        if existing is not None:
+            if existing.extra_meta.get("thread_parent") != channel_name or \
+               existing.extra_meta.get("thread_name") != thread_name:
+                await client.send(Message(
+                    prefix=self.server.config.name,
+                    command="400",
+                    params=[client.nick or "*", breakout_name, "Channel already exists"],
+                ))
+                return
 
         # Create breakout channel
         breakout = self.server.get_or_create_channel(breakout_name)
@@ -539,8 +578,10 @@ class ThreadsSkill(Skill):
             nick=client.nick,
             data={
                 "thread": thread_name,
-                "promoted": True,
-                "breakout": breakout_name,
+                "promoted_to": breakout_name,
+                "summary": thread.summary,
+                "participants": len(thread.participants),
+                "messages": len(thread.messages),
             },
         ))
 
