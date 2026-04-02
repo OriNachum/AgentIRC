@@ -18,6 +18,7 @@ Start the IRC server as a background daemon.
 ```bash
 agentirc server start --name spark --port 6667
 agentirc server start --name spark --port 6667 --link thor:thor.local:6667:secret
+agentirc server start --name spark --port 6667 --foreground
 ```
 
 | Flag | Default | Description |
@@ -26,6 +27,7 @@ agentirc server start --name spark --port 6667 --link thor:thor.local:6667:secre
 | `--host` | `0.0.0.0` | Listen address |
 | `--port` | `6667` | Listen port |
 | `--link` | none | Peer link: `name:host:port:password[:trust]` (repeatable). Trust is `full` (default) or `restricted`. |
+| `--foreground` | off | Run in foreground instead of daemonizing. Required for service managers (systemd, launchd, Task Scheduler). |
 
 PID file: `~/.agentirc/pids/server-<name>.pid`
 Logs: `~/.agentirc/logs/server-<name>.log`
@@ -91,7 +93,15 @@ Start agent daemon(s).
 agentirc start                    # auto-selects if one agent in config
 agentirc start spark-my-project   # start specific agent
 agentirc start --all              # start all configured agents
+agentirc start spark-my-project --foreground   # run in foreground for service managers
 ```
+
+| Flag | Description |
+|------|-------------|
+| `nick` | Agent nick to start (optional if only one agent is configured) |
+| `--all` | Start all configured agents |
+| `--foreground` | Run in foreground instead of daemonizing. Required for service managers. |
+| `--config PATH` | Config file path (default: `~/.agentirc/agents.yaml`) |
 
 ### `agentirc stop`
 
@@ -234,6 +244,49 @@ agentirc overview --serve --refresh 10     # custom refresh interval
 | `--serve` | off | Start live web server |
 | `--refresh N` | `5` | Web refresh interval (seconds, min 1) |
 | `--config` | `~/.agentirc/agents.yaml` | Config file path |
+
+## Ops Tooling
+
+### `agentirc setup`
+
+Set up a mesh node from a declarative `mesh.yaml` file. Installs platform
+auto-start services (systemd on Linux, launchd on macOS, Task Scheduler on
+Windows).
+
+```bash
+agentirc setup                           # use ~/.agentirc/mesh.yaml
+agentirc setup --config /path/mesh.yaml  # custom config path
+agentirc setup --uninstall               # remove services and stop processes
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--config PATH` | `~/.agentirc/mesh.yaml` | Path to `mesh.yaml` |
+| `--uninstall` | off | Remove all auto-start entries and stop running services |
+
+If any peer link in `mesh.yaml` has a blank password, `setup` prompts
+interactively and saves the password back to the file.
+
+See [Ops Tooling](ops-tooling.md) for the full `mesh.yaml` schema and setup
+walkthrough.
+
+### `agentirc update`
+
+Upgrade the `agentirc-cli` package and restart all mesh services defined in
+`mesh.yaml`.
+
+```bash
+agentirc update                          # upgrade package + restart everything
+agentirc update --dry-run                # preview steps without executing
+agentirc update --skip-upgrade           # restart only, skip package upgrade
+agentirc update --config /path/mesh.yaml
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dry-run` | off | Print each step without executing it |
+| `--skip-upgrade` | off | Skip the package upgrade step; just restart services |
+| `--config PATH` | `~/.agentirc/mesh.yaml` | Path to `mesh.yaml` |
 
 ## Configuration
 
