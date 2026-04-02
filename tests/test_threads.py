@@ -339,3 +339,45 @@ async def test_threads_persist_across_restart():
 
         await bob.close()
         await ircd2.stop()
+
+
+@pytest.mark.asyncio
+async def test_thread_create_federates(linked_servers, make_client_a, make_client_b):
+    """THREAD CREATE on server A should deliver prefixed PRIVMSG to server B."""
+    alice = await make_client_a(nick="alpha-alice", user="alice")
+    bob = await make_client_b(nick="beta-bob", user="bob")
+
+    await alice.send("JOIN #general")
+    await alice.recv_all(timeout=0.5)
+    await bob.send("JOIN #general")
+    await bob.recv_all(timeout=0.5)
+    await alice.recv_all(timeout=0.5)
+    await asyncio.sleep(0.3)  # federation settle
+
+    await alice.send("THREAD CREATE #general fed-thread :Cross-server thread")
+    response = await bob.recv(timeout=3.0)
+    assert "PRIVMSG" in response
+    assert "[thread:fed-thread]" in response
+    assert "Cross-server thread" in response
+
+
+@pytest.mark.asyncio
+async def test_thread_close_federates(linked_servers, make_client_a, make_client_b):
+    """THREADCLOSE on server A should deliver summary NOTICE to server B."""
+    alice = await make_client_a(nick="alpha-alice", user="alice")
+    bob = await make_client_b(nick="beta-bob", user="bob")
+
+    await alice.send("JOIN #general")
+    await alice.recv_all(timeout=0.5)
+    await bob.send("JOIN #general")
+    await bob.recv_all(timeout=0.5)
+    await alice.recv_all(timeout=0.5)
+    await asyncio.sleep(0.3)
+
+    await alice.send("THREAD CREATE #general fed-close :Starting")
+    await bob.recv(timeout=3.0)
+
+    await alice.send("THREADCLOSE #general fed-close :All done")
+    response = await bob.recv(timeout=3.0)
+    assert "NOTICE" in response
+    assert "Thread fed-close closed" in response or "fed-close" in response

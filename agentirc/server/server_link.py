@@ -577,6 +577,69 @@ class ServerLink:
         channel.archived = True
         self.server.channels[archive_name] = channel
 
+    async def _handle_sthread(self, msg: Message) -> None:
+        """Handle inbound S2S STHREAD — deliver thread message to local clients."""
+        if len(msg.params) < 4:
+            return
+        channel_name = msg.params[0]
+        sender_nick = msg.params[1]
+        thread_name = msg.params[2]
+        text = msg.params[3]
+
+        channel = self.server.channels.get(channel_name)
+        if channel is None:
+            return
+        if not self.should_relay(channel_name):
+            return
+
+        # Deliver prefixed PRIVMSG to local members
+        relay = Message(
+            prefix=f"{sender_nick}!{sender_nick}@{self.peer_name}",
+            command="PRIVMSG",
+            params=[channel_name, text],
+        )
+        for member in list(channel.members):
+            if not isinstance(member, RemoteClient):
+                await member.send(relay)
+
+        # Emit locally with _origin to prevent re-relay
+        await self.server.emit_event(Event(
+            type=EventType.THREAD_MESSAGE,
+            channel=channel_name,
+            nick=sender_nick,
+            data={"text": text, "thread": thread_name, "_origin": self.peer_name},
+        ))
+
+    async def _handle_sthreadclose(self, msg: Message) -> None:
+        """Handle inbound S2S STHREADCLOSE — deliver thread close notice."""
+        if len(msg.params) < 4:
+            return
+        channel_name = msg.params[0]
+        sender_nick = msg.params[1]
+        thread_name = msg.params[2]
+        close_data = msg.params[3]
+
+        channel = self.server.channels.get(channel_name)
+        if channel is None:
+            return
+
+        notice = Message(
+            prefix=self.server.config.name,
+            command="NOTICE",
+            params=[channel_name, f"[Thread {thread_name} closed] {close_data}"],
+        )
+        for member in list(channel.members):
+            if not isinstance(member, RemoteClient):
+                await member.send(notice)
+
+        await self.server.emit_event(Event(
+            type=EventType.THREAD_CLOSE,
+            channel=channel_name,
+            nick=sender_nick,
+            data={"thread": thread_name, "summary": close_data,
+                  "_origin": self.peer_name},
+        ))
+
     # --- Backfill ---
 
     async def _send_backfill_request(self) -> None:
@@ -699,6 +762,28 @@ class ServerLink:
             if not self.should_relay(archive_name):
                 return
             await self.send_raw(f":{origin} SROOMARCHIVE {channel_name} {archive_name}")
+        elif event.type == EventType.THREAD_CREATE or event.type == EventType.THREAD_MESSAGE:
+            channel_name = event.channel
+            if not self.should_relay(channel_name):
+                return
+            thread_name = event.data.get("thread", "")
+            text = event.data.get("text", "")  # This is the prefixed text
+            await self.send_raw(
+                f":{origin} STHREAD {channel_name} {event.nick} {thread_name} :{text}"
+            )
+        elif event.type == EventType.THREAD_CLOSE:
+            channel_name = event.channel
+            if not self.should_relay(channel_name):
+                return
+            thread_name = event.data.get("thread", "")
+            summary = event.data.get("summary", "")
+            promoted_to = event.data.get("promoted_to", "")
+            close_data = summary
+            if promoted_to:
+                close_data = f"PROMOTE {promoted_to} {summary}"
+            await self.send_raw(
+                f":{origin} STHREADCLOSE {channel_name} {event.nick} {thread_name} :{close_data}"
+            )
 
     # --- Mention notifications for remote messages ---
 
