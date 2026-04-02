@@ -118,3 +118,74 @@ async def test_squit_does_not_trigger_retry():
     # Cleanup
     await server_a.stop()
     await server_b.stop()
+
+
+@pytest.mark.asyncio
+async def test_incoming_connection_cancels_retry():
+    """When a peer reconnects inbound while retry is pending, retry is cancelled."""
+    password = "testlink123"
+
+    config_a = ServerConfig(
+        name="alpha",
+        host="127.0.0.1",
+        port=0,
+        links=[LinkConfig(name="beta", host="127.0.0.1", port=0, password=password)],
+    )
+    config_b = ServerConfig(
+        name="beta",
+        host="127.0.0.1",
+        port=0,
+        links=[LinkConfig(name="alpha", host="127.0.0.1", port=0, password=password)],
+    )
+
+    server_a = IRCd(config_a)
+    server_b = IRCd(config_b)
+
+    await server_a.start()
+    await server_b.start()
+
+    server_a.config.port = server_a._server.sockets[0].getsockname()[1]
+    server_b.config.port = server_b._server.sockets[0].getsockname()[1]
+
+    config_a.links[0].port = server_b.config.port
+    config_b.links[0].port = server_a.config.port
+
+    # Link the servers (A -> B)
+    await server_a.connect_to_peer("127.0.0.1", server_b.config.port, password)
+    for _ in range(50):
+        if "beta" in server_a.links and "alpha" in server_b.links:
+            break
+        await asyncio.sleep(0.05)
+    assert "beta" in server_a.links
+
+    # Kill server B to trigger retry on A
+    await server_b.stop()
+
+    # Wait for retry to be scheduled on A
+    for _ in range(50):
+        if "beta" in server_a._link_retry_state:
+            break
+        await asyncio.sleep(0.05)
+    assert "beta" in server_a._link_retry_state
+
+    # Restart server B and have it connect inbound to A
+    server_b2 = IRCd(config_b)
+    await server_b2.start()
+    server_b2.config.port = server_b2._server.sockets[0].getsockname()[1]
+    # Update A's link config so retry would point at the new B port
+    config_a.links[0].port = server_b2.config.port
+
+    # B2 connects to A (inbound connection to A)
+    await server_b2.connect_to_peer("127.0.0.1", server_a.config.port, password)
+    for _ in range(50):
+        if "beta" in server_a.links:
+            break
+        await asyncio.sleep(0.05)
+
+    assert "beta" in server_a.links
+    # Retry state should be cleared by the incoming connection
+    assert "beta" not in server_a._link_retry_state
+
+    # Cleanup
+    await server_a.stop()
+    await server_b2.stop()

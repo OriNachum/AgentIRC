@@ -169,6 +169,7 @@ class ServerLink:
 
         self._authenticated = True
         self.server.links[self.peer_name] = self
+        self.server.cancel_link_retry(self.peer_name)
 
         # Restore last seen seq from previous link sessions
         self.last_seen_seq = self.server._peer_acked_seq.get(self.peer_name, 0)
