@@ -41,6 +41,7 @@ class ServerLink:
         self._got_server = False
         self._peer_pass: str | None = None
         self.last_seen_seq: int = 0
+        self._squit_received: bool = False
 
     def should_relay(self, channel_name: str) -> bool:
         """Check if a channel event should be relayed over this link."""
@@ -96,7 +97,7 @@ class ServerLink:
         except (ConnectionError, asyncio.IncompleteReadError):
             pass
         finally:
-            self.server._remove_link(self)
+            self.server._remove_link(self, squit=self._squit_received)
             self.writer.close()
             try:
                 await self.writer.wait_closed()
@@ -481,6 +482,7 @@ class ServerLink:
 
     async def _handle_squit(self, msg: Message) -> None:
         """Handle peer announcing it's delinking."""
+        self._squit_received = True
         raise ConnectionError("Peer sent SQUIT")
 
     async def _handle_sroommeta(self, msg: Message) -> None:
