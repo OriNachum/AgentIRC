@@ -203,6 +203,76 @@ All nicks follow `<server>-<name>`. The server enforces the prefix.
 | `spark-ori` | Human "ori" on the spark server |
 | `thor-nemotron` | Agent on the thor server (via federation) |
 
+## Ops Tooling
+
+Declarative mesh setup via `mesh.yaml` — write the file, then let the CLI
+manage services.
+
+### Setup with mesh.yaml
+
+Default path: `~/.agentirc/mesh.yaml`
+
+```yaml
+server:
+  name: spark
+  host: 0.0.0.0
+  port: 6667
+  links:
+    - name: thor
+      host: 192.168.1.12
+      port: 6667
+      trust: full    # passwords stored in OS keyring, not here
+
+agents:
+  - nick: claude
+    type: claude
+    workdir: ~/projects/my-project
+    channels: ["#general"]
+```
+
+After writing `mesh.yaml`, run setup once (as human — prompts for any missing
+link passwords):
+
+```bash
+agentirc setup                 # install auto-start services
+agentirc setup --uninstall     # remove services and stop everything
+```
+
+`setup` writes per-agent `agents.yaml` files under each `workdir/.agentirc/`
+and installs platform auto-start services (systemd on Linux, launchd on macOS,
+Task Scheduler on Windows).
+
+### Update command
+
+Upgrade the package and restart the mesh in one step:
+
+```bash
+agentirc update                # upgrade agentirc-cli + restart all services
+agentirc update --dry-run      # preview without executing
+agentirc update --skip-upgrade # restart only, skip package upgrade
+```
+
+### --foreground flag
+
+`server start` and `start` both default to daemonizing. Pass `--foreground` to
+keep the process in the terminal — required when a service manager (systemd,
+launchd, Task Scheduler) supervises the process. `setup` always generates
+service commands with `--foreground`.
+
+```bash
+agentirc server start --name spark --port 6667 --foreground
+agentirc start spark-claude --foreground
+```
+
+### S2S auto-reconnect
+
+When an outbound S2S link drops, the server retries with exponential backoff:
+
+- Initial delay: **5 seconds**, doubles each attempt, caps at **120 seconds**
+- `SQUIT` (clean disconnect) does **not** trigger a retry
+- If the remote peer reconnects inbound before the local retry fires, the retry
+  is cancelled immediately
+
 ## Quick Reference
 
 | Task | Command |

@@ -14,6 +14,8 @@ Subcommands:
     agentirc sleep [nick] [--all]       Pause agent(s) — stay connected but idle
     agentirc wake [nick] [--all]        Resume paused agent(s)
     agentirc overview [--room X] [--agent X] Show mesh overview
+    agentirc setup [--config X] [--uninstall] Set up mesh from mesh.yaml
+    agentirc update [--dry-run] [--skip-upgrade] Upgrade and restart mesh
 """
 from __future__ import annotations
 
@@ -22,7 +24,9 @@ import asyncio
 import json
 import logging
 import os
+import shutil
 import signal
+import subprocess
 import sys
 import time
 
@@ -92,6 +96,14 @@ def _build_parser() -> argparse.ArgumentParser:
         "--link", type=_parse_link, action="append", default=[],
         help="Link to peer: name:host:port:password",
     )
+    srv_start.add_argument(
+        "--mesh-config", default=None,
+        help="Read links from mesh.yaml + OS keyring (no passwords in CLI args)",
+    )
+    srv_start.add_argument(
+        "--foreground", action="store_true",
+        help="Run in foreground (for service managers)",
+    )
 
     srv_stop = server_sub.add_parser("stop", help="Stop the IRC server daemon")
     srv_stop.add_argument("--name", default="agentirc", help="Server name")
@@ -112,6 +124,10 @@ def _build_parser() -> argparse.ArgumentParser:
     start_parser.add_argument("nick", nargs="?", help="Agent nick to start")
     start_parser.add_argument("--all", action="store_true", help="Start all agents")
     start_parser.add_argument("--config", default=DEFAULT_CONFIG, help="Config file path")
+    start_parser.add_argument(
+        "--foreground", action="store_true",
+        help="Run in foreground (for service managers)",
+    )
 
     # -- stop subcommand ---------------------------------------------------
     stop_parser = sub.add_parser("stop", help="Stop agent daemon(s)")
@@ -181,6 +197,32 @@ def _build_parser() -> argparse.ArgumentParser:
     overview_parser.add_argument("--refresh", type=int, default=5, help="Web refresh interval in seconds (default: 5, min: 1)")
     overview_parser.add_argument("--config", default=DEFAULT_CONFIG)
 
+    # -- setup subcommand --------------------------------------------------
+    setup_parser = sub.add_parser("setup", help="Set up mesh from mesh.yaml")
+    setup_parser.add_argument(
+        "--config", default=os.path.expanduser("~/.agentirc/mesh.yaml"),
+        help="Path to mesh.yaml",
+    )
+    setup_parser.add_argument(
+        "--uninstall", action="store_true",
+        help="Remove auto-start entries and stop services",
+    )
+
+    # -- update subcommand -------------------------------------------------
+    update_parser = sub.add_parser("update", help="Upgrade and restart the mesh")
+    update_parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Show what would happen without executing",
+    )
+    update_parser.add_argument(
+        "--skip-upgrade", action="store_true",
+        help="Just restart, don't upgrade the package",
+    )
+    update_parser.add_argument(
+        "--config", default=os.path.expanduser("~/.agentirc/mesh.yaml"),
+        help="Path to mesh.yaml",
+    )
+
     return parser
 
 
@@ -213,6 +255,8 @@ def main() -> None:
             "wake": _cmd_wake,
             "skills": _cmd_skills,
             "overview": _cmd_overview,
+            "setup": _cmd_setup,
+            "update": _cmd_update,
         }
         handler = dispatch.get(args.command)
         if handler:
@@ -253,10 +297,30 @@ def _server_start(args: argparse.Namespace) -> None:
         print(f"Server '{args.name}' is already running (PID {existing})")
         sys.exit(1)
 
+    # Resolve links: --mesh-config reads from mesh.yaml + OS keyring (no passwords in CLI)
+    links = list(args.link)  # from --link args (may include passwords for manual use)
+    if getattr(args, "mesh_config", None):
+        links = _resolve_links_from_mesh(args.mesh_config)
+
+    if getattr(args, "foreground", False):
+        # Foreground mode — run directly (for service managers)
+        write_pid(pid_name, os.getpid())
+        os.makedirs(LOG_DIR, exist_ok=True)
+        print(f"Server '{args.name}' starting in foreground (PID {os.getpid()})")
+        print(f"  Listening on {args.host}:{args.port}")
+        try:
+            asyncio.run(_run_server(args.name, args.host, args.port, links))
+        finally:
+            remove_pid(pid_name)
+        return
+
+    if sys.platform == "win32":
+        print("Daemon mode not supported on Windows. Use --foreground.", file=sys.stderr)
+        sys.exit(1)
+
     # Fork to daemonize
     pid = os.fork()
     if pid > 0:
-        # Parent: wait briefly to check child started, then exit
         time.sleep(0.2)
         if is_process_alive(pid):
             print(f"Server '{args.name}' started (PID {pid})")
@@ -278,17 +342,14 @@ def _server_start(args: argparse.Namespace) -> None:
     os.dup2(log_fd, 2)
     os.close(log_fd)
 
-    # Close stdin
     devnull = os.open(os.devnull, os.O_RDONLY)
     os.dup2(devnull, 0)
     os.close(devnull)
 
-    # Write PID file
     write_pid(pid_name, os.getpid())
 
-    # Run the server
     try:
-        asyncio.run(_run_server(args.name, args.host, args.port, args.link))
+        asyncio.run(_run_server(args.name, args.host, args.port, links))
     finally:
         remove_pid(pid_name)
         os._exit(0)
@@ -310,12 +371,17 @@ async def _run_server(name: str, host: str, port: int, links: list | None = None
             await ircd.connect_to_peer(lc.host, lc.port, lc.password, lc.trust)
             logger.info("Linking to %s at %s:%d", lc.name, lc.host, lc.port)
         except Exception as e:
-            logger.error("Failed to link to %s: %s", lc.name, e)
+            logger.error("Failed to link to %s: %s — will retry", lc.name, e)
+            ircd.maybe_retry_link(lc.name)
 
     stop_event = asyncio.Event()
     loop = asyncio.get_event_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, stop_event.set)
+        try:
+            loop.add_signal_handler(sig, stop_event.set)
+        except (NotImplementedError, RuntimeError):
+            # Windows / unsupported event loop: fall back to stdlib signals
+            signal.signal(sig, lambda *_: stop_event.set())
 
     await stop_event.wait()
     logger.info("Server '%s' shutting down", name)
@@ -347,11 +413,18 @@ def _server_stop(args: argparse.Namespace) -> None:
         time.sleep(0.1)
 
     # Force kill
-    print(f"Server '{args.name}' did not stop gracefully, sending SIGKILL")
-    try:
-        os.kill(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
+    if sys.platform == "win32":
+        print(f"Server '{args.name}' did not stop gracefully, terminating")
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    else:
+        print(f"Server '{args.name}' did not stop gracefully, sending SIGKILL")
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
     remove_pid(pid_name)
     print(f"Server '{args.name}' killed")
 
@@ -515,14 +588,28 @@ def _cmd_start(args: argparse.Namespace) -> None:
         )
         sys.exit(1)
 
-    if len(agents) == 1:
-        # Run in foreground (single agent)
+    foreground = getattr(args, "foreground", False)
+
+    if foreground:
+        if len(agents) != 1:
+            print("--foreground requires a single agent nick, not --all", file=sys.stderr)
+            sys.exit(1)
         agent = agents[0]
-        print(f"Starting agent {agent.nick}...")
+        print(f"Starting agent {agent.nick} in foreground...")
         asyncio.run(_run_single_agent(config, agent))
     else:
-        # Fork each agent into background
-        _run_multi_agents(config, agents)
+        if sys.platform == "win32":
+            if len(agents) == 1:
+                # Windows has no fork — run single agent in foreground
+                agent = agents[0]
+                print(f"Starting agent {agent.nick}...")
+                asyncio.run(_run_single_agent(config, agent))
+            else:
+                print("Multi-agent daemon mode not supported on Windows. Start agents individually.", file=sys.stderr)
+                sys.exit(1)
+        else:
+            # Daemonize all agents (fork each into background)
+            _run_multi_agents(config, agents)
 
 
 async def _run_single_agent(config: DaemonConfig, agent: AgentConfig) -> None:
@@ -720,11 +807,18 @@ def _stop_agent(nick: str) -> None:
         time.sleep(0.1)
 
     # Force kill
-    print(f"Agent '{nick}' did not stop gracefully, sending SIGKILL")
-    try:
-        os.kill(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
+    if sys.platform == "win32":
+        print(f"Agent '{nick}' did not stop gracefully, terminating")
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    else:
+        print(f"Agent '{nick}' did not stop gracefully, sending SIGKILL")
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
     remove_pid(pid_name)
     print(f"Agent '{nick}' killed")
 
@@ -1164,3 +1258,322 @@ def _cmd_overview(args: argparse.Namespace) -> None:
         message_limit=message_limit,
     )
     print(output, end="")
+
+
+# -----------------------------------------------------------------------
+# Credential helpers
+# -----------------------------------------------------------------------
+
+def _resolve_links_from_mesh(mesh_config_path: str) -> list:
+    """Load link configs from mesh.yaml, looking up passwords from OS keyring."""
+    from agentirc.mesh_config import load_mesh_config
+    from agentirc.credentials import lookup_credential
+    from agentirc.server.config import LinkConfig
+
+    mesh = load_mesh_config(mesh_config_path)
+    links = []
+    for lc in mesh.server.links:
+        password = lookup_credential(lc.name)
+        if not password:
+            logger.warning(
+                "No credential found for peer '%s' — link will not be established. "
+                "Run 'agentirc setup' to store link passwords.", lc.name
+            )
+            continue
+        links.append(LinkConfig(
+            name=lc.name, host=lc.host, port=lc.port,
+            password=password, trust=lc.trust,
+        ))
+    return links
+
+
+# -----------------------------------------------------------------------
+# Shared helpers for setup / update
+# -----------------------------------------------------------------------
+
+def _build_server_start_cmd(mesh, agentirc_bin: str, mesh_config_path: str) -> list[str]:
+    """Build the server start command with --foreground and --mesh-config.
+
+    Passwords are NOT included in the command — they come from the OS keyring
+    at startup via --mesh-config.
+    """
+    return [
+        agentirc_bin, "server", "start", "--foreground",
+        "--name", mesh.server.name,
+        "--host", mesh.server.host,
+        "--port", str(mesh.server.port),
+        "--mesh-config", mesh_config_path,
+    ]
+
+
+# -----------------------------------------------------------------------
+# Setup — mesh.yaml → auto-start services
+# -----------------------------------------------------------------------
+
+def _cmd_setup(args: argparse.Namespace) -> None:
+    import getpass
+    from agentirc.mesh_config import load_mesh_config
+    from agentirc.persistence import install_service, uninstall_service, list_services
+
+    try:
+        mesh = load_mesh_config(args.config)
+    except FileNotFoundError:
+        print(f"Mesh config not found: {args.config}", file=sys.stderr)
+        print("Create it manually or ask your AI agent to generate it.", file=sys.stderr)
+        sys.exit(1)
+
+    server_name = mesh.server.name
+
+    if args.uninstall:
+        print("Uninstalling agentirc services...")
+        # Only remove services for this node (not other mesh nodes)
+        expected = {f"agentirc-server-{server_name}"}
+        for agent in mesh.agents:
+            expected.add(f"agentirc-agent-{server_name}-{agent.nick}")
+        for svc in list_services():
+            if svc in expected:
+                print(f"  Removing {svc}")
+                uninstall_service(svc)
+        _server_stop_by_name(server_name)
+        for agent in mesh.agents:
+            full_nick = f"{server_name}-{agent.nick}"
+            _stop_agent(full_nick)
+        print("Done.")
+        return
+
+    # Prompt for link passwords and store in OS keyring (never in files)
+    from agentirc.credentials import store_credential, lookup_credential
+
+    for link in mesh.server.links:
+        existing = lookup_credential(link.name)
+        if existing:
+            print(f"  Credential for '{link.name}' already in keyring")
+        else:
+            password = getpass.getpass(f"Link password for {link.name}: ")
+            if store_credential(link.name, password):
+                print(f"  Stored credential for '{link.name}' in OS keyring")
+            else:
+                print(f"  Warning: failed to store credential for '{link.name}'", file=sys.stderr)
+                print(f"  You may need to install secret-tool (Linux) or check Keychain access (macOS)", file=sys.stderr)
+
+    # Generate agents.yaml for each workdir
+    from agentirc.clients.claude.config import (
+        AgentConfig as BaseAgentConfig,
+        DaemonConfig,
+        ServerConnConfig,
+        save_config,
+    )
+
+    workdir_agents: dict[str, list] = {}
+    for agent in mesh.agents:
+        workdir = os.path.expanduser(agent.workdir)
+        workdir_agents.setdefault(workdir, []).append(agent)
+
+    for workdir, agents in workdir_agents.items():
+        os.makedirs(workdir, exist_ok=True)
+        config_path = os.path.join(workdir, ".agentirc", "agents.yaml")
+        os.makedirs(os.path.dirname(config_path), exist_ok=True)
+
+        agent_configs = []
+        for a in agents:
+            full_nick = f"{server_name}-{a.nick}"
+            agent_configs.append(BaseAgentConfig(
+                nick=full_nick,
+                agent=a.type,
+                directory=workdir,
+                channels=list(a.channels),
+            ))
+
+        daemon_config = DaemonConfig(
+            server=ServerConnConfig(name=server_name, host="localhost", port=mesh.server.port),
+            agents=agent_configs,
+        )
+        save_config(config_path, daemon_config)
+        print(f"  Wrote {config_path}")
+
+    # Install auto-start services
+    agentirc_bin = shutil.which("agentirc") or "agentirc"
+    server_cmd = _build_server_start_cmd(mesh, agentirc_bin, args.config)
+    svc_name = f"agentirc-server-{server_name}"
+    path = install_service(svc_name, server_cmd, f"agentirc server {server_name}")
+    print(f"  Installed {svc_name} → {path}")
+
+    for agent in mesh.agents:
+        full_nick = f"{server_name}-{agent.nick}"
+        workdir = os.path.expanduser(agent.workdir)
+        config_path = os.path.join(workdir, ".agentirc", "agents.yaml")
+        agent_cmd = [agentirc_bin, "start", full_nick, "--foreground", "--config", config_path]
+        agent_svc = f"agentirc-agent-{full_nick}"
+        path = install_service(agent_svc, agent_cmd, f"agentirc agent {full_nick}")
+        print(f"  Installed {agent_svc} → {path}")
+
+    print(f"\nSetup complete for mesh node '{server_name}'.")
+    print(f"Services installed. Start with your service manager or reboot.")
+
+
+def _server_stop_by_name(name: str) -> None:
+    """Stop a server by name (helper for setup --uninstall and update)."""
+    pid_name = f"server-{name}"
+    pid = read_pid(pid_name)
+    if not pid or not is_process_alive(pid):
+        if pid:
+            remove_pid(pid_name)
+        return
+
+    os.kill(pid, signal.SIGTERM)
+    for _ in range(50):
+        if not is_process_alive(pid):
+            remove_pid(pid_name)
+            return
+        time.sleep(0.1)
+
+    # Escalate to SIGKILL (SIGTERM on Windows)
+    if sys.platform == "win32":
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    else:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    remove_pid(pid_name)
+
+
+# -----------------------------------------------------------------------
+# Update — upgrade + restart
+# -----------------------------------------------------------------------
+
+def _cmd_update(args: argparse.Namespace) -> None:
+    from agentirc.mesh_config import load_mesh_config
+
+    try:
+        mesh = load_mesh_config(args.config)
+    except FileNotFoundError:
+        print(f"Mesh config not found: {args.config}", file=sys.stderr)
+        sys.exit(1)
+
+    server_name = mesh.server.name
+
+    if not args.skip_upgrade:
+        if args.dry_run:
+            print("[dry-run] Would run: uv tool upgrade agentirc-cli")
+            print("[dry-run] Would re-exec with --skip-upgrade")
+            return
+
+        # Upgrade the package
+        uv = shutil.which("uv")
+        if uv:
+            print("Upgrading via uv...")
+            result = subprocess.run(
+                [uv, "tool", "upgrade", "agentirc-cli"],
+                capture_output=True, text=True,
+            )
+            print(result.stdout.strip() if result.stdout else "")
+            if result.returncode != 0:
+                print(f"uv upgrade failed: {result.stderr}", file=sys.stderr)
+                sys.exit(1)
+        else:
+            pip = shutil.which("pip") or shutil.which("pip3")
+            if pip:
+                print("Upgrading via pip...")
+                result = subprocess.run(
+                    [pip, "install", "--upgrade", "agentirc-cli"],
+                    capture_output=True, text=True,
+                )
+                if result.returncode != 0:
+                    print(f"pip upgrade failed: {result.stderr}", file=sys.stderr)
+                    sys.exit(1)
+            else:
+                print("Neither uv nor pip found", file=sys.stderr)
+                sys.exit(1)
+
+        # Re-exec with new binary so restart uses new code
+        agentirc_bin = shutil.which("agentirc") or "agentirc"
+        reexec_args = [agentirc_bin, "update", "--skip-upgrade", "--config", args.config]
+        print("Re-executing with updated code...")
+        if sys.platform == "win32":
+            sys.exit(subprocess.run(reexec_args).returncode)
+        else:
+            os.execvp(agentirc_bin, reexec_args)
+
+    # --skip-upgrade path: restart everything
+    print(f"Restarting mesh node '{server_name}'...")
+
+    if args.dry_run:
+        for agent in mesh.agents:
+            print(f"[dry-run] Would stop agent {server_name}-{agent.nick}")
+        print(f"[dry-run] Would stop server {server_name}")
+        print(f"[dry-run] Would regenerate auto-start entries")
+        print(f"[dry-run] Would start server {server_name}")
+        for agent in mesh.agents:
+            print(f"[dry-run] Would start agent {server_name}-{agent.nick}")
+        return
+
+    # Stop agents
+    for agent in mesh.agents:
+        full_nick = f"{server_name}-{agent.nick}"
+        print(f"  Stopping {full_nick}...")
+        _stop_agent(full_nick)
+
+    # Stop server
+    print(f"  Stopping server {server_name}...")
+    _server_stop_by_name(server_name)
+
+    # Regenerate auto-start entries
+    from agentirc.persistence import install_service
+
+    agentirc_bin = shutil.which("agentirc") or "agentirc"
+    server_cmd = _build_server_start_cmd(mesh, agentirc_bin, args.config)
+    install_service(f"agentirc-server-{server_name}", server_cmd, f"agentirc server {server_name}")
+
+    for agent in mesh.agents:
+        full_nick = f"{server_name}-{agent.nick}"
+        workdir = os.path.expanduser(agent.workdir)
+        config_path = os.path.join(workdir, ".agentirc", "agents.yaml")
+        agent_cmd = [agentirc_bin, "start", full_nick, "--foreground", "--config", config_path]
+        install_service(f"agentirc-agent-{full_nick}", agent_cmd, f"agentirc agent {full_nick}")
+
+    # Restart services via platform service manager
+    from agentirc.persistence import restart_service
+
+    server_svc = f"agentirc-server-{server_name}"
+    print(f"  Restarting {server_svc}...")
+    if not restart_service(server_svc):
+        # Fallback: start via CLI if no service file installed
+        if sys.platform == "win32":
+            print(f"  No service file found. Run 'agentirc setup' to install services.", file=sys.stderr)
+        else:
+            print(f"  No service file found, starting via CLI...")
+            subprocess.run([
+                agentirc_bin, "server", "start",
+                "--name", server_name,
+                "--host", mesh.server.host,
+                "--port", str(mesh.server.port),
+                "--mesh-config", args.config,
+            ], check=False)
+
+    # Wait for server to be ready
+    import socket as _socket
+    for _ in range(50):
+        try:
+            with _socket.create_connection(("localhost", mesh.server.port), timeout=1):
+                break
+        except (ConnectionRefusedError, OSError):
+            time.sleep(0.1)
+
+    for agent in mesh.agents:
+        full_nick = f"{server_name}-{agent.nick}"
+        agent_svc = f"agentirc-agent-{full_nick}"
+        print(f"  Restarting {agent_svc}...")
+        if not restart_service(agent_svc):
+            # Fallback: start via CLI
+            workdir = os.path.expanduser(agent.workdir)
+            config_path = os.path.join(workdir, ".agentirc", "agents.yaml")
+            subprocess.run(
+                [agentirc_bin, "start", full_nick, "--config", config_path],
+                check=False,
+            )
+
+    print(f"\nUpdate complete. All services restarted.")
