@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.20.1] - 2026-04-03
+
+
+### Changed
+
+- SonarCloud uses Automatic Analysis instead of CI-based scanning — removes conflict and simplifies workflow
+
+### Fixed
+
+- Remove SonarCloud CI step that conflicted with Automatic Analysis
+
 ## [0.20.0] - 2026-04-03
 
 

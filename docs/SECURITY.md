@@ -31,16 +31,9 @@ The following security checks run automatically on pushes to main, pull requests
 
 [SonarCloud](https://sonarcloud.io/) provides comprehensive code quality and security analysis.
 
+- Uses **Automatic Analysis** (SonarCloud-managed, not CI-based) — scans `main` and PRs automatically
 - Configuration in `sonar-project.properties`
-- Results available in the SonarCloud dashboard
-
-#### Setting up SonarCloud
-
-1. Go to [SonarCloud](https://sonarcloud.io/) and log in with your GitHub account
-2. Create a new organization or use an existing one
-3. Add this repository to SonarCloud
-4. Generate a token: Account > Security > Generate Token
-5. Add the token as a secret named `SONAR_TOKEN` in your GitHub repository settings
+- Results available in the [SonarCloud dashboard](https://sonarcloud.io/summary/overall?id=OriNachum_AgentIRC)
 
 ### CodeQL
 
