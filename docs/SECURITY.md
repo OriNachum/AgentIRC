@@ -106,7 +106,13 @@ When contributing to this project:
 
 If you discover a security vulnerability, please do **not** open a public issue.
 
-Email the maintainer directly. Include:
+Report privately using one of:
+
+- **GitHub Security Advisories**: [Report a vulnerability](https://github.com/OriNachum/AgentIRC/security/advisories/new)
+- **Email**: Contact the maintainer directly
+
+Include:
+
 - Description of the vulnerability
 - Steps to reproduce
 - Impact assessment

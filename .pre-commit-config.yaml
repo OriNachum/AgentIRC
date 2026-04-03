@@ -9,33 +9,34 @@ repos:
   - id: check-ast
   - id: detect-private-key
 
-- repo: https://github.com/pycqa/flake8
-  rev: 6.1.0
+- repo: local
   hooks:
   - id: flake8
-    additional_dependencies: [flake8-bandit, flake8-bugbear]
-    args: ["--config=.flake8"]
+    name: flake8
+    entry: uv run flake8 --config=.flake8
+    language: system
+    types: [python]
 
-- repo: https://github.com/pycqa/isort
-  rev: 5.12.0
-  hooks:
   - id: isort
+    name: isort
+    entry: uv run isort
+    language: system
+    types: [python]
 
-- repo: https://github.com/psf/black
-  rev: 23.7.0
-  hooks:
   - id: black
-    language_version: python3
+    name: black
+    entry: uv run black
+    language: system
+    types: [python]
 
-- repo: https://github.com/PyCQA/bandit
-  rev: 1.7.5
-  hooks:
   - id: bandit
-    args: ["-r", "agentirc", "-c", "pyproject.toml"]
+    name: bandit
+    entry: uv run bandit -c pyproject.toml
+    language: system
+    types: [python]
 
-- repo: https://github.com/pycqa/pylint
-  rev: v2.17.5
-  hooks:
   - id: pylint
-    args: ["--rcfile=.pylintrc"]
-    additional_dependencies: [pyyaml, anthropic]
+    name: pylint
+    entry: uv run pylint --rcfile=.pylintrc
+    language: system
+    types: [python]

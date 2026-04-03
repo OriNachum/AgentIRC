@@ -8,7 +8,12 @@ If you discover a security vulnerability in AgentIRC, please report it responsib
 
 ### How to Report
 
-Email the maintainer directly with:
+Please report security issues privately using one of the following methods:
+
+- **GitHub Security Advisories**: [Report a vulnerability privately](../../security/advisories/new)
+- **Email**: Contact the maintainer directly
+
+Include:
 
 - A description of the vulnerability
 - Steps to reproduce the issue

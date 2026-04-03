@@ -11,9 +11,7 @@ exclude =
 extend-ignore =
     E203,
     W503,
-    S101,
-    S603,
-    S607
+    S101
 per-file-ignores =
     agentirc/credentials.py:S603,S607
     agentirc/persistence.py:S603,S607
