@@ -1785,7 +1785,13 @@ def _bot_create(args: argparse.Namespace) -> None:
 
     # Build full name if not already fully qualified
     if not name.startswith(f"{server_name}-"):
-        name = f"{args.owner}-{name}"
+        owner = args.owner
+        # Strip server prefix from owner if present to avoid duplication
+        if owner.startswith(f"{server_name}-"):
+            owner_suffix = owner[len(server_name) + 1:]
+        else:
+            owner_suffix = owner
+        name = f"{server_name}-{owner_suffix}-{name}"
 
     bot_config = BotConfig(
         name=name,
@@ -1893,7 +1899,7 @@ def _bot_inspect(args: argparse.Namespace) -> None:
     print(f"Description: {config.description or '-'}")
     print(f"Created:     {config.created or '-'}")
     print(f"Trigger:     {config.trigger_type}")
-    print(f"Webhook URL: {webhook_url}")
+    print(f"Webhook URL: {webhook_url} (default port)")
     print(f"Channels:    {', '.join(config.channels) if config.channels else '-'}")
     print(f"DM Owner:    {'yes' if config.dm_owner else 'no'}")
     print(f"Mentions:    {config.mention or '-'}")

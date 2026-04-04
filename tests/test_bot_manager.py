@@ -1,10 +1,9 @@
 """Tests for BotManager — bot lifecycle and dispatch."""
 
 import pytest
-import pytest_asyncio
 
 from agentirc.bots.bot_manager import BotManager
-from agentirc.bots.config import BOTS_DIR, BotConfig, save_bot_config
+from agentirc.bots.config import BotConfig, save_bot_config
 
 
 @pytest.fixture

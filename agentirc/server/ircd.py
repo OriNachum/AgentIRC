@@ -11,6 +11,7 @@ from agentirc.server.config import ServerConfig
 from agentirc.server.skill import Event, Skill
 
 if TYPE_CHECKING:
+    from agentirc.bots.virtual_client import VirtualClient
     from agentirc.server.client import Client
     from agentirc.server.remote_client import RemoteClient
     from agentirc.server.server_link import ServerLink
@@ -57,7 +58,7 @@ class IRCd:
 
         self._http_listener = HttpListener(
             self.bot_manager,
-            self.config.host,
+            "127.0.0.1",
             self.config.webhook_port,
         )
         try:
@@ -116,7 +117,7 @@ class IRCd:
                 return skill
         return None
 
-    def get_client(self, nick: str) -> Client | RemoteClient | None:
+    def get_client(self, nick: str) -> Client | RemoteClient | VirtualClient | None:
         """Look up a client by nick, checking local, remote, and bots."""
         client = self.clients.get(nick) or self.remote_clients.get(nick)
         if client:

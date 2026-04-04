@@ -1,7 +1,5 @@
 """End-to-end integration test for the full bot webhook flow."""
 
-import asyncio
-
 import pytest
 import pytest_asyncio
 from aiohttp import ClientSession

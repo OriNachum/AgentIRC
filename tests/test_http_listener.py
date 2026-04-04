@@ -1,8 +1,5 @@
 """Tests for the webhook HTTP listener."""
 
-import asyncio
-import json
-
 import pytest
 import pytest_asyncio
 from aiohttp import ClientSession
@@ -128,3 +125,23 @@ async def test_webhook_invalid_json(webhook_server):
             assert resp.status == 400
             data = await resp.json()
             assert "invalid JSON" in data["error"]
+
+
+@pytest.mark.asyncio
+async def test_webhook_non_dict_payload(webhook_server):
+    _, mgr, port = webhook_server
+    await mgr.create_bot(
+        BotConfig(
+            name="testserv-ori-nondict",
+            channels=["#test"],
+        )
+    )
+
+    async with ClientSession() as session:
+        async with session.post(
+            f"http://127.0.0.1:{port}/testserv-ori-nondict",
+            json=["not", "a", "dict"],
+        ) as resp:
+            assert resp.status == 400
+            data = await resp.json()
+            assert "JSON object" in data["error"]

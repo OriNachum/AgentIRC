@@ -338,7 +338,7 @@ def _collect_bots() -> list[BotInfo]:
                     owner=config.owner,
                     trigger_type=config.trigger_type,
                     channels=config.channels,
-                    status="active",  # from disk we assume active; live status requires IPC
+                    status="configured",  # disk-only; live status requires IPC
                     description=config.description,
                     mention=config.mention,
                 )

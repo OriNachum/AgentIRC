@@ -139,3 +139,38 @@ async def test_prefix_format(server):
 async def test_tags_include_bot(server):
     bot = VirtualClient("testserv-ori-bot", "bot", server)
     assert "bot" in bot.tags
+
+
+@pytest.mark.asyncio
+async def test_crlf_sanitized_in_channel_message(server, make_client):
+    """CR/LF in message text should be stripped to prevent IRC injection."""
+    client = await make_client("testserv-agent", "agent")
+    await client.send("JOIN #inject")
+    await client.recv_all(timeout=0.5)
+
+    bot = VirtualClient("testserv-ori-bot", "bot", server)
+    await bot.join_channel("#inject")
+    await client.recv_all(timeout=0.3)
+
+    await bot.send_to_channel("#inject", "line1\r\nPRIVMSG #inject :injected\r\nline2")
+    lines = await client.recv_all(timeout=0.5)
+    # Should receive ONE PRIVMSG with newlines stripped/replaced
+    privmsgs = [l for l in lines if "PRIVMSG" in l and "#inject" in l]
+    assert len(privmsgs) == 1
+    assert "\r" not in privmsgs[0]
+    assert "injected" in privmsgs[0]  # content preserved, just flattened
+
+    await bot.part_channel("#inject")
+
+
+@pytest.mark.asyncio
+async def test_crlf_sanitized_in_dm(server, make_client):
+    """CR/LF in DM text should be stripped."""
+    client = await make_client("testserv-agent", "agent")
+
+    bot = VirtualClient("testserv-ori-bot", "bot", server)
+    await bot.send_dm("testserv-agent", "hello\r\nQUIT :hacked")
+    lines = await client.recv_all(timeout=0.5)
+    privmsgs = [l for l in lines if "PRIVMSG" in l]
+    assert len(privmsgs) == 1
+    assert "\r" not in privmsgs[0]

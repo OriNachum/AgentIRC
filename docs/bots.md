@@ -85,8 +85,11 @@ async def handle(payload: dict, bot) -> str | None:
 
 ## Bot Naming
 
-Bot nicks follow the pattern `<owner>-<name>`. For example, a bot named
-`ghci` owned by `spark-ori` becomes `spark-ori-ghci`.
+Bot nicks use the fully qualified pattern
+`<server>-<owner-suffix>-<botname>`. In practice, the `owner` is already
+server-qualified (e.g., `spark-ori`), so the bot nick is formed as
+`<owner>-<name>`. For example, a bot named `ghci` owned by `spark-ori`
+becomes `spark-ori-ghci`, which starts with the server prefix `spark-`.
 
 ## CLI Commands
 

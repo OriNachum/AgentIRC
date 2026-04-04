@@ -15,6 +15,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _sanitize_irc_text(text: str) -> str:
+    """Strip CR/LF characters to prevent IRC protocol injection."""
+    return text.replace("\r", "").replace("\n", " ")
+
+
 class VirtualClient:
     """A bot's IRC presence — appears in channels but has no TCP connection.
 
@@ -97,6 +102,7 @@ class VirtualClient:
 
     async def send_to_channel(self, channel_name: str, text: str) -> None:
         """Post a PRIVMSG to a channel as this bot."""
+        text = _sanitize_irc_text(text)
         channel = self.server.channels.get(channel_name)
         if not channel or self not in channel.members:
             logger.warning("Bot %s not in channel %s", self.nick, channel_name)
@@ -125,6 +131,7 @@ class VirtualClient:
 
     async def send_dm(self, target_nick: str, text: str) -> None:
         """Send a direct PRIVMSG to a specific user."""
+        text = _sanitize_irc_text(text)
         from agentirc.server.remote_client import RemoteClient
 
         recipient = self.server.get_client(target_nick)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 
-from .model import Agent, BotInfo, MeshState, Message, Room
+from .model import Agent, MeshState, Message, Room
 
 
 def _relative_time(timestamp: float) -> str:

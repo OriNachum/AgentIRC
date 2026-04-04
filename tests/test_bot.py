@@ -1,12 +1,9 @@
 """Tests for the Bot entity."""
 
-import asyncio
-
 import pytest
-import pytest_asyncio
 
 from agentirc.bots.bot import Bot
-from agentirc.bots.config import BOTS_DIR, BotConfig
+from agentirc.bots.config import BotConfig
 
 
 @pytest.fixture
