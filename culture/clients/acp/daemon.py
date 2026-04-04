@@ -244,7 +244,7 @@ class ACPDaemon:
                     self._paused = False
                     logger.info("Sleep schedule: resuming %s", self.agent.nick)
             except asyncio.CancelledError:
-                return
+                raise
             except Exception:
                 logger.exception("Sleep scheduler error")
 
