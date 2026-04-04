@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.0.1] - 2026-04-05
+
+
+### Fixed
+
+- Remove agentirc legacy alias from production PyPI publish pipeline
+
 ## [1.0.0] - 2026-04-05
 
 
