@@ -53,6 +53,7 @@ class CopilotDaemon:
         self._buffer: MessageBuffer | None = None
         self._transport: IRCTransport | None = None
         self._webhook: WebhookClient | None = None
+        self._background_tasks: set[asyncio.Task] = set()
         self._socket_server: SocketServer | None = None
         self._agent_runner: CopilotAgentRunner | None = None
         self._supervisor: CopilotSupervisor | None = None
@@ -82,6 +83,13 @@ class CopilotDaemon:
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
+
+    def _spawn_task(self, coro) -> asyncio.Task:
+        """Fire-and-forget create_task that keeps a ref to prevent GC."""
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return task
 
     async def start(self) -> None:
         """Start all components in dependency order."""
@@ -146,7 +154,7 @@ class CopilotDaemon:
             try:
                 await self._sleep_task
             except asyncio.CancelledError:
-                pass
+                raise
             self._sleep_task = None
 
         if self._agent_runner is not None:

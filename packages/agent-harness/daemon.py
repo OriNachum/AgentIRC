@@ -59,6 +59,7 @@ class AgentDaemon:
         self._buffer: MessageBuffer | None = None
         self._socket_server: SocketServer | None = None
         self._webhook: WebhookClient | None = None
+        self._background_tasks: set[asyncio.Task] = set()
         self._stop_event: asyncio.Event | None = None
 
         # Pause/sleep state
@@ -73,6 +74,13 @@ class AgentDaemon:
     def set_stop_event(self, event: asyncio.Event) -> None:
         """Register an external stop event for coordinated shutdown."""
         self._stop_event = event
+
+    def _spawn_task(self, coro) -> asyncio.Task:
+        """Fire-and-forget create_task that keeps a ref to prevent GC."""
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return task
 
     async def start(self) -> None:
         """Start all daemon components."""
@@ -118,7 +126,7 @@ class AgentDaemon:
             try:
                 await self._sleep_task
             except asyncio.CancelledError:
-                pass
+                raise
             self._sleep_task = None
 
         if self._socket_server:

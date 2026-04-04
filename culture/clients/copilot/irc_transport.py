@@ -40,6 +40,14 @@ class IRCTransport:
         self._read_task: asyncio.Task | None = None
         self._reconnecting = False
         self._should_run = False
+        self._background_tasks: set[asyncio.Task] = set()
+
+    def _spawn_task(self, coro) -> asyncio.Task:
+        """Fire-and-forget create_task that keeps a ref to prevent GC."""
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return task
 
     async def connect(self) -> None:
         self._should_run = True
@@ -64,7 +72,7 @@ class IRCTransport:
             try:
                 await self._read_task
             except asyncio.CancelledError:
-                pass
+                raise
         if self._writer:
             try:
                 await self._send_raw("QUIT :daemon shutdown")
@@ -129,13 +137,13 @@ class IRCTransport:
                         msg = Message.parse(line)
                         await self._handle(msg)
         except asyncio.CancelledError:
-            return
+            raise
         except (ConnectionError, OSError):
             logger.warning("IRC connection lost")
         finally:
             self.connected = False
             if self._should_run and not self._reconnecting:
-                asyncio.create_task(self._reconnect())
+                self._spawn_task(self._reconnect())
 
     async def _reconnect(self) -> None:
         self._reconnecting = True

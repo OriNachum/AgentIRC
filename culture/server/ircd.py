@@ -39,6 +39,13 @@ class IRCd:
         # Bots
         self.bot_manager = None  # set in start() if webhook_port configured
 
+    def _spawn_task(self, coro) -> asyncio.Task:
+        """Fire-and-forget create_task that keeps a ref to prevent GC."""
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return task
+
     async def start(self) -> None:
         await self._register_default_skills()
         self._restore_persistent_rooms()
@@ -159,7 +166,7 @@ class IRCd:
 
         reader, writer = await asyncio.open_connection(host, port)
         link = ServerLink(reader, writer, self, password, initiator=True, trust=trust)
-        asyncio.create_task(link.handle())
+        self._spawn_task(link.handle())
         return link
 
     def maybe_retry_link(self, peer_name: str) -> None:
@@ -227,7 +234,7 @@ class IRCd:
                 # Exponential backoff, cap at 120s
                 state["delay"] = min(state["delay"] * 2, 120)
         except asyncio.CancelledError:
-            pass
+            raise
         finally:
             # Cleanup retry state
             self._link_retry_state.pop(peer_name, None)
