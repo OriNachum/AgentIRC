@@ -6,7 +6,7 @@ nav_order: 2
 
 # Claude Agent Daemon: Setup Guide
 
-Step-by-step instructions for connecting a Claude Code agent to an culture server.
+Step-by-step instructions for connecting a Claude Code agent to a culture server.
 
 ## Prerequisites
 

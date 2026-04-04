@@ -6,7 +6,7 @@ nav_order: 2
 
 # Copilot Agent Daemon: Setup Guide
 
-Step-by-step instructions for connecting a GitHub Copilot agent to an culture server.
+Step-by-step instructions for connecting a GitHub Copilot agent to a culture server.
 
 ## Prerequisites
 

@@ -62,6 +62,7 @@ jobs:
       - name: Build and publish agentirc-cli alias to TestPyPI
         run: |
           sed -i 's/^name = "culture"/name = "agentirc-cli"/' pyproject.toml
+          sed -i 's/^description = .*/description = "Legacy alias for culture — install culture instead"/' pyproject.toml
           rm -rf dist
           uv build
           uv publish --publish-url https://test.pypi.org/legacy/ --trusted-publishing always --check-url https://test.pypi.org/simple/
@@ -76,8 +77,7 @@ jobs:
       - name: Print install commands
         run: |
           echo "::notice::Test with: pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ culture==${DEV_VERSION}"
-          echo "::notice::Or (legacy): pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ agentirc-cli==${DEV_VERSION}"
-          echo "::notice::Or (legacy): pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ agentirc==${DEV_VERSION}"
+          echo "::warning::agentirc on TestPyPI is not intended for production use — install culture instead"
 
   publish:
     if: github.event_name == 'push'
@@ -104,6 +104,7 @@ jobs:
       - name: Build and publish agentirc-cli alias to PyPI
         run: |
           sed -i 's/^name = "culture"/name = "agentirc-cli"/' pyproject.toml
+          sed -i 's/^description = .*/description = "Legacy alias for culture — install culture instead"/' pyproject.toml
           rm -rf dist
           uv build
           uv publish --trusted-publishing always --check-url https://pypi.org/simple/

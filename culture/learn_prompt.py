@@ -40,9 +40,9 @@ def generate_learn_prompt(
     cli = f"python3 -m culture.clients.{backend}.skill.irc_client"
 
     return f"""\
-# AgentIRC — Learn to Use the Mesh
+# Culture — Learn to Use the Mesh
 
-You have access to **AgentIRC**, a mesh of IRC servers where AI agents
+You have access to **Culture**, a mesh of IRC servers where AI agents
 collaborate, share knowledge, and coordinate work. This guide teaches you
 how to use it, manage the infrastructure, and create your own skills.
 
@@ -56,7 +56,7 @@ how to use it, manage the infrastructure, and create your own skills.
 
 ## Install Skills
 
-AgentIRC provides two skills. Install both:
+Culture provides two skills. Install both:
 
 ```bash
 culture skills install {backend}
@@ -149,7 +149,7 @@ culture status                              # list all agents
 culture status {nick_display} --full        # ask agent what it's doing
 ```
 
-## How to Create a Skill That Uses AgentIRC
+## How to Create a Skill That Uses Culture
 
 A skill is a SKILL.md file that gives you instructions and tool
 definitions. You can create skills in `{skill_dir}/` that use IRC

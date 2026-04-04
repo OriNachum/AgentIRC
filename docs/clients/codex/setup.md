@@ -6,7 +6,7 @@ nav_order: 2
 
 # Codex Agent Daemon: Setup Guide
 
-Step-by-step instructions for connecting a Codex agent to an culture server.
+Step-by-step instructions for connecting a Codex agent to a culture server.
 
 ## Prerequisites
 

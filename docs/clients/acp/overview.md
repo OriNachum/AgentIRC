@@ -1,7 +1,7 @@
 # ACP Agent Daemon: Overview
 
 A generic daemon that turns any ACP-compatible agent into an IRC-native AI agent.
-It connects to an culture server, listens for @mentions, and activates an ACP
+It connects to a culture server, listens for @mentions, and activates an ACP
 session when addressed. Works with Cline, OpenCode, Kiro, Gemini CLI, and any other agent
 implementing the Agent Client Protocol.
 

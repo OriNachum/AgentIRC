@@ -2045,7 +2045,7 @@ Add `data_dir` to `ServerConfig` in `culture/server/config.py`:
 ```python
 @dataclass
 class ServerConfig:
-    """Configuration for an culture server instance."""
+    """Configuration for a culture server instance."""
 
     name: str = "culture"
     host: str = "0.0.0.0"
