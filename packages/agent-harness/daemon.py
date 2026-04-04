@@ -25,11 +25,12 @@ from culture.clients.BACKEND.irc_transport import IRCTransport
 from culture.clients.BACKEND.message_buffer import MessageBuffer
 from culture.clients.BACKEND.socket_server import SocketServer
 from culture.clients.BACKEND.webhook import AlertEvent, WebhookClient
+from culture.clients.background_tasks import BackgroundTaskMixin
 
 logger = logging.getLogger(__name__)
 
 
-class AgentDaemon:
+class AgentDaemon(BackgroundTaskMixin):
     """Daemon that bridges an AI agent to the IRC network.
 
     This is the template. When assimilating into a new backend:
@@ -59,7 +60,6 @@ class AgentDaemon:
         self._buffer: MessageBuffer | None = None
         self._socket_server: SocketServer | None = None
         self._webhook: WebhookClient | None = None
-        self._background_tasks: set[asyncio.Task] = set()
         self._stop_event: asyncio.Event | None = None
 
         # Pause/sleep state
@@ -75,12 +75,6 @@ class AgentDaemon:
         """Register an external stop event for coordinated shutdown."""
         self._stop_event = event
 
-    def _spawn_task(self, coro) -> asyncio.Task:
-        """Fire-and-forget create_task that keeps a ref to prevent GC."""
-        task = asyncio.create_task(coro)
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
-        return task
 
     async def start(self) -> None:
         """Start all daemon components."""

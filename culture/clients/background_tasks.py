@@ -11,11 +11,10 @@ class BackgroundTaskMixin:
     Callers must mix this into a class that uses asyncio event loops.
     """
 
-    def _init_background_tasks(self) -> None:
-        self._background_tasks: set[asyncio.Task] = set()
-
     def _spawn_task(self, coro) -> asyncio.Task:
         """Fire-and-forget create_task that keeps a ref to prevent GC."""
+        if not hasattr(self, "_background_tasks"):
+            self._background_tasks: set[asyncio.Task] = set()
         task = asyncio.create_task(coro)
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)

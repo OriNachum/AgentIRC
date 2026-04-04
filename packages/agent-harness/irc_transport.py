@@ -7,11 +7,12 @@ from typing import Callable
 
 from culture.clients.BACKEND.message_buffer import MessageBuffer
 from culture.protocol.message import Message
+from culture.clients.background_tasks import BackgroundTaskMixin
 
 logger = logging.getLogger(__name__)
 
 
-class IRCTransport:
+class IRCTransport(BackgroundTaskMixin):
     """Async IRC client for the daemon."""
 
     def __init__(
@@ -37,14 +38,7 @@ class IRCTransport:
         self._read_task: asyncio.Task | None = None
         self._reconnecting = False
         self._should_run = False
-        self._background_tasks: set[asyncio.Task] = set()
 
-    def _spawn_task(self, coro) -> asyncio.Task:
-        """Fire-and-forget create_task that keeps a ref to prevent GC."""
-        task = asyncio.create_task(coro)
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
-        return task
 
     async def connect(self) -> None:
         self._should_run = True

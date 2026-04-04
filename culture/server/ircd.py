@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from culture.server.channel import Channel
 from culture.server.config import ServerConfig
 from culture.server.skill import Event, Skill
+from culture.clients.background_tasks import BackgroundTaskMixin
 
 if TYPE_CHECKING:
     from culture.bots.virtual_client import VirtualClient
@@ -39,12 +40,6 @@ class IRCd:
         # Bots
         self.bot_manager = None  # set in start() if webhook_port configured
 
-    def _spawn_task(self, coro) -> asyncio.Task:
-        """Fire-and-forget create_task that keeps a ref to prevent GC."""
-        task = asyncio.create_task(coro)
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
-        return task
 
     async def start(self) -> None:
         await self._register_default_skills()
