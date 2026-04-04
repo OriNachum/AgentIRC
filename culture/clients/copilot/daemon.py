@@ -22,6 +22,7 @@ from culture.clients.copilot.socket_server import SocketServer
 from culture.clients.copilot.supervisor import CopilotSupervisor
 from culture.clients.copilot.webhook import AlertEvent, WebhookClient
 from culture.pidfile import remove_pid, write_pid
+from culture.clients.background_tasks import BackgroundTaskMixin
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,7 @@ CRASH_WINDOW_SECONDS = 300
 CRASH_RESTART_DELAY = 5
 
 
-class CopilotDaemon:
+class CopilotDaemon(BackgroundTaskMixin):
     """Central orchestrator that ties together the IRC transport, socket server,
     Copilot agent runner, supervisor, and webhook client for a single agent nick."""
 
@@ -53,7 +54,6 @@ class CopilotDaemon:
         self._buffer: MessageBuffer | None = None
         self._transport: IRCTransport | None = None
         self._webhook: WebhookClient | None = None
-        self._background_tasks: set[asyncio.Task] = set()
         self._socket_server: SocketServer | None = None
         self._agent_runner: CopilotAgentRunner | None = None
         self._supervisor: CopilotSupervisor | None = None
@@ -84,12 +84,6 @@ class CopilotDaemon:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    def _spawn_task(self, coro) -> asyncio.Task:
-        """Fire-and-forget create_task that keeps a ref to prevent GC."""
-        task = asyncio.create_task(coro)
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
-        return task
 
     async def start(self) -> None:
         """Start all components in dependency order."""
