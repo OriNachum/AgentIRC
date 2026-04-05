@@ -246,8 +246,6 @@ class IRCd:
     ) -> None:
         """Peek at first message to detect S2S vs C2S."""
         from culture.protocol.message import Message
-        from culture.server.client import Client
-        from culture.server.server_link import ServerLink
 
         # Read first line to detect connection type
         first_data = await reader.read(4096)
@@ -261,34 +259,56 @@ class IRCd:
         msg = Message.parse(first_line)
 
         if msg.command == "PASS":
-            # S2S connection - password validated after SERVER reveals peer name
-            if not self.config.links:
-                writer.write(b"ERROR :No links configured\r\n")
-                await writer.drain()
-                writer.close()
-                return
-
-            link = ServerLink(
-                reader, writer, self, password=None, initiator=False, trust="restricted"
-            )
-            try:
-                await link.handle(initial_msg=text)
-            except (ConnectionError, asyncio.IncompleteReadError):
-                pass
+            await self._accept_s2s_connection(reader, writer, text, msg)
         else:
-            # C2S connection
-            client = Client(reader, writer, self)
+            await self._accept_c2s_connection(reader, writer, text, msg)
+
+    async def _accept_s2s_connection(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        initial_text: str,
+        msg,
+    ) -> None:
+        """Handle an inbound S2S (server-to-server) connection."""
+        from culture.server.server_link import ServerLink
+
+        # S2S connection - password validated after SERVER reveals peer name
+        if not self.config.links:
+            writer.write(b"ERROR :No links configured\r\n")
+            await writer.drain()
+            writer.close()
+            return
+
+        link = ServerLink(reader, writer, self, password=None, initiator=False, trust="restricted")
+        try:
+            await link.handle(initial_msg=initial_text)
+        except (ConnectionError, asyncio.IncompleteReadError):
+            pass
+
+    async def _accept_c2s_connection(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        initial_text: str,
+        msg,
+    ) -> None:
+        """Handle an inbound C2S (client-to-server) connection."""
+        from culture.server.client import Client
+
+        # C2S connection
+        client = Client(reader, writer, self)
+        try:
+            await client.handle(initial_msg=initial_text)
+        except (ConnectionError, asyncio.IncompleteReadError):
+            pass
+        finally:
+            self._remove_client(client)
+            writer.close()
             try:
-                await client.handle(initial_msg=text)
-            except (ConnectionError, asyncio.IncompleteReadError):
+                await writer.wait_closed()
+            except (ConnectionError, BrokenPipeError):
                 pass
-            finally:
-                self._remove_client(client)
-                writer.close()
-                try:
-                    await writer.wait_closed()
-                except (ConnectionError, BrokenPipeError):
-                    pass
 
     def _remove_client(self, client: Client) -> None:
         if client.nick and client.nick in self.clients:
@@ -298,18 +318,11 @@ class IRCd:
             if not channel.members and not channel.persistent:
                 del self.channels[channel.name]
 
-    def _remove_link(self, link: ServerLink, *, squit: bool = False) -> None:
-        """Remove a S2S link and all its remote clients."""
+    def _disconnect_remote_clients(self, link: ServerLink) -> None:
+        """Notify local clients and remove all remote clients that came from *link*."""
         from culture.protocol.message import Message
         from culture.server.remote_client import RemoteClient
 
-        peer_name = link.peer_name
-        if peer_name and peer_name in self.links:
-            del self.links[peer_name]
-            # Persist our current seq -- peer saw everything up to here via real-time relay
-            self._peer_acked_seq[peer_name] = self._seq
-
-        # Find all remote clients from this link
         to_remove = [nick for nick, rc in self.remote_clients.items() if rc.link is link]
 
         for nick in to_remove:
@@ -327,6 +340,16 @@ class IRCd:
                         del self.channels[channel.name]
             rc.channels.clear()
             del self.remote_clients[nick]
+
+    def _remove_link(self, link: ServerLink, *, squit: bool = False) -> None:
+        """Remove a S2S link and all its remote clients."""
+        peer_name = link.peer_name
+        if peer_name and peer_name in self.links:
+            del self.links[peer_name]
+            # Persist our current seq -- peer saw everything up to here via real-time relay
+            self._peer_acked_seq[peer_name] = self._seq
+
+        self._disconnect_remote_clients(link)
 
         # Schedule auto-reconnect if this was an unexpected drop (not SQUIT)
         if peer_name and not squit:
