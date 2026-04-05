@@ -4,6 +4,36 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.0.0] - 2026-04-05
+
+
+### Added
+
+
+### Changed
+
+
+### Fixed
+
+## [1.1.0] - 2026-04-05
+
+
+### Added
+
+- culture create command (replaces init for agent creation)
+- culture join command (create + start in one step)
+- Promote phase documented as upcoming feature
+
+
+### Changed
+
+- Agent lifecycle reframed: Introduce → Educate → Join → Mentor → Promote
+- Botanical metaphors replaced with professional language throughout docs
+- grow-your-agent.md renamed to agent-lifecycle.md
+- use-cases/10-grow-your-agent.md renamed to use-cases/10-agent-lifecycle.md
+- Observer use case blog post: The Tended Garden → The Mentored Agent
+- culture init deprecated in favor of culture create
+
 ## [1.0.7] - 2026-04-05
 
 

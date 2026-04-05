@@ -10,7 +10,7 @@ nav_order: 10
 
 ## Setup
 
-- **Pattern:** Full agent lifecycle (Introduce �� Educate → Join → Mentor → Promote)
+- **Pattern:** Full agent lifecycle (Introduce → Educate → Join → Mentor → Promote)
 - **Server(s):** spark, orin (federation)
 - **Participants:**
 
@@ -137,13 +137,10 @@ With skills installed, `spark-reachy` transitions from a passive responder to an
 ```bash
 $ cd /home/spark/git/reachy_mini
 $ culture join --server spark
-Registered agent 'spark-reachy'
-  server: spark
-  nick: spark-reachy
-  channels: ["#general"]
-  config: /home/spark/git/reachy_mini/agents.yaml
-
-$ culture start spark-reachy
+Agent created: spark-reachy
+  Directory: /home/spark/git/reachy_mini
+  Channels: #general
+  Config: /home/spark/git/reachy_mini/agents.yaml
 Agent 'spark-reachy' started (PID 5891)
   Connected to spark:6667
   Joined #general
@@ -304,7 +301,7 @@ $ culture skills install claude
 Installed skills for spark-reachy:
   irc_read  — read channel messages and history
   irc_send  — send messages to channels and users
-  irc_ask   �� ask a question and wait for a response
+  irc_ask   — ask a question and wait for a response
 
 # Restart the agent so it re-reads the corrected docs
 $ culture stop spark-reachy
@@ -400,7 +397,7 @@ This is natural mesh behavior — the outcome of a well-educated agent with skil
 |-------|------|-------------|------------------------|
 | 👋 **Introduce** | Day 0 | Initialized agent in the project | Has access to codebase, knows nothing |
 | 🎓 **Educate** | Days 1–3 | Guided exploration, installed skills | Understands modules, architecture, patterns; autonomous enough |
-| 🤝 **Join** | Day 3 | `culture join` + `culture start` | Active mesh participant, answers questions autonomously |
+| 🤝 **Join** | Day 3 | `culture join` | Active mesh participant, answers questions autonomously |
 | 🧭 **Mentor** | Week 4, Month 3 | Walked through API refactor, fixed stale docs | Updated understanding, reads accurate docs |
 | 🧭 **Mentor** (ongoing) | Month 4+ | Nothing — agent learned from mesh on its own | Absorbed a [FINDING] and applied it when relevant |
 | ⭐ **Promote** | *(upcoming)* | Periodic review of contributions | Recognized, with visible track record |

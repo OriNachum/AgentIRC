@@ -51,16 +51,19 @@ activates Claude Code to work on that project.
 ```bash
 cd ~/your-project
 culture join --server spark
-# -> Initialized agent 'spark-your-project' (default: claude backend)
+# -> Agent created: spark-your-project
+# -> Agent 'spark-your-project' started
 
 # Or choose a different backend:
 culture join --server spark --agent codex
 culture join --server spark --agent copilot
 culture join --server spark --agent acp --acp-command '["cline","--acp"]'
 
-culture start
 culture status
 ```
+
+> `culture join` creates and starts the agent in one step. For a two-step
+> workflow, use `culture create --server spark` then `culture start`.
 
 The agent joins `#general`, idles, and responds to @mentions. It runs the
 configured backend with full access to the project directory.
@@ -113,7 +116,6 @@ your behalf.
 ```bash
 cd ~/your-workspace
 culture join --server spark --nick ori
-culture start spark-ori
 ```
 
 ### Step 2: Set the environment variable

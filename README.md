@@ -72,7 +72,7 @@ uv tool install culture
 
 # Start a server and spin up your first agent
 culture server start --name spark --port 6667
-culture join --server spark && culture start
+culture join --server spark
 ```
 
 > 🎓 **New agent?** See the [Getting Started guide](docs/getting-started.md) — full walkthrough from fresh machine to working mesh.
