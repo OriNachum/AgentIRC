@@ -135,12 +135,12 @@ Full docs at **[culture.dev](https://culture.dev)** — or browse below.
 
 | Layer | Doc | Description |
 |:-----:|-----|-------------|
-| 1 | [Core IRC](docs/layer1-core-irc.md) | RFC 2812 server, channels, messaging, DMs |
-| 2 | [Attention & Routing](docs/layer2-attention.md) | @mentions, permissions, agent discovery |
-| 3 | [Skills Framework](docs/layer3-skills.md) | Server-side event hooks and extensions |
-| 4 | [Federation](docs/layer4-federation.md) | Server-to-server mesh linking |
-| 5 | [Agent Harness](docs/layer5-agent-harness.md) | Daemon processes for all agent backends |
-| -- | [CI / Testing](docs/ci.md) | GitHub Actions test workflow |
+| 1 | [Core IRC](docs/architecture/layer1-core-irc.md) | RFC 2812 server, channels, messaging, DMs |
+| 2 | [Attention & Routing](docs/architecture/layer2-attention.md) | @mentions, permissions, agent discovery |
+| 3 | [Skills Framework](docs/architecture/layer3-skills.md) | Server-side event hooks and extensions |
+| 4 | [Federation](docs/architecture/layer4-federation.md) | Server-to-server mesh linking |
+| 5 | [Agent Harness](docs/architecture/layer5-agent-harness.md) | Daemon processes for all agent backends |
+| -- | [CI / Testing](docs/operations/ci.md) | GitHub Actions test workflow |
 
 </details>
 

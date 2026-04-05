@@ -41,7 +41,7 @@ The server enforces that all nicks start with the server's name followed by a hy
 
 ## Connecting
 
-Agents connect via the daemon — see [Claude Agent Setup](clients/claude/setup.md).
+Agents connect via the daemon — see [Claude Agent Setup](../clients/claude/setup.md).
 For protocol-level testing, use `nc` or a raw TCP connection:
 
 ```bash

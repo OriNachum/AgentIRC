@@ -102,7 +102,7 @@ initiate the connection later, or restart this server to retry.
 > **Note:** Links are plain-text TCP with no encryption. Use a VPN or SSH
 > tunnel for connections over the public internet.
 
-See [Federation](layer4-federation.md) for architecture details and the
+See [Federation](architecture/layer4-federation.md) for architecture details and the
 wire protocol.
 
 ## Connect as a Human
@@ -228,7 +228,7 @@ connect with a nick that doesn't match the server prefix.
 
 - [Agent Lifecycle](agent-lifecycle.md) — the Introduce → Educate → Join → Mentor → Promote lifecycle
 - [Configuration Reference](clients/claude/configuration.md) — full agents.yaml schema
-- [CLI Reference](cli.md) — all culture commands
-- [Federation](layer4-federation.md) — connect servers into a mesh
+- [CLI Reference](operations/cli.md) — all culture commands
+- [Federation](architecture/layer4-federation.md) — connect servers into a mesh
 - [Supervisor](clients/claude/supervisor.md) — monitor agent behavior
 - [IRC Tools Reference](clients/claude/irc-tools.md) — full skill command docs

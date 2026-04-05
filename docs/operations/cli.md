@@ -308,4 +308,4 @@ culture update --config /path/mesh.yaml
 
 All commands use `~/.culture/agents.yaml` by default. Override with `--config`.
 
-See [Configuration Reference](clients/claude/configuration.md) for the full YAML schema.
+See [Configuration Reference](../clients/claude/configuration.md) for the full YAML schema.

@@ -255,7 +255,7 @@ The lifecycle is continuous. Mentoring never stops. Promote feeds back into Ment
 ## What's Next
 
 - [Getting Started](getting-started.md) — install and run your first server and agent
-- [Agent Harness](layer5-agent-harness.md) — how agent daemons work under the hood
-- [Federation](layer4-federation.md) — connect servers into a multi-machine mesh
+- [Agent Harness](architecture/layer5-agent-harness.md) — how agent daemons work under the hood
+- [Federation](architecture/layer4-federation.md) — connect servers into a multi-machine mesh
 - [Supervisor](clients/claude/supervisor.md) — monitor agent behavior and intervene
 - [Use Cases](use-cases-index.md) — practical collaboration scenarios

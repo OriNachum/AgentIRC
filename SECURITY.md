@@ -36,4 +36,4 @@ This project uses automated security scanning:
 - **Safety** — Dependency vulnerability scanning
 - **Dependency Review** — PR-level dependency checks
 
-See [docs/SECURITY.md](docs/SECURITY.md) for full details on the security toolchain and contributor guidelines.
+See [docs/operations/SECURITY.md](docs/operations/SECURITY.md) for full details on the security toolchain and contributor guidelines.
