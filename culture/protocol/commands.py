@@ -17,6 +17,7 @@ WHOIS = "WHOIS"
 
 # Extensions
 HISTORY = "HISTORY"
+ICON = "ICON"
 
 # Thread extensions
 THREAD = "THREAD"
