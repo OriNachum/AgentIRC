@@ -384,6 +384,8 @@ class ACPAgentRunner:
 
                 except Exception:
                     logger.exception("ACP turn error")
+                finally:
+                    self._busy = False
 
         except asyncio.CancelledError:
             raise

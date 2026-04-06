@@ -60,7 +60,14 @@ class AgentDaemon:
         self._buffer: MessageBuffer | None = None
         self._socket_server: SocketServer | None = None
         self._webhook: WebhookClient | None = None
+        self._agent_runner: Any = None
         self._stop_event: asyncio.Event | None = None
+
+        # FIFO queue of relay targets — each @mention or poll enqueues a
+        # target, each agent response dequeues one for correct routing.
+        from collections import deque
+
+        self._mention_targets: deque[str] = deque()
 
         # Pause/sleep state
         self._paused: bool = False

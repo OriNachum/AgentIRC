@@ -22,7 +22,6 @@ async def test_mention_full_nick(server, make_client):
     daemon = AgentDaemon(config, agent, socket_dir=sock_dir, skip_claude=True)
 
     mentions = []
-    original_on_mention = daemon._on_mention
     daemon._on_mention = lambda t, s, txt: mentions.append((t, s, txt))
     daemon._transport_on_mention = daemon._on_mention
 
