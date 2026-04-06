@@ -215,7 +215,7 @@ def _server_start(args: argparse.Namespace) -> None:
 
     config_path = getattr(args, "config", os.path.expanduser("~/.culture/agents.yaml"))
     config = load_config_or_default(config_path)
-    if config.server.archived:
+    if config.server.name == args.name and config.server.archived:
         print(
             f"Server '{args.name}' is archived. Unarchive first:",
             file=sys.stderr,
@@ -420,16 +420,24 @@ def _server_archive(args: argparse.Namespace) -> None:
     )
 
     config = load_config_or_default(args.config)
+    server_name = config.server.name
+
+    if server_name != args.name:
+        print(
+            f"Server name mismatch: --name '{args.name}' but config has '{server_name}'",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     if config.server.archived:
-        print(f"Server '{config.server.name}' is already archived")
+        print(f"Server '{server_name}' is already archived")
         return
 
     # Stop server if running
-    pid_name = f"server-{args.name}"
+    pid_name = f"server-{server_name}"
     pid = read_pid(pid_name)
     if pid and is_process_alive(pid):
-        print(f"Stopping server '{args.name}'...")
+        print(f"Stopping server '{server_name}'...")
         _server_stop(args)
 
     # Stop all running agents
@@ -462,17 +470,18 @@ def _server_archive(args: argparse.Namespace) -> None:
                     bot_config.archived_reason = args.reason
                     save_bot_config(yaml_path, bot_config)
                     archived_bots.append(bot_config.name)
-            except Exception:
+            except (OSError, ValueError) as exc:
+                print(f"  Warning: skipping bot '{bot_dir.name}': {exc}", file=sys.stderr)
                 continue
 
-    print(f"Server archived: {config.server.name}")
+    print(f"Server archived: {server_name}")
     if args.reason:
         print(f"  Reason: {args.reason}")
     if archived_nicks:
         print(f"  Agents: {', '.join(archived_nicks)}")
     if archived_bots:
         print(f"  Bots:   {', '.join(archived_bots)}")
-    print(f"\nTo restore: culture server unarchive --name {args.name}")
+    print(f"\nTo restore: culture server unarchive --name {server_name}")
 
 
 def _server_unarchive(args: argparse.Namespace) -> None:
@@ -484,9 +493,17 @@ def _server_unarchive(args: argparse.Namespace) -> None:
     )
 
     config = load_config_or_default(args.config)
+    server_name = config.server.name
+
+    if server_name != args.name:
+        print(
+            f"Server name mismatch: --name '{args.name}' but config has '{server_name}'",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     if not config.server.archived:
-        print(f"Server '{config.server.name}' is not archived", file=sys.stderr)
+        print(f"Server '{server_name}' is not archived", file=sys.stderr)
         sys.exit(1)
 
     # Unarchive server + agents
@@ -508,12 +525,13 @@ def _server_unarchive(args: argparse.Namespace) -> None:
                     bot_config.archived_reason = ""
                     save_bot_config(yaml_path, bot_config)
                     unarchived_bots.append(bot_config.name)
-            except Exception:
+            except (OSError, ValueError) as exc:
+                print(f"  Warning: skipping bot '{bot_dir.name}': {exc}", file=sys.stderr)
                 continue
 
-    print(f"Server unarchived: {config.server.name}")
+    print(f"Server unarchived: {server_name}")
     if unarchived_nicks:
         print(f"  Agents: {', '.join(unarchived_nicks)}")
     if unarchived_bots:
         print(f"  Bots:   {', '.join(unarchived_bots)}")
-    print(f"\nStart with: culture server start --name {args.name}")
+    print(f"\nStart with: culture server start --name {server_name}")

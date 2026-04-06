@@ -394,14 +394,16 @@ def print_agents_overview(
 
     for agent in agents:
         archived = getattr(agent, "archived", False)
+        base_status, pid = agent_process_status(agent)
+        status = base_status
         if archived:
-            status = "archived"
-            pid = None
-        else:
-            status, pid = agent_process_status(agent)
+            if show_archived_marker:
+                status = f"{base_status} (archived)"
+            elif base_status == "stopped":
+                status = "archived"
         activity = "-"
 
-        if show_activity and status == "running":
+        if show_activity and base_status == "running":
             resp = asyncio.run(ipc_request(agent_socket_path(agent.nick), "status"))
             if resp and resp.get("ok"):
                 activity = resp.get("data", {}).get("description", "nothing")
