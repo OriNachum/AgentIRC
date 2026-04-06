@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.0.0] - 2026-04-06
+
+
+### Added
+
+- Console chat TUI for human participation in the IRC mesh (culture console)
+- ICON IRC protocol extension for custom entity icons
+- User modes (+H/+A/+B) for entity type identification
+- Server discovery and default server management
+- Three-column TUI layout with sidebar, chat, and info panel
+- View switching: overview, status, agent detail
+- Command parser with full CLI command parity
+
 ## [2.1.0] - 2026-04-06
 
 
