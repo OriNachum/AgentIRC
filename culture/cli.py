@@ -1609,11 +1609,14 @@ def _cmd_overview(args: argparse.Namespace) -> None:
             file=sys.stderr,
         )
         sys.exit(1)
-    except (TimeoutError, OSError) as exc:
+    except TimeoutError:
         print(
             f"Error: server at {host}:{port} not responding" " — it may still be starting up",
             file=sys.stderr,
         )
+        sys.exit(1)
+    except OSError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
     output = render_text(
         mesh,

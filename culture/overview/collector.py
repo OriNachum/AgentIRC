@@ -116,31 +116,35 @@ async def _connect(
         timeout=REGISTER_TIMEOUT,
     )
     nick = _temp_nick(server_name)
-    writer.write(f"NICK {nick}\r\nUSER overview 0 * :overview\r\n".encode())
-    await writer.drain()
+    try:
+        writer.write(f"NICK {nick}\r\nUSER overview 0 * :overview\r\n".encode())
+        await writer.drain()
 
-    deadline = asyncio.get_event_loop().time() + REGISTER_TIMEOUT
-    while True:
-        remaining = deadline - asyncio.get_event_loop().time()
-        if remaining <= 0:
-            raise TimeoutError("Registration timed out")
-        try:
-            data = await asyncio.wait_for(reader.readline(), timeout=remaining)
-        except asyncio.TimeoutError:
-            raise TimeoutError("Registration timed out") from None
-        line = data.decode().strip()
-        if not line:
-            continue
-        msg = IRCMessage.parse(line)
-        if msg.command == "PING":
-            writer.write(f"PONG :{msg.params[0]}\r\n".encode())
-            await writer.drain()
-        elif msg.command == "001":
-            return reader, writer, nick
-        elif msg.command == "433":
-            nick = _temp_nick(server_name)
-            writer.write(f"NICK {nick}\r\n".encode())
-            await writer.drain()
+        deadline = asyncio.get_event_loop().time() + REGISTER_TIMEOUT
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                raise TimeoutError("Registration timed out")
+            try:
+                data = await asyncio.wait_for(reader.readline(), timeout=remaining)
+            except asyncio.TimeoutError:
+                raise TimeoutError("Registration timed out") from None
+            line = data.decode().strip()
+            if not line:
+                continue
+            msg = IRCMessage.parse(line)
+            if msg.command == "PING":
+                writer.write(f"PONG :{msg.params[0]}\r\n".encode())
+                await writer.drain()
+            elif msg.command == "001":
+                return reader, writer, nick
+            elif msg.command == "433":
+                nick = _temp_nick(server_name)
+                writer.write(f"NICK {nick}\r\n".encode())
+                await writer.drain()
+    except BaseException:
+        await _disconnect(writer)
+        raise
 
 
 async def _disconnect(writer: asyncio.StreamWriter) -> None:
