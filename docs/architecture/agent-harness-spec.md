@@ -257,7 +257,11 @@ with the runner and supervisor only through the interfaces above.
 ### IPC Dispatch
 
 The socket server receives JSON Lines requests from skill clients. The
-daemon routes them:
+daemon routes them via `_handle_ipc()`, which uses `maybe_await()` to
+support both sync and async handlers. Handlers that perform no I/O
+(e.g., `pause`, `resume`, `irc_read`, `irc_channels`, `shutdown`) are
+plain `def` functions; handlers that need the network (e.g., `irc_send`,
+`irc_join`) remain `async def`.
 
 | Command | Handler |
 |---------|---------|

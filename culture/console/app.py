@@ -161,7 +161,7 @@ class ConsoleApp(App):
         if handler:
             await maybe_await(handler(cmd))
         elif cmd.type in (CommandType.START, CommandType.STOP, CommandType.RESTART):
-            await self._handle_agent_management(cmd)
+            self._handle_agent_management(cmd)
         elif cmd.type == CommandType.UNKNOWN:
             chat: ChatPanel = self.query_one(ChatPanel)
             chat.add_message(time.time(), "", "system", f"[red]Unknown command: {cmd.text}[/]")
