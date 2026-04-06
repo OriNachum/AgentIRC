@@ -374,7 +374,11 @@ def test_rename_server_updates_config():
             DaemonConfig(
                 server=ServerConnConfig(name="culture"),
                 agents=[
-                    AgentConfig(nick="culture-culture", directory="/tmp/a", channels=["#general"]),
+                    AgentConfig(
+                        nick="culture-culture",
+                        directory=os.path.join(tmpdir, "a"),
+                        channels=["#general"],
+                    ),
                 ],
             ),
         )
@@ -408,8 +412,14 @@ def test_rename_server_multiple_agents():
             DaemonConfig(
                 server=ServerConnConfig(name="old"),
                 agents=[
-                    AgentConfig(nick="old-claude", directory="/tmp/a", channels=["#general"]),
-                    AgentConfig(nick="old-ori", directory="/tmp/b", channels=["#general"]),
+                    AgentConfig(
+                        nick="old-claude",
+                        directory=os.path.join(tmpdir, "a"),
+                        channels=["#general"],
+                    ),
+                    AgentConfig(
+                        nick="old-ori", directory=os.path.join(tmpdir, "b"), channels=["#general"]
+                    ),
                 ],
             ),
         )
@@ -469,7 +479,11 @@ def test_rename_server_noop_same_name():
             DaemonConfig(
                 server=ServerConnConfig(name="spark"),
                 agents=[
-                    AgentConfig(nick="spark-claude", directory="/tmp/a", channels=["#general"]),
+                    AgentConfig(
+                        nick="spark-claude",
+                        directory=os.path.join(tmpdir, "a"),
+                        channels=["#general"],
+                    ),
                 ],
             ),
         )
@@ -500,7 +514,11 @@ def test_rename_agent_suffix():
             DaemonConfig(
                 server=ServerConnConfig(name="spark"),
                 agents=[
-                    AgentConfig(nick="spark-culture", directory="/tmp/a", channels=["#general"]),
+                    AgentConfig(
+                        nick="spark-culture",
+                        directory=os.path.join(tmpdir, "a"),
+                        channels=["#general"],
+                    ),
                 ],
             ),
         )
@@ -532,7 +550,11 @@ def test_rename_agent_reassign_server():
             DaemonConfig(
                 server=ServerConnConfig(name="culture"),
                 agents=[
-                    AgentConfig(nick="culture-claude", directory="/tmp/a", channels=["#general"]),
+                    AgentConfig(
+                        nick="culture-claude",
+                        directory=os.path.join(tmpdir, "a"),
+                        channels=["#general"],
+                    ),
                 ],
             ),
         )
@@ -563,8 +585,16 @@ def test_rename_agent_collision():
             DaemonConfig(
                 server=ServerConnConfig(name="spark"),
                 agents=[
-                    AgentConfig(nick="spark-culture", directory="/tmp/a", channels=["#general"]),
-                    AgentConfig(nick="spark-claude", directory="/tmp/b", channels=["#general"]),
+                    AgentConfig(
+                        nick="spark-culture",
+                        directory=os.path.join(tmpdir, "a"),
+                        channels=["#general"],
+                    ),
+                    AgentConfig(
+                        nick="spark-claude",
+                        directory=os.path.join(tmpdir, "b"),
+                        channels=["#general"],
+                    ),
                 ],
             ),
         )
