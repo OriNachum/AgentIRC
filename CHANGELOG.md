@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.1.2] - 2026-04-06
+
+
+### Fixed
+
+- culture update used wrong package name (culture-cli) for uv tool upgrade
+
 ## [3.1.1] - 2026-04-06
 
 

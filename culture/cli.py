@@ -2100,7 +2100,7 @@ def _server_stop_by_name(name: str) -> None:
 
 
 def _upgrade_culture_package(args: argparse.Namespace) -> bool:
-    """Upgrade the culture-cli package via uv or pip, then re-exec with --skip-upgrade.
+    """Upgrade the culture package via uv or pip, then re-exec with --skip-upgrade.
 
     Returns True if the caller should proceed with the restart phase
     (``--skip-upgrade`` was set). Returns False for dry-run (caller should stop).
@@ -2110,7 +2110,7 @@ def _upgrade_culture_package(args: argparse.Namespace) -> bool:
         return True
 
     if args.dry_run:
-        print("[dry-run] Would run: uv tool upgrade culture-cli")
+        print("[dry-run] Would run: uv tool upgrade culture")
         print("[dry-run] Would re-exec with --skip-upgrade")
         return False
 
@@ -2119,7 +2119,7 @@ def _upgrade_culture_package(args: argparse.Namespace) -> bool:
     if uv:
         print("Upgrading via uv...")
         result = subprocess.run(
-            [uv, "tool", "upgrade", "culture-cli"],
+            [uv, "tool", "upgrade", "culture"],
             capture_output=True,
             text=True,
         )
@@ -2132,7 +2132,7 @@ def _upgrade_culture_package(args: argparse.Namespace) -> bool:
         if pip:
             print("Upgrading via pip...")
             result = subprocess.run(
-                [pip, "install", "--upgrade", "culture-cli"],
+                [pip, "install", "--upgrade", "culture"],
                 capture_output=True,
                 text=True,
             )
