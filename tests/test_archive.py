@@ -503,8 +503,8 @@ def test_remove_agent_not_found():
 # -----------------------------------------------------------------------
 
 
-def test_create_overwrites_archived_agent():
-    """Creating an agent that is archived replaces it with the new config."""
+def test_remove_then_add_replaces_archived_agent():
+    """Removing an archived agent and re-adding produces a fresh entry."""
     from culture.clients.claude.config import (
         AgentConfig,
         DaemonConfig,
@@ -592,5 +592,250 @@ def test_create_blocked_by_active_agent():
         )
         with pytest.raises(ValueError, match="already exists"):
             add_agent_to_config(path, new_agent, server_name="spark")
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+# -----------------------------------------------------------------------
+# CLI-level: create overwrites archived, delete removes
+# -----------------------------------------------------------------------
+
+
+def test_cli_create_replaces_archived_agent():
+    """culture agent create replaces an archived agent via the CLI path."""
+    from culture.cli import _build_parser
+    from culture.cli.agent import _cmd_create
+    from culture.clients.claude.config import (
+        AgentConfig,
+        DaemonConfig,
+        ServerConnConfig,
+        archive_agent,
+        load_config,
+        save_config,
+    )
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        path = os.path.join(tmpdir, "agents.yaml")
+        save_config(
+            path,
+            DaemonConfig(
+                server=ServerConnConfig(name="spark"),
+                agents=[
+                    AgentConfig(
+                        nick="spark-daria",
+                        agent="claude",
+                        directory="/tmp/daria",
+                        channels=["#general"],
+                    ),
+                ],
+            ),
+        )
+        archive_agent(path, "spark-daria", reason="switching backend")
+
+        parser = _build_parser()
+        args = parser.parse_args(
+            [
+                "agent",
+                "create",
+                "--server",
+                "spark",
+                "--nick",
+                "daria",
+                "--agent",
+                "acp",
+                "--config",
+                path,
+            ]
+        )
+        _cmd_create(args)
+
+        loaded = load_config(path)
+        assert len(loaded.agents) == 1
+        agent = loaded.agents[0]
+        assert agent.nick == "spark-daria"
+        assert agent.agent == "acp"
+        assert agent.archived is False
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_cli_create_blocks_active_agent():
+    """culture agent create exits non-zero for a non-archived agent."""
+    from culture.cli import _build_parser
+    from culture.cli.agent import _cmd_create
+    from culture.clients.claude.config import (
+        AgentConfig,
+        DaemonConfig,
+        ServerConnConfig,
+        save_config,
+    )
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        path = os.path.join(tmpdir, "agents.yaml")
+        save_config(
+            path,
+            DaemonConfig(
+                server=ServerConnConfig(name="spark"),
+                agents=[
+                    AgentConfig(
+                        nick="spark-daria",
+                        agent="claude",
+                        directory="/tmp/daria",
+                        channels=["#general"],
+                    ),
+                ],
+            ),
+        )
+
+        parser = _build_parser()
+        args = parser.parse_args(
+            [
+                "agent",
+                "create",
+                "--server",
+                "spark",
+                "--nick",
+                "daria",
+                "--agent",
+                "acp",
+                "--config",
+                path,
+            ]
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            _cmd_create(args)
+        assert exc_info.value.code == 1
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_cli_delete_removes_agent():
+    """culture agent delete removes the agent from config."""
+    from culture.cli import _build_parser
+    from culture.cli.agent import _cmd_delete
+    from culture.clients.claude.config import (
+        AgentConfig,
+        DaemonConfig,
+        ServerConnConfig,
+        load_config,
+        save_config,
+    )
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        path = os.path.join(tmpdir, "agents.yaml")
+        save_config(
+            path,
+            DaemonConfig(
+                server=ServerConnConfig(name="spark"),
+                agents=[
+                    AgentConfig(
+                        nick="spark-daria",
+                        agent="claude",
+                        directory="/tmp/daria",
+                        channels=["#general"],
+                    ),
+                    AgentConfig(
+                        nick="spark-ori",
+                        agent="claude",
+                        directory="/tmp/ori",
+                        channels=["#dev"],
+                    ),
+                ],
+            ),
+        )
+
+        parser = _build_parser()
+        args = parser.parse_args(
+            [
+                "agent",
+                "delete",
+                "spark-daria",
+                "--config",
+                path,
+            ]
+        )
+        _cmd_delete(args)
+
+        loaded = load_config(path)
+        assert len(loaded.agents) == 1
+        assert loaded.agents[0].nick == "spark-ori"
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_cli_delete_not_found():
+    """culture agent delete exits non-zero for unknown nick."""
+    from culture.cli import _build_parser
+    from culture.cli.agent import _cmd_delete
+    from culture.clients.claude.config import (
+        DaemonConfig,
+        ServerConnConfig,
+        save_config,
+    )
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        path = os.path.join(tmpdir, "agents.yaml")
+        save_config(
+            path,
+            DaemonConfig(server=ServerConnConfig(name="spark"), agents=[]),
+        )
+
+        parser = _build_parser()
+        args = parser.parse_args(
+            [
+                "agent",
+                "delete",
+                "spark-nonexistent",
+                "--config",
+                path,
+            ]
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            _cmd_delete(args)
+        assert exc_info.value.code == 1
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_remove_agent_preserves_other_agent_fields():
+    """remove_agent with raw YAML preserves backend-specific fields on other agents."""
+    import yaml as _yaml
+
+    from culture.clients.claude.config import (
+        DaemonConfig,
+        ServerConnConfig,
+        remove_agent,
+        save_config,
+    )
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        path = os.path.join(tmpdir, "agents.yaml")
+        # Write a config with an ACP agent that has acp_command (unknown to claude schema)
+        save_config(
+            path,
+            DaemonConfig(server=ServerConnConfig(name="spark"), agents=[]),
+        )
+        # Manually add agents with backend-specific fields
+        with open(path) as f:
+            raw = _yaml.safe_load(f)
+        raw["agents"] = [
+            {"nick": "spark-daria", "agent": "acp", "acp_command": ["opencode", "acp"]},
+            {"nick": "spark-claude", "agent": "claude", "directory": "/tmp/c"},
+        ]
+        with open(path, "w") as f:
+            _yaml.dump(raw, f, default_flow_style=False, sort_keys=False)
+
+        remove_agent(path, "spark-claude")
+
+        with open(path) as f:
+            result = _yaml.safe_load(f)
+        assert len(result["agents"]) == 1
+        assert result["agents"][0]["nick"] == "spark-daria"
+        assert result["agents"][0]["acp_command"] == ["opencode", "acp"]
     finally:
         shutil.rmtree(tmpdir)

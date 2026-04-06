@@ -254,12 +254,22 @@ def remove_agent(
 ) -> None:
     """Remove an agent from config entirely.
 
+    Operates on raw YAML to preserve backend-specific fields on other
+    agents that the typed schema would strip.
     Raises ValueError if the agent is not found.
     """
-    config = load_config_or_default(path)
-    for i, agent in enumerate(config.agents):
-        if agent.nick == nick:
-            config.agents.pop(i)
-            save_config(path, config)
+    path = Path(path)
+    if not path.exists():
+        raise ValueError(f"agent {nick!r} not found in config")
+
+    with open(path) as f:
+        raw = yaml.safe_load(f) or {}
+
+    agents = raw.get("agents", [])
+    for i, agent_raw in enumerate(agents):
+        if agent_raw.get("nick") == nick:
+            agents.pop(i)
+            with open(path, "w") as f:
+                yaml.dump(raw, f, default_flow_style=False, sort_keys=False)
             return
     raise ValueError(f"agent {nick!r} not found in config")

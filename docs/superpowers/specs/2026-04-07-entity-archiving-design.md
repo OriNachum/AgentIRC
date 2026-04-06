@@ -264,7 +264,7 @@ automatically replaces it:
 $ culture agent archive spark-daria
 Agent archived: spark-daria
 
-$ culture agent create --server spark --nick daria --agent acp --acp-command opencode
+$ culture agent create --server spark --nick daria --agent acp
 Replacing archived agent 'spark-daria'
 Agent created: spark-daria
   ...
@@ -281,7 +281,14 @@ def remove_agent(path, nick):
 ```
 
 Added to all backend config files (`claude`, `acp`, `codex`, `copilot`) and
-`packages/agent-harness/config.py`.
+`packages/agent-harness/config.py`. Uses raw YAML manipulation to preserve
+backend-specific fields (e.g. `acp_command`) on other agents.
+
+### Protocol Details
+
+No new protocol changes. Delete and create-overwrite are CLI/config operations
+only, consistent with the existing archiving scope (CLI-only, no federation
+concern).
 
 ## Verification
 
