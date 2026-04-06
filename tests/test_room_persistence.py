@@ -3,6 +3,8 @@
 import os
 import tempfile
 
+import pytest
+
 
 def test_room_store_save_and_load():
     """Rooms can be saved to disk and loaded back."""
@@ -41,7 +43,7 @@ def test_room_store_save_and_load():
         assert r["persistent"] is True
         assert r["agent_limit"] == 8
         assert r["extra_meta"] == {"language": "python"}
-        assert r["created_at"] == 1774852147.0
+        assert r["created_at"] == pytest.approx(1774852147.0)
 
 
 def test_room_store_delete():

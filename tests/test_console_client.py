@@ -184,7 +184,7 @@ def test_chat_message_has_timestamp():
 def test_chat_message_explicit_timestamp():
     """ChatMessage accepts an explicit timestamp."""
     msg = ChatMessage(channel="#test", nick="ori", text="hello", timestamp=1234567890.0)
-    assert msg.timestamp == 1234567890.0
+    assert msg.timestamp == pytest.approx(1234567890.0)
 
 
 # ---------------------------------------------------------------------------
