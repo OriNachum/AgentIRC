@@ -353,3 +353,276 @@ def test_add_agent_nick_collision():
             add_agent_to_config(path, duplicate)
     finally:
         shutil.rmtree(tmpdir)
+
+
+def test_rename_server_updates_config():
+    """rename_server changes server.name and agent nick prefixes."""
+    from culture.clients.claude.config import (
+        AgentConfig,
+        DaemonConfig,
+        ServerConnConfig,
+        load_config,
+        rename_server,
+        save_config,
+    )
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        path = os.path.join(tmpdir, "agents.yaml")
+        save_config(
+            path,
+            DaemonConfig(
+                server=ServerConnConfig(name="culture"),
+                agents=[
+                    AgentConfig(
+                        nick="culture-culture",
+                        directory=os.path.join(tmpdir, "a"),
+                        channels=["#general"],
+                    ),
+                ],
+            ),
+        )
+
+        old_name, renamed = rename_server(path, "spark")
+        assert old_name == "culture"
+        assert renamed == [("culture-culture", "spark-culture")]
+
+        loaded = load_config(path)
+        assert loaded.server.name == "spark"
+        assert loaded.agents[0].nick == "spark-culture"
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_rename_server_multiple_agents():
+    """rename_server renames all agents with the old prefix."""
+    from culture.clients.claude.config import (
+        AgentConfig,
+        DaemonConfig,
+        ServerConnConfig,
+        rename_server,
+        save_config,
+    )
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        path = os.path.join(tmpdir, "agents.yaml")
+        save_config(
+            path,
+            DaemonConfig(
+                server=ServerConnConfig(name="old"),
+                agents=[
+                    AgentConfig(
+                        nick="old-claude",
+                        directory=os.path.join(tmpdir, "a"),
+                        channels=["#general"],
+                    ),
+                    AgentConfig(
+                        nick="old-ori", directory=os.path.join(tmpdir, "b"), channels=["#general"]
+                    ),
+                ],
+            ),
+        )
+
+        old_name, renamed = rename_server(path, "new")
+        assert old_name == "old"
+        assert len(renamed) == 2
+        assert ("old-claude", "new-claude") in renamed
+        assert ("old-ori", "new-ori") in renamed
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_rename_server_no_agents():
+    """rename_server works with empty agent list."""
+    from culture.clients.claude.config import (
+        DaemonConfig,
+        ServerConnConfig,
+        load_config,
+        rename_server,
+        save_config,
+    )
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        path = os.path.join(tmpdir, "agents.yaml")
+        save_config(
+            path,
+            DaemonConfig(server=ServerConnConfig(name="culture"), agents=[]),
+        )
+
+        old_name, renamed = rename_server(path, "spark")
+        assert old_name == "culture"
+        assert renamed == []
+
+        loaded = load_config(path)
+        assert loaded.server.name == "spark"
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_rename_server_noop_same_name():
+    """rename_server is a no-op when the name hasn't changed."""
+    from culture.clients.claude.config import (
+        AgentConfig,
+        DaemonConfig,
+        ServerConnConfig,
+        rename_server,
+        save_config,
+    )
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        path = os.path.join(tmpdir, "agents.yaml")
+        save_config(
+            path,
+            DaemonConfig(
+                server=ServerConnConfig(name="spark"),
+                agents=[
+                    AgentConfig(
+                        nick="spark-claude",
+                        directory=os.path.join(tmpdir, "a"),
+                        channels=["#general"],
+                    ),
+                ],
+            ),
+        )
+
+        old_name, renamed = rename_server(path, "spark")
+        assert old_name == "spark"
+        assert renamed == []
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_rename_agent_suffix():
+    """rename_agent changes the nick while keeping the same server prefix."""
+    from culture.clients.claude.config import (
+        AgentConfig,
+        DaemonConfig,
+        ServerConnConfig,
+        load_config,
+        rename_agent,
+        save_config,
+    )
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        path = os.path.join(tmpdir, "agents.yaml")
+        save_config(
+            path,
+            DaemonConfig(
+                server=ServerConnConfig(name="spark"),
+                agents=[
+                    AgentConfig(
+                        nick="spark-culture",
+                        directory=os.path.join(tmpdir, "a"),
+                        channels=["#general"],
+                    ),
+                ],
+            ),
+        )
+
+        rename_agent(path, "spark-culture", "spark-claude")
+
+        loaded = load_config(path)
+        assert loaded.agents[0].nick == "spark-claude"
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_rename_agent_reassign_server():
+    """rename_agent can move an agent to a different server prefix."""
+    from culture.clients.claude.config import (
+        AgentConfig,
+        DaemonConfig,
+        ServerConnConfig,
+        load_config,
+        rename_agent,
+        save_config,
+    )
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        path = os.path.join(tmpdir, "agents.yaml")
+        save_config(
+            path,
+            DaemonConfig(
+                server=ServerConnConfig(name="culture"),
+                agents=[
+                    AgentConfig(
+                        nick="culture-claude",
+                        directory=os.path.join(tmpdir, "a"),
+                        channels=["#general"],
+                    ),
+                ],
+            ),
+        )
+
+        rename_agent(path, "culture-claude", "spark-claude")
+
+        loaded = load_config(path)
+        assert loaded.agents[0].nick == "spark-claude"
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_rename_agent_collision():
+    """rename_agent raises ValueError on nick collision."""
+    from culture.clients.claude.config import (
+        AgentConfig,
+        DaemonConfig,
+        ServerConnConfig,
+        rename_agent,
+        save_config,
+    )
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        path = os.path.join(tmpdir, "agents.yaml")
+        save_config(
+            path,
+            DaemonConfig(
+                server=ServerConnConfig(name="spark"),
+                agents=[
+                    AgentConfig(
+                        nick="spark-culture",
+                        directory=os.path.join(tmpdir, "a"),
+                        channels=["#general"],
+                    ),
+                    AgentConfig(
+                        nick="spark-claude",
+                        directory=os.path.join(tmpdir, "b"),
+                        channels=["#general"],
+                    ),
+                ],
+            ),
+        )
+
+        with pytest.raises(ValueError, match="already exists"):
+            rename_agent(path, "spark-culture", "spark-claude")
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_rename_agent_not_found():
+    """rename_agent raises ValueError when old nick doesn't exist."""
+    from culture.clients.claude.config import (
+        DaemonConfig,
+        ServerConnConfig,
+        rename_agent,
+        save_config,
+    )
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        path = os.path.join(tmpdir, "agents.yaml")
+        save_config(
+            path,
+            DaemonConfig(server=ServerConnConfig(name="spark"), agents=[]),
+        )
+
+        with pytest.raises(ValueError, match="not found"):
+            rename_agent(path, "spark-culture", "spark-claude")
+    finally:
+        shutil.rmtree(tmpdir)

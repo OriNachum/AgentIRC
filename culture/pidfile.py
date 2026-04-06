@@ -142,3 +142,23 @@ def write_default_server(name: str) -> None:
     pid_dir = Path(PID_DIR)
     pid_dir.mkdir(parents=True, exist_ok=True)
     (pid_dir / "default_server").write_text(name)
+
+
+def rename_pid(old_name: str, new_name: str) -> bool:
+    """Rename a PID file and its associated port file.
+
+    Best-effort: returns True if at least one file was renamed.
+    Logs warnings on failure instead of raising.
+    """
+    pid_dir = Path(PID_DIR)
+    renamed = False
+    for suffix in (".pid", ".port"):
+        old_path = pid_dir / f"{_safe_name(old_name)}{suffix}"
+        new_path = pid_dir / f"{_safe_name(new_name)}{suffix}"
+        if old_path.exists():
+            try:
+                old_path.rename(new_path)
+                renamed = True
+            except OSError:
+                pass
+    return renamed

@@ -80,6 +80,7 @@ def _parse_link(value: str):
 
 
 DEFAULT_CONFIG = os.path.expanduser("~/.culture/agents.yaml")
+_CONFIG_HELP = "Config file path"
 LOG_DIR = os.path.expanduser("~/.culture/logs")
 
 
@@ -136,6 +137,12 @@ def _build_parser() -> argparse.ArgumentParser:
     srv_default = server_sub.add_parser("default", help="Set default server")
     srv_default.add_argument("name", help="Server name to set as default")
 
+    srv_rename = server_sub.add_parser(
+        "rename", help="Rename the server (updates config and agent nicks)"
+    )
+    srv_rename.add_argument("new_name", help="New server name")
+    srv_rename.add_argument("--config", default=DEFAULT_CONFIG, help=_CONFIG_HELP)
+
     # -- create / join subcommands -----------------------------------------
     # 'create' registers an agent definition; 'join' adds it to the mesh.
     # 'init' is a deprecated alias for 'create'.
@@ -169,11 +176,23 @@ def _build_parser() -> argparse.ArgumentParser:
     for flag, kwargs in _agent_args:
         init_parser.add_argument(flag, **kwargs)
 
+    # -- rename subcommand -------------------------------------------------
+    rename_parser = sub.add_parser("rename", help="Rename an agent (same server)")
+    rename_parser.add_argument("nick", help="Current agent nick (e.g. spark-culture)")
+    rename_parser.add_argument("new_name", help="New agent name suffix (e.g. claude)")
+    rename_parser.add_argument("--config", default=DEFAULT_CONFIG, help=_CONFIG_HELP)
+
+    # -- assign subcommand -------------------------------------------------
+    assign_parser = sub.add_parser("assign", help="Move an agent to a different server")
+    assign_parser.add_argument("nick", help="Current agent nick (e.g. culture-culture)")
+    assign_parser.add_argument("server", help="Target server name (e.g. spark)")
+    assign_parser.add_argument("--config", default=DEFAULT_CONFIG, help=_CONFIG_HELP)
+
     # -- start subcommand --------------------------------------------------
     start_parser = sub.add_parser("start", help="Start agent daemon(s)")
     start_parser.add_argument("nick", nargs="?", help="Agent nick to start")
     start_parser.add_argument("--all", action="store_true", help="Start all agents")
-    start_parser.add_argument("--config", default=DEFAULT_CONFIG, help="Config file path")
+    start_parser.add_argument("--config", default=DEFAULT_CONFIG, help=_CONFIG_HELP)
     start_parser.add_argument(
         "--foreground",
         action="store_true",
@@ -184,7 +203,7 @@ def _build_parser() -> argparse.ArgumentParser:
     stop_parser = sub.add_parser("stop", help="Stop agent daemon(s)")
     stop_parser.add_argument("nick", nargs="?", help="Agent nick to stop")
     stop_parser.add_argument("--all", action="store_true", help="Stop all agents")
-    stop_parser.add_argument("--config", default=DEFAULT_CONFIG, help="Config file path")
+    stop_parser.add_argument("--config", default=DEFAULT_CONFIG, help=_CONFIG_HELP)
 
     # -- status subcommand -------------------------------------------------
     status_parser = sub.add_parser("status", help="List running agents")
@@ -192,45 +211,45 @@ def _build_parser() -> argparse.ArgumentParser:
     status_parser.add_argument(
         "--full", action="store_true", help="Query agents for activity status"
     )
-    status_parser.add_argument("--config", default=DEFAULT_CONFIG, help="Config file path")
+    status_parser.add_argument("--config", default=DEFAULT_CONFIG, help=_CONFIG_HELP)
 
     # -- read subcommand ---------------------------------------------------
     read_parser = sub.add_parser("read", help="Read recent channel messages")
     read_parser.add_argument("channel", help="Channel name (e.g. #general)")
     read_parser.add_argument("--limit", "-n", type=int, default=50, help="Number of messages")
-    read_parser.add_argument("--config", default=DEFAULT_CONFIG, help="Config file path")
+    read_parser.add_argument("--config", default=DEFAULT_CONFIG, help=_CONFIG_HELP)
 
     # -- who subcommand ----------------------------------------------------
     who_parser = sub.add_parser("who", help="List members of a channel")
     who_parser.add_argument("channel", help="Channel or nick target")
-    who_parser.add_argument("--config", default=DEFAULT_CONFIG, help="Config file path")
+    who_parser.add_argument("--config", default=DEFAULT_CONFIG, help=_CONFIG_HELP)
 
     # -- send subcommand ---------------------------------------------------
     send_parser = sub.add_parser("send", help="Send a message to a channel or agent")
     send_parser.add_argument("target", help="Channel (e.g. #general) or agent nick")
     send_parser.add_argument("message", help="Message text to send")
-    send_parser.add_argument("--config", default=DEFAULT_CONFIG, help="Config file path")
+    send_parser.add_argument("--config", default=DEFAULT_CONFIG, help=_CONFIG_HELP)
 
     # -- channels subcommand -----------------------------------------------
     channels_parser = sub.add_parser("channels", help="List active channels")
-    channels_parser.add_argument("--config", default=DEFAULT_CONFIG, help="Config file path")
+    channels_parser.add_argument("--config", default=DEFAULT_CONFIG, help=_CONFIG_HELP)
 
     # -- learn subcommand --------------------------------------------------
     learn_parser = sub.add_parser("learn", help="Print self-teaching prompt for your agent")
     learn_parser.add_argument("--nick", default=None, help="Agent nick (auto-detects from cwd)")
-    learn_parser.add_argument("--config", default=DEFAULT_CONFIG, help="Config file path")
+    learn_parser.add_argument("--config", default=DEFAULT_CONFIG, help=_CONFIG_HELP)
 
     # -- sleep subcommand --------------------------------------------------
     sleep_parser = sub.add_parser("sleep", help="Pause agent(s) — stay connected but idle")
     sleep_parser.add_argument("nick", nargs="?", help="Agent nick to pause")
     sleep_parser.add_argument("--all", action="store_true", help="Pause all agents")
-    sleep_parser.add_argument("--config", default=DEFAULT_CONFIG, help="Config file path")
+    sleep_parser.add_argument("--config", default=DEFAULT_CONFIG, help=_CONFIG_HELP)
 
     # -- wake subcommand ---------------------------------------------------
     wake_parser = sub.add_parser("wake", help="Resume paused agent(s)")
     wake_parser.add_argument("nick", nargs="?", help="Agent nick to resume")
     wake_parser.add_argument("--all", action="store_true", help="Resume all agents")
-    wake_parser.add_argument("--config", default=DEFAULT_CONFIG, help="Config file path")
+    wake_parser.add_argument("--config", default=DEFAULT_CONFIG, help=_CONFIG_HELP)
 
     # -- skills subcommand -------------------------------------------------
     skills_parser = sub.add_parser("skills", help="Install IRC skills for AI agents")
@@ -304,22 +323,22 @@ def _build_parser() -> argparse.ArgumentParser:
     bot_create.add_argument("--template", default=None, help="Message template")
     bot_create.add_argument("--dm-owner", action="store_true", help="DM the owner on trigger")
     bot_create.add_argument("--description", default="", help="Bot description")
-    bot_create.add_argument("--config", default=DEFAULT_CONFIG, help="Config file path")
+    bot_create.add_argument("--config", default=DEFAULT_CONFIG, help=_CONFIG_HELP)
 
     bot_start = bot_sub.add_parser("start", help="Start a bot")
     bot_start.add_argument("name", help="Bot name")
-    bot_start.add_argument("--config", default=DEFAULT_CONFIG, help="Config file path")
+    bot_start.add_argument("--config", default=DEFAULT_CONFIG, help=_CONFIG_HELP)
 
     bot_stop = bot_sub.add_parser("stop", help="Stop a bot")
     bot_stop.add_argument("name", help="Bot name")
-    bot_stop.add_argument("--config", default=DEFAULT_CONFIG, help="Config file path")
+    bot_stop.add_argument("--config", default=DEFAULT_CONFIG, help=_CONFIG_HELP)
 
     bot_list = bot_sub.add_parser("list", help="List bots")
     bot_list.add_argument("owner", nargs="?", default=None, help="Filter by owner nick")
 
     bot_inspect = bot_sub.add_parser("inspect", help="Show bot details")
     bot_inspect.add_argument("name", help="Bot name")
-    bot_inspect.add_argument("--config", default=DEFAULT_CONFIG, help="Config file path")
+    bot_inspect.add_argument("--config", default=DEFAULT_CONFIG, help=_CONFIG_HELP)
 
     # -- console subcommand ------------------------------------------------
     console_parser = sub.add_parser("console", help="Interactive admin console")
@@ -332,7 +351,7 @@ def _build_parser() -> argparse.ArgumentParser:
     console_parser.add_argument(
         "--config",
         default=DEFAULT_CONFIG,
-        help="Config file path",
+        help=_CONFIG_HELP,
     )
 
     return parser
@@ -357,6 +376,8 @@ def main() -> None:
             "create": _cmd_init,
             "join": _cmd_join,
             "init": _cmd_init_deprecated,
+            "rename": _cmd_rename,
+            "assign": _cmd_assign,
             "start": _cmd_start,
             "stop": _cmd_stop,
             "status": _cmd_status,
@@ -492,6 +513,65 @@ def _cmd_server(args: argparse.Namespace) -> None:
 
         write_default_server(args.name)
         print(f"Default server set to '{args.name}'")
+    elif args.server_command == "rename":
+        _server_rename(args)
+
+
+def _server_rename(args: argparse.Namespace) -> None:
+    """Rename the server: update config, agent nicks, and PID files."""
+    from culture.clients.claude.config import rename_server, sanitize_agent_name
+    from culture.pidfile import (
+        is_process_alive,
+        read_default_server,
+        read_pid,
+        rename_pid,
+        write_default_server,
+    )
+
+    try:
+        new_name = sanitize_agent_name(args.new_name)
+    except ValueError:
+        print(f"Invalid server name: {args.new_name!r}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        old_name, renamed = rename_server(args.config, new_name)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(1)
+
+    if old_name == new_name:
+        print(f"Server is already named '{new_name}'")
+        return
+
+    # Rename PID/port files for the server daemon
+    rename_pid(f"server-{old_name}", f"server-{new_name}")
+
+    # Rename PID files for agents
+    for old_nick, new_nick in renamed:
+        rename_pid(f"agent-{old_nick}", f"agent-{new_nick}")
+
+    # Update default server if it pointed to the old name
+    if read_default_server() == old_name:
+        write_default_server(new_name)
+
+    print(f"Server renamed: {old_name} → {new_name}")
+    for old_nick, new_nick in renamed:
+        print(f"  Agent: {old_nick} → {new_nick}")
+
+    # Check if the server process is still running
+    server_pid = read_pid(f"server-{new_name}")
+    server_running = server_pid and is_process_alive(server_pid)
+
+    print()
+    if server_running:
+        print("The server is still running under the old name.")
+        print("Restart it for the rename to take effect:")
+        print(f"  culture server stop --name {new_name}")
+        print(f"  culture server start --name {new_name}")
+    if renamed:
+        print("Restart agents for the new nicks to take effect:")
+        print("  culture stop --all && culture start --all")
 
 
 def _wait_for_port(
@@ -838,6 +918,104 @@ def _cmd_init(args: argparse.Namespace) -> None:
     print()
     print(f"Start with: culture start {full_nick}")
     print(f"Or join the mesh: culture join {full_nick}")
+
+
+def _cmd_rename(args: argparse.Namespace) -> None:
+    """Rename an agent's suffix within the same server."""
+    from culture.clients.claude.config import (
+        load_config_or_default,
+        rename_agent,
+        sanitize_agent_name,
+    )
+    from culture.pidfile import rename_pid
+
+    config = load_config_or_default(args.config)
+    old_nick = args.nick
+    server_name = config.server.name
+    expected_prefix = f"{server_name}-"
+
+    if not old_nick.startswith(expected_prefix):
+        print(
+            f"Agent '{old_nick}' does not belong to server '{server_name}'",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    try:
+        new_suffix = sanitize_agent_name(args.new_name)
+    except ValueError:
+        print(f"Invalid agent name: {args.new_name!r}", file=sys.stderr)
+        sys.exit(1)
+
+    new_nick = f"{server_name}-{new_suffix}"
+
+    if old_nick == new_nick:
+        print(f"Agent is already named '{old_nick}'")
+        return
+
+    try:
+        rename_agent(args.config, old_nick, new_nick)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(1)
+
+    rename_pid(f"agent-{old_nick}", f"agent-{new_nick}")
+
+    print(f"Agent renamed: {old_nick} → {new_nick}")
+    print()
+    print("Restart the agent for the new nick to take effect:")
+    print(f"  culture stop {old_nick}   # if still running under old name")
+    print(f"  culture start {new_nick}")
+
+
+def _cmd_assign(args: argparse.Namespace) -> None:
+    """Move an agent to a different server (change nick prefix)."""
+    from culture.clients.claude.config import (
+        load_config_or_default,
+        rename_agent,
+        sanitize_agent_name,
+    )
+    from culture.pidfile import rename_pid
+
+    config = load_config_or_default(args.config)
+    old_nick = args.nick
+    server_name = config.server.name
+    expected_prefix = f"{server_name}-"
+
+    if not old_nick.startswith(expected_prefix):
+        print(
+            f"Agent '{old_nick}' does not belong to server '{server_name}'",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    suffix = old_nick[len(expected_prefix) :]
+
+    try:
+        new_server = sanitize_agent_name(args.server)
+    except ValueError:
+        print(f"Invalid server name: {args.server!r}", file=sys.stderr)
+        sys.exit(1)
+
+    new_nick = f"{new_server}-{suffix}"
+
+    if old_nick == new_nick:
+        print(f"Agent already belongs to server '{new_server}'")
+        return
+
+    try:
+        rename_agent(args.config, old_nick, new_nick)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(1)
+
+    rename_pid(f"agent-{old_nick}", f"agent-{new_nick}")
+
+    print(f"Agent reassigned: {old_nick} → {new_nick}")
+    print()
+    print("Restart the agent for the new nick to take effect:")
+    print(f"  culture stop {old_nick}   # if still running under old name")
+    print(f"  culture start {new_nick}")
 
 
 # -----------------------------------------------------------------------
