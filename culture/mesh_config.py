@@ -73,6 +73,34 @@ def load_mesh_config(path: str | Path = DEFAULT_MESH_PATH) -> MeshConfig:
     return MeshConfig(server=server, agents=agents)
 
 
+def from_daemon_config(daemon_config) -> MeshConfig:
+    """Derive a MeshConfig from an existing DaemonConfig (agents.yaml).
+
+    Useful when mesh.yaml doesn't exist but the user has a running mesh
+    started manually via ``culture server start`` + ``culture start``.
+    """
+    server = MeshServerConfig(
+        name=daemon_config.server.name,
+        host=daemon_config.server.host,
+        port=daemon_config.server.port,
+    )
+    server_prefix = f"{daemon_config.server.name}-"
+    agents = []
+    for a in daemon_config.agents:
+        nick = a.nick
+        if nick.startswith(server_prefix):
+            nick = nick[len(server_prefix) :]
+        agents.append(
+            MeshAgentConfig(
+                nick=nick,
+                type=a.agent,
+                workdir=a.directory,
+                channels=list(a.channels),
+            )
+        )
+    return MeshConfig(server=server, agents=agents)
+
+
 def save_mesh_config(config: MeshConfig, path: str | Path = DEFAULT_MESH_PATH) -> None:
     """Serialize mesh config to YAML and write atomically."""
     path = Path(path)

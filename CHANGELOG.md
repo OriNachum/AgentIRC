@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.1.1] - 2026-04-06
+
+
+### Fixed
+
+- culture update and setup auto-generate mesh.yaml from agents.yaml when mesh.yaml is missing
+
 ## [3.1.0] - 2026-04-06
 
 
