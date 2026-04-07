@@ -201,57 +201,81 @@ def dispatch(args: argparse.Namespace) -> None:
 # -----------------------------------------------------------------------
 
 
-def _create_agent_config(args: argparse.Namespace, full_nick: str) -> AgentConfig:
-    """Build a backend-specific AgentConfig from CLI args."""
-    if args.agent == "codex":
-        from culture.clients.codex.config import AgentConfig as CodexAgentConfig
+def _create_codex_config(full_nick: str) -> AgentConfig:
+    """Build a CodexAgentConfig."""
+    from culture.clients.codex.config import AgentConfig as CodexAgentConfig
 
-        return CodexAgentConfig(
-            nick=full_nick,
-            agent="codex",
-            directory=os.getcwd(),
-            channels=[DEFAULT_CHANNEL],
-        )
-    if args.agent == "copilot":
-        from culture.clients.copilot.config import AgentConfig as CopilotAgentConfig
-
-        return CopilotAgentConfig(
-            nick=full_nick,
-            agent="copilot",
-            directory=os.getcwd(),
-            channels=[DEFAULT_CHANNEL],
-        )
-    if args.agent == "acp":
-        import json as _json
-
-        from culture.clients.acp.config import AgentConfig as ACPAgentConfig
-
-        acp_cmd = ["opencode", "acp"]
-        if args.acp_command:
-            try:
-                acp_cmd = _json.loads(args.acp_command)
-            except _json.JSONDecodeError:
-                acp_cmd = args.acp_command.split()
-        if (
-            not isinstance(acp_cmd, list)
-            or not acp_cmd
-            or not all(isinstance(s, str) for s in acp_cmd)
-        ):
-            print("Error: --acp-command must be a non-empty list of strings", file=sys.stderr)
-            sys.exit(1)
-        return ACPAgentConfig(
-            nick=full_nick,
-            agent="acp",
-            acp_command=acp_cmd,
-            directory=os.getcwd(),
-            channels=[DEFAULT_CHANNEL],
-        )
-    return AgentConfig(
+    return CodexAgentConfig(
         nick=full_nick,
-        agent=args.agent,
+        agent="codex",
         directory=os.getcwd(),
         channels=[DEFAULT_CHANNEL],
     )
+
+
+def _create_copilot_config(full_nick: str) -> AgentConfig:
+    """Build a CopilotAgentConfig."""
+    from culture.clients.copilot.config import AgentConfig as CopilotAgentConfig
+
+    return CopilotAgentConfig(
+        nick=full_nick,
+        agent="copilot",
+        directory=os.getcwd(),
+        channels=[DEFAULT_CHANNEL],
+    )
+
+
+def _parse_acp_command(raw_command: str | None) -> list[str]:
+    """Parse and validate the ACP command from CLI args."""
+    import json as _json
+
+    acp_cmd = ["opencode", "acp"]
+    if raw_command:
+        try:
+            acp_cmd = _json.loads(raw_command)
+        except _json.JSONDecodeError:
+            acp_cmd = raw_command.split()
+    if not isinstance(acp_cmd, list) or not acp_cmd or not all(isinstance(s, str) for s in acp_cmd):
+        print("Error: --acp-command must be a non-empty list of strings", file=sys.stderr)
+        sys.exit(1)
+    return acp_cmd
+
+
+def _create_acp_config(full_nick: str, args: argparse.Namespace) -> AgentConfig:
+    """Build an ACPAgentConfig."""
+    from culture.clients.acp.config import AgentConfig as ACPAgentConfig
+
+    acp_cmd = _parse_acp_command(args.acp_command)
+    return ACPAgentConfig(
+        nick=full_nick,
+        agent="acp",
+        acp_command=acp_cmd,
+        directory=os.getcwd(),
+        channels=[DEFAULT_CHANNEL],
+    )
+
+
+def _create_default_config(full_nick: str, backend: str) -> AgentConfig:
+    """Build a default (claude) AgentConfig."""
+    return AgentConfig(
+        nick=full_nick,
+        agent=backend,
+        directory=os.getcwd(),
+        channels=[DEFAULT_CHANNEL],
+    )
+
+
+def _create_agent_config(args: argparse.Namespace, full_nick: str) -> AgentConfig:
+    """Build a backend-specific AgentConfig from CLI args."""
+    factories = {
+        "codex": lambda: _create_codex_config(full_nick),
+        "copilot": lambda: _create_copilot_config(full_nick),
+        "acp": lambda: _create_acp_config(full_nick, args),
+    }
+    factory = factories.get(args.agent)
+    if factory:
+        return factory()
+    return _create_default_config(full_nick, args.agent)
 
 
 def _cmd_create(args: argparse.Namespace) -> None:
@@ -387,6 +411,32 @@ def _probe_server_connection(host: str, port: int, server_name: str) -> None:
         sys.exit(1)
 
 
+def _start_foreground(config: DaemonConfig, agents: list[AgentConfig]) -> None:
+    """Start a single agent in the foreground."""
+    if len(agents) != 1:
+        print("--foreground requires a single agent nick, not --all", file=sys.stderr)
+        sys.exit(1)
+    agent = agents[0]
+    print(f"Starting agent {agent.nick} in foreground...")
+    asyncio.run(_run_single_agent(config, agent))
+
+
+def _start_background(config: DaemonConfig, agents: list[AgentConfig]) -> None:
+    """Start agents in background mode (fork on Unix, single on Windows)."""
+    if sys.platform == "win32":
+        if len(agents) != 1:
+            print(
+                "Multi-agent daemon mode not supported on Windows. Start agents individually.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        agent = agents[0]
+        print(f"Starting agent {agent.nick}...")
+        asyncio.run(_run_single_agent(config, agent))
+    else:
+        _run_multi_agents(config, agents)
+
+
 def _cmd_start(args: argparse.Namespace) -> None:
     config = load_config(args.config)
 
@@ -395,86 +445,88 @@ def _cmd_start(args: argparse.Namespace) -> None:
     server_name = config.server.name
     _probe_server_connection(config.server.host, config.server.port, server_name)
 
-    foreground = getattr(args, "foreground", False)
-
-    if foreground:
-        if len(agents) != 1:
-            print("--foreground requires a single agent nick, not --all", file=sys.stderr)
-            sys.exit(1)
-        agent = agents[0]
-        print(f"Starting agent {agent.nick} in foreground...")
-        asyncio.run(_run_single_agent(config, agent))
+    if getattr(args, "foreground", False):
+        _start_foreground(config, agents)
     else:
-        if sys.platform == "win32":
-            if len(agents) == 1:
-                agent = agents[0]
-                print(f"Starting agent {agent.nick}...")
-                asyncio.run(_run_single_agent(config, agent))
-            else:
-                print(
-                    "Multi-agent daemon mode not supported on Windows. Start agents individually.",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
-        else:
-            _run_multi_agents(config, agents)
+        _start_background(config, agents)
+
+
+def _make_backend_config(config: DaemonConfig, backend_daemon_config_cls):
+    """Build a backend-specific DaemonConfig from the base config."""
+    return backend_daemon_config_cls(
+        server=config.server,
+        webhooks=config.webhooks,
+        buffer_size=config.buffer_size,
+        agents=config.agents,
+    )
+
+
+def _create_codex_daemon(config: DaemonConfig, agent: AgentConfig):
+    """Create a Codex backend daemon."""
+    from culture.clients.codex.config import DaemonConfig as CodexDaemonConfig
+    from culture.clients.codex.daemon import CodexDaemon
+
+    return CodexDaemon(_make_backend_config(config, CodexDaemonConfig), agent)
+
+
+def _coerce_to_acp_agent(agent: AgentConfig):
+    """Ensure agent is an ACPAgentConfig, converting if necessary."""
+    from culture.clients.acp.config import AgentConfig as ACPAgentConfig
+
+    if isinstance(agent, ACPAgentConfig):
+        return agent
+    return ACPAgentConfig(
+        nick=agent.nick,
+        agent="acp",
+        acp_command=getattr(agent, "acp_command", None) or ["opencode", "acp"],
+        directory=agent.directory,
+        channels=agent.channels,
+        model=agent.model,
+        system_prompt=agent.system_prompt,
+        tags=agent.tags,
+    )
+
+
+def _create_acp_daemon(config: DaemonConfig, agent: AgentConfig):
+    """Create an ACP backend daemon."""
+    from culture.clients.acp.config import DaemonConfig as ACPDaemonConfig
+    from culture.clients.acp.daemon import ACPDaemon
+
+    return ACPDaemon(
+        _make_backend_config(config, ACPDaemonConfig),
+        _coerce_to_acp_agent(agent),
+    )
+
+
+def _create_copilot_daemon(config: DaemonConfig, agent: AgentConfig):
+    """Create a Copilot backend daemon."""
+    from culture.clients.copilot.config import DaemonConfig as CopilotDaemonConfig
+    from culture.clients.copilot.daemon import CopilotDaemon
+
+    return CopilotDaemon(_make_backend_config(config, CopilotDaemonConfig), agent)
+
+
+def _create_claude_daemon(config: DaemonConfig, agent: AgentConfig):
+    """Create the default Claude backend daemon."""
+    from culture.clients.claude.daemon import AgentDaemon
+
+    return AgentDaemon(config, agent)
+
+
+_BACKEND_DAEMON_FACTORIES = {
+    "codex": _create_codex_daemon,
+    "acp": _create_acp_daemon,
+    "opencode": _create_acp_daemon,
+    "copilot": _create_copilot_daemon,
+}
 
 
 async def _run_single_agent(config: DaemonConfig, agent: AgentConfig) -> None:
     """Run a single agent daemon in the foreground."""
     backend = getattr(agent, "agent", "claude")
 
-    if backend == "codex":
-        from culture.clients.codex.config import DaemonConfig as CodexDaemonConfig
-        from culture.clients.codex.daemon import CodexDaemon
-
-        codex_config = CodexDaemonConfig(
-            server=config.server,
-            webhooks=config.webhooks,
-            buffer_size=config.buffer_size,
-            agents=config.agents,
-        )
-        daemon = CodexDaemon(codex_config, agent)
-    elif backend in ("acp", "opencode"):
-        from culture.clients.acp.config import AgentConfig as ACPAgentConfig
-        from culture.clients.acp.config import DaemonConfig as ACPDaemonConfig
-        from culture.clients.acp.daemon import ACPDaemon
-
-        acp_config = ACPDaemonConfig(
-            server=config.server,
-            webhooks=config.webhooks,
-            buffer_size=config.buffer_size,
-            agents=config.agents,
-        )
-        if not isinstance(agent, ACPAgentConfig):
-            acp_agent = ACPAgentConfig(
-                nick=agent.nick,
-                agent="acp",
-                acp_command=getattr(agent, "acp_command", None) or ["opencode", "acp"],
-                directory=agent.directory,
-                channels=agent.channels,
-                model=agent.model,
-                system_prompt=agent.system_prompt,
-                tags=agent.tags,
-            )
-        else:
-            acp_agent = agent
-        daemon = ACPDaemon(acp_config, acp_agent)
-    elif backend == "copilot":
-        from culture.clients.copilot.config import DaemonConfig as CopilotDaemonConfig
-        from culture.clients.copilot.daemon import CopilotDaemon
-
-        copilot_config = CopilotDaemonConfig(
-            server=config.server,
-            webhooks=config.webhooks,
-            buffer_size=config.buffer_size,
-            agents=config.agents,
-        )
-        daemon = CopilotDaemon(copilot_config, agent)
-    else:
-        from culture.clients.claude.daemon import AgentDaemon
-
-        daemon = AgentDaemon(config, agent)
+    factory = _BACKEND_DAEMON_FACTORIES.get(backend, _create_claude_daemon)
+    daemon = factory(config, agent)
 
     stop_event = asyncio.Event()
     daemon.set_stop_event(stop_event)
@@ -524,30 +576,31 @@ def _run_multi_agents(config: DaemonConfig, agents: list[AgentConfig]) -> None:
             print(f"Started {agent.nick} (PID {pid})")
 
 
-def _cmd_stop(args: argparse.Namespace) -> None:
-    config = load_config_or_default(args.config)
-
+def _resolve_agents_to_stop(config, args) -> list:
+    """Resolve which agents should be stopped, or exit with an error."""
     if args.all:
-        agents = config.agents
-    elif args.nick:
+        return config.agents
+    if args.nick:
         agent = config.get_agent(args.nick)
         if not agent:
             print(f"Agent '{args.nick}' not found in config", file=sys.stderr)
             sys.exit(1)
-        agents = [agent]
-    else:
-        if len(config.agents) == 1:
-            agents = config.agents
-        elif len(config.agents) == 0:
-            print(NO_AGENTS_MSG, file=sys.stderr)
-            sys.exit(1)
-        else:
-            print(
-                "Multiple agents configured. Specify a nick or use --all.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+        return [agent]
+    if len(config.agents) == 1:
+        return config.agents
+    if len(config.agents) == 0:
+        print(NO_AGENTS_MSG, file=sys.stderr)
+        sys.exit(1)
+    print(
+        "Multiple agents configured. Specify a nick or use --all.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
+
+def _cmd_stop(args: argparse.Namespace) -> None:
+    config = load_config_or_default(args.config)
+    agents = _resolve_agents_to_stop(config, args)
     for agent in agents:
         stop_agent(agent.nick)
 

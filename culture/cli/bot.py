@@ -152,6 +152,15 @@ def _bot_stop(args: argparse.Namespace) -> None:
     print("(Live reload via IPC will be available in a future release.)")
 
 
+def _should_include_bot(bot_config, owner: str | None, show_archived: bool) -> bool:
+    """Return True if the bot should be included in the listing."""
+    if owner and bot_config.owner != owner:
+        return False
+    if not show_archived and bot_config.archived:
+        return False
+    return True
+
+
 def _load_and_filter_bots(args) -> list:
     """Load bot configs, filtering by owner and archived status."""
     from culture.bots.config import BOTS_DIR, load_bot_config
@@ -168,11 +177,8 @@ def _load_and_filter_bots(args) -> list:
             config = load_bot_config(yaml_path)
         except Exception:
             continue
-        if args.owner and config.owner != args.owner:
-            continue
-        if not show_all and config.archived:
-            continue
-        bots.append(config)
+        if _should_include_bot(config, args.owner, show_all):
+            bots.append(config)
     return bots
 
 

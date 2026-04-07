@@ -259,8 +259,8 @@ def _verify_daemon_started(args: argparse.Namespace, pid: int) -> None:
     _maybe_set_default_server(args.name)
 
 
-def _server_start(args: argparse.Namespace) -> None:
-    # Check if server is archived
+def _check_server_archived(args: argparse.Namespace) -> None:
+    """Exit if the server is archived."""
     from culture.clients.claude.config import load_config_or_default
 
     config_path = getattr(args, "config", DEFAULT_CONFIG)
@@ -273,21 +273,24 @@ def _server_start(args: argparse.Namespace) -> None:
         print(f"  culture server unarchive --name {args.name}", file=sys.stderr)
         sys.exit(1)
 
-    pid_name = f"server-{args.name}"
 
+def _check_already_running(pid_name: str, name: str) -> None:
+    """Exit if the server is already running."""
     existing = read_pid(pid_name)
     if existing and is_process_alive(existing):
-        print(f"Server '{args.name}' is already running (PID {existing})")
+        print(f"Server '{name}' is already running (PID {existing})")
         sys.exit(1)
 
-    links = args.link
+
+def _resolve_server_links(args: argparse.Namespace) -> list:
+    """Resolve link configs from CLI args or mesh config."""
     if getattr(args, "mesh_config", None):
-        links = resolve_links_from_mesh(args.mesh_config)
+        return resolve_links_from_mesh(args.mesh_config)
+    return args.link
 
-    if getattr(args, "foreground", False):
-        _run_foreground(args, pid_name, links)
-        return
 
+def _daemonize_server(args: argparse.Namespace, pid_name: str, links: list) -> None:
+    """Fork and set up the daemon child process for the server."""
     if sys.platform == "win32":
         print("Daemon mode not supported on Windows. Use --foreground.", file=sys.stderr)
         sys.exit(1)
@@ -326,6 +329,21 @@ def _server_start(args: argparse.Namespace) -> None:
         os._exit(0)
 
 
+def _server_start(args: argparse.Namespace) -> None:
+    _check_server_archived(args)
+
+    pid_name = f"server-{args.name}"
+    _check_already_running(pid_name, args.name)
+
+    links = _resolve_server_links(args)
+
+    if getattr(args, "foreground", False):
+        _run_foreground(args, pid_name, links)
+        return
+
+    _daemonize_server(args, pid_name, links)
+
+
 async def _run_server(
     name: str, host: str, port: int, links: list | None = None, webhook_port: int = 7680
 ) -> None:
@@ -361,6 +379,29 @@ async def _run_server(
     await ircd.stop()
 
 
+def _wait_for_graceful_stop(pid: int, timeout_ticks: int = 50) -> bool:
+    """Wait for a process to exit gracefully. Return True if it stopped."""
+    for _ in range(timeout_ticks):
+        if not is_process_alive(pid):
+            return True
+        time.sleep(0.1)
+    return False
+
+
+def _force_kill(pid: int, name: str) -> None:
+    """Force-kill a process that didn't stop gracefully."""
+    if sys.platform == "win32":
+        print(f"Server '{name}' did not stop gracefully, terminating")
+        sig = signal.SIGTERM
+    else:
+        print(f"Server '{name}' did not stop gracefully, sending SIGKILL")
+        sig = signal.SIGKILL
+    try:
+        os.kill(pid, sig)
+    except ProcessLookupError:
+        pass
+
+
 def _server_stop(args: argparse.Namespace) -> None:
     pid_name = f"server-{args.name}"
     pid = read_pid(pid_name)
@@ -382,25 +423,12 @@ def _server_stop(args: argparse.Namespace) -> None:
     print(f"Stopping server '{args.name}' (PID {pid})...")
     os.kill(pid, signal.SIGTERM)
 
-    for _ in range(50):
-        if not is_process_alive(pid):
-            print(f"Server '{args.name}' stopped")
-            remove_pid(pid_name)
-            return
-        time.sleep(0.1)
+    if _wait_for_graceful_stop(pid):
+        print(f"Server '{args.name}' stopped")
+        remove_pid(pid_name)
+        return
 
-    if sys.platform == "win32":
-        print(f"Server '{args.name}' did not stop gracefully, terminating")
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-    else:
-        print(f"Server '{args.name}' did not stop gracefully, sending SIGKILL")
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+    _force_kill(pid, args.name)
     remove_pid(pid_name)
     print(f"Server '{args.name}' killed")
 
@@ -437,9 +465,30 @@ def _validate_config_name(config, name: str) -> str:
     return server_name
 
 
+def _update_single_bot_archive(
+    yaml_path, bot_config, archive: bool, reason: str, today: str
+) -> str | None:
+    """Update archive state of a single bot. Return the bot name if changed, else None."""
+    from culture.bots.config import save_bot_config
+
+    if archive and not bot_config.archived:
+        bot_config.archived = True
+        bot_config.archived_at = today
+        bot_config.archived_reason = reason
+        save_bot_config(yaml_path, bot_config)
+        return bot_config.name
+    if not archive and bot_config.archived:
+        bot_config.archived = False
+        bot_config.archived_at = ""
+        bot_config.archived_reason = ""
+        save_bot_config(yaml_path, bot_config)
+        return bot_config.name
+    return None
+
+
 def _set_bots_archive_state(agent_nicks: set, *, archive: bool, reason: str = "") -> list[str]:
     """Archive or unarchive bots owned by any of the given agent nicks."""
-    from culture.bots.config import BOTS_DIR, load_bot_config, save_bot_config
+    from culture.bots.config import BOTS_DIR, load_bot_config
 
     changed = []
     if not BOTS_DIR.is_dir():
@@ -456,18 +505,9 @@ def _set_bots_archive_state(agent_nicks: set, *, archive: bool, reason: str = ""
             continue
         if bot_config.owner not in agent_nicks:
             continue
-        if archive and not bot_config.archived:
-            bot_config.archived = True
-            bot_config.archived_at = today
-            bot_config.archived_reason = reason
-            save_bot_config(yaml_path, bot_config)
-            changed.append(bot_config.name)
-        elif not archive and bot_config.archived:
-            bot_config.archived = False
-            bot_config.archived_at = ""
-            bot_config.archived_reason = ""
-            save_bot_config(yaml_path, bot_config)
-            changed.append(bot_config.name)
+        name = _update_single_bot_archive(yaml_path, bot_config, archive, reason, today)
+        if name:
+            changed.append(name)
     return changed
 
 

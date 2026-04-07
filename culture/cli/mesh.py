@@ -124,9 +124,38 @@ def dispatch(args: argparse.Namespace) -> None:
 # -----------------------------------------------------------------------
 
 
+def _collect_mesh_data(host: str, port: int, server_name: str, message_limit: int):
+    """Collect mesh state, exiting with an error message on connection failure."""
+    from culture.overview.collector import collect_mesh_state
+
+    try:
+        return asyncio.run(
+            collect_mesh_state(
+                host=host,
+                port=port,
+                server_name=server_name,
+                message_limit=message_limit,
+            )
+        )
+    except ConnectionRefusedError:
+        print(
+            f"Error: could not connect to {host}:{port} — is the server running?",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    except TimeoutError:
+        print(
+            f"Error: server at {host}:{port} not responding — it may still be starting up",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    except OSError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
 def _cmd_overview(args: argparse.Namespace) -> None:
     """Show mesh overview."""
-    from culture.overview.collector import collect_mesh_state
     from culture.overview.renderer_text import render_text
 
     config = load_config_or_default(args.config)
@@ -147,31 +176,9 @@ def _cmd_overview(args: argparse.Namespace) -> None:
         )
         return
 
-    host, port = config.server.host, config.server.port
-    try:
-        mesh = asyncio.run(
-            collect_mesh_state(
-                host=host,
-                port=port,
-                server_name=config.server.name,
-                message_limit=message_limit,
-            )
-        )
-    except ConnectionRefusedError:
-        print(
-            f"Error: could not connect to {host}:{port} — is the server running?",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-    except TimeoutError:
-        print(
-            f"Error: server at {host}:{port} not responding" " — it may still be starting up",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-    except OSError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
+    mesh = _collect_mesh_data(
+        config.server.host, config.server.port, config.server.name, message_limit
+    )
     output = render_text(
         mesh,
         room_filter=args.room,
@@ -466,6 +473,32 @@ def _wait_for_server_port(port: int, retries: int = 50, interval: float = 0.1) -
             time.sleep(interval)
 
 
+def _dry_run_restart(mesh, server_name: str) -> None:
+    """Print what a restart would do without executing."""
+    for agent in mesh.agents:
+        print(f"[dry-run] Would stop agent {server_name}-{agent.nick}")
+    print(f"[dry-run] Would stop server {server_name}")
+    print("[dry-run] Would regenerate auto-start entries")
+    print(f"[dry-run] Would start server {server_name}")
+    for agent in mesh.agents:
+        print(f"[dry-run] Would start agent {server_name}-{agent.nick}")
+
+
+def _restart_single_service(svc_name: str, fallback_cmd: list[str], restart_service_fn) -> None:
+    """Restart a service, falling back to a CLI command if no service file exists."""
+    print(f"  Restarting {svc_name}...")
+    if restart_service_fn(svc_name):
+        return
+    if sys.platform == "win32":
+        print(
+            "  No service file found. Run 'culture mesh setup' to install services.",
+            file=sys.stderr,
+        )
+    else:
+        print("  No service file found, starting via CLI...")
+        subprocess.run(fallback_cmd, check=False)
+
+
 def _restart_mesh_services(
     mesh, server_name: str, culture_bin: str, config_path: str, dry_run: bool
 ) -> None:
@@ -473,13 +506,7 @@ def _restart_mesh_services(
     print(f"Restarting mesh node '{server_name}'...")
 
     if dry_run:
-        for agent in mesh.agents:
-            print(f"[dry-run] Would stop agent {server_name}-{agent.nick}")
-        print(f"[dry-run] Would stop server {server_name}")
-        print("[dry-run] Would regenerate auto-start entries")
-        print(f"[dry-run] Would start server {server_name}")
-        for agent in mesh.agents:
-            print(f"[dry-run] Would start agent {server_name}-{agent.nick}")
+        _dry_run_restart(mesh, server_name)
         return
 
     for agent in mesh.agents:
@@ -511,45 +538,37 @@ def _restart_mesh_services(
         install_service(f"culture-agent-{full_nick}", agent_cmd, f"culture agent {full_nick}")
 
     server_svc = f"culture-server-{server_name}"
-    print(f"  Restarting {server_svc}...")
-    if not restart_service(server_svc):
-        if sys.platform == "win32":
-            print(
-                "  No service file found. Run 'culture mesh setup' to install services.",
-                file=sys.stderr,
-            )
-        else:
-            print("  No service file found, starting via CLI...")
-            subprocess.run(
-                [
-                    culture_bin,
-                    "server",
-                    "start",
-                    "--name",
-                    server_name,
-                    "--host",
-                    mesh.server.host,
-                    "--port",
-                    str(mesh.server.port),
-                    "--mesh-config",
-                    config_path,
-                ],
-                check=False,
-            )
+    server_fallback = [
+        culture_bin,
+        "server",
+        "start",
+        "--name",
+        server_name,
+        "--host",
+        mesh.server.host,
+        "--port",
+        str(mesh.server.port),
+        "--mesh-config",
+        config_path,
+    ]
+    _restart_single_service(server_svc, server_fallback, restart_service)
 
     _wait_for_server_port(mesh.server.port)
 
     for agent in mesh.agents:
         full_nick = f"{server_name}-{agent.nick}"
         agent_svc = f"culture-agent-{full_nick}"
-        print(f"  Restarting {agent_svc}...")
-        if not restart_service(agent_svc):
-            workdir = os.path.expanduser(agent.workdir)
-            agent_config_path = os.path.join(workdir, CULTURE_DIR, AGENTS_YAML)
-            subprocess.run(
-                [culture_bin, "agent", "start", full_nick, "--config", agent_config_path],
-                check=False,
-            )
+        workdir = os.path.expanduser(agent.workdir)
+        agent_config_path = os.path.join(workdir, CULTURE_DIR, AGENTS_YAML)
+        agent_fallback = [
+            culture_bin,
+            "agent",
+            "start",
+            full_nick,
+            "--config",
+            agent_config_path,
+        ]
+        _restart_single_service(agent_svc, agent_fallback, restart_service)
 
     print()
 
