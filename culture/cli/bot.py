@@ -177,6 +177,12 @@ def _load_and_filter_bots(args) -> list:
 
 
 def _bot_list(args: argparse.Namespace) -> None:
+    from culture.bots.config import BOTS_DIR
+
+    if not BOTS_DIR.is_dir():
+        print("No bots configured.")
+        return
+
     bots = _load_and_filter_bots(args)
     if not bots:
         if args.owner:
