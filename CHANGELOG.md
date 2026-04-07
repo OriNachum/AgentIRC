@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [4.3.3] - 2026-04-07
+
+
+### Changed
+
+- Reduced cognitive complexity in 40 functions across 25 files to meet SonarCloud threshold (≤15)
+
 ## [4.3.2] - 2026-04-07
 
 

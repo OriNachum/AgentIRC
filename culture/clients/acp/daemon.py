@@ -281,26 +281,32 @@ class ACPDaemon:
         while True:
             try:
                 await asyncio.sleep(interval)
-                if self._paused or not self._agent_runner or not self._agent_runner.is_running():
-                    continue
-                for channel in self.agent.channels:
-                    msgs = self._buffer.read(channel)
-                    if not msgs:
-                        continue
-                    lines = "\n".join(f"  <{m.nick}> {m.text}" for m in msgs)
-                    prompt = (
-                        f"[IRC Channel Poll: {channel}] Recent unread messages:\n"
-                        f"{lines}\n\n"
-                        f"Respond naturally if any messages need your attention."
-                    )
-                    self._mention_targets.append(channel)
-                    task = asyncio.create_task(self._agent_runner.send_prompt(prompt))
-                    self._background_tasks.add(task)
-                    task.add_done_callback(self._background_tasks.discard)
+                self._process_poll_cycle()
             except asyncio.CancelledError:
                 raise
             except Exception:
                 logger.exception("Poll loop error")
+
+    def _process_poll_cycle(self) -> None:
+        if self._paused or not self._agent_runner or not self._agent_runner.is_running():
+            return
+        for channel in self.agent.channels:
+            self._send_channel_poll(channel)
+
+    def _send_channel_poll(self, channel) -> None:
+        msgs = self._buffer.read(channel)
+        if not msgs:
+            return
+        lines = "\n".join(f"  <{m.nick}> {m.text}" for m in msgs)
+        prompt = (
+            f"[IRC Channel Poll: {channel}] Recent unread messages:\n"
+            f"{lines}\n\n"
+            f"Respond naturally if any messages need your attention."
+        )
+        self._mention_targets.append(channel)
+        task = asyncio.create_task(self._agent_runner.send_prompt(prompt))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     async def _graceful_shutdown(self) -> None:
         """Trigger a graceful shutdown, signaling any waiting stop event."""

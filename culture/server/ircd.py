@@ -339,10 +339,24 @@ class IRCd:
             if not channel.members and not channel.persistent:
                 del self.channels[channel.name]
 
+    def _notify_local_quit(self, rc, quit_msg, notified: set) -> None:
+        """Notify local members of a remote client quit and clean up channels."""
+        from culture.server.remote_client import RemoteClient
+
+        for channel in list(rc.channels):
+            for member in list(channel.members):
+                if not isinstance(member, RemoteClient) and member not in notified:
+                    asyncio.ensure_future(member.send(quit_msg))
+                    notified.add(member)
+            channel.members.discard(rc)
+            if not channel.members:
+                if channel.name in self.channels:
+                    del self.channels[channel.name]
+        rc.channels.clear()
+
     def _disconnect_remote_clients(self, link: ServerLink) -> None:
         """Notify local clients and remove all remote clients that came from *link*."""
         from culture.protocol.message import Message
-        from culture.server.remote_client import RemoteClient
 
         to_remove = [nick for nick, rc in self.remote_clients.items() if rc.link is link]
 
@@ -350,16 +364,7 @@ class IRCd:
             rc = self.remote_clients[nick]
             quit_msg = Message(prefix=rc.prefix, command="QUIT", params=["Server link closed"])
             notified: set = set()
-            for channel in list(rc.channels):
-                for member in list(channel.members):
-                    if not isinstance(member, RemoteClient) and member not in notified:
-                        asyncio.ensure_future(member.send(quit_msg))
-                        notified.add(member)
-                channel.members.discard(rc)
-                if not channel.members:
-                    if channel.name in self.channels:
-                        del self.channels[channel.name]
-            rc.channels.clear()
+            self._notify_local_quit(rc, quit_msg, notified)
             del self.remote_clients[nick]
 
     def _remove_link(self, link: ServerLink, *, squit: bool = False) -> None:

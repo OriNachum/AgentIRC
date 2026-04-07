@@ -177,33 +177,48 @@ def uninstall_service(name: str) -> None:
             bat_path.unlink()
 
 
+def _list_systemd_services() -> list[str]:
+    names = []
+    unit_dir = _systemd_user_dir()
+    if unit_dir.exists():
+        for f in unit_dir.iterdir():
+            if f.name.startswith("culture-") and f.name.endswith(".service"):
+                names.append(f.stem)
+    return names
+
+
+def _list_launchd_services() -> list[str]:
+    names = []
+    agent_dir = _launchd_dir()
+    if agent_dir.exists():
+        for f in agent_dir.iterdir():
+            if f.name.startswith("com.culture.") and f.name.endswith(".plist"):
+                names.append(f.stem.removeprefix("com.culture."))
+    return names
+
+
+def _list_windows_services() -> list[str]:
+    names = []
+    svc_dir = _windows_service_dir()
+    if svc_dir.exists():
+        for f in svc_dir.iterdir():
+            if f.name.startswith("culture-") and f.name.endswith(".bat"):
+                names.append(f.stem)
+    return names
+
+
 def list_services() -> list[str]:
     """Return names of installed culture auto-start services."""
     platform = get_platform()
-    names = []
 
     if platform == "linux":
-        unit_dir = _systemd_user_dir()
-        if unit_dir.exists():
-            for f in unit_dir.iterdir():
-                if f.name.startswith("culture-") and f.name.endswith(".service"):
-                    names.append(f.stem)
-
+        return _list_systemd_services()
     elif platform == "macos":
-        agent_dir = _launchd_dir()
-        if agent_dir.exists():
-            for f in agent_dir.iterdir():
-                if f.name.startswith("com.culture.") and f.name.endswith(".plist"):
-                    names.append(f.stem.removeprefix("com.culture."))
-
+        return _list_launchd_services()
     elif platform == "windows":
-        svc_dir = _windows_service_dir()
-        if svc_dir.exists():
-            for f in svc_dir.iterdir():
-                if f.name.startswith("culture-") and f.name.endswith(".bat"):
-                    names.append(f.stem)
+        return _list_windows_services()
 
-    return names
+    return []
 
 
 def restart_service(name: str) -> bool:

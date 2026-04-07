@@ -106,90 +106,82 @@ class IRCObserver:
                 messages.append(Message.parse(buffer.strip()))
         return messages
 
+    async def _irc_query(self, command, end_numerics, parse_line):
+        """Send an IRC command, collect parsed results until an end marker."""
+        reader, writer, nick = await self._connect_and_register()
+        results = []
+        try:
+            writer.write(f"{command}\r\n".encode())
+            await writer.drain()
+
+            buffer = ""
+            while True:
+                data = await asyncio.wait_for(reader.read(4096), timeout=RECV_TIMEOUT)
+                if not data:
+                    break
+                buffer += data.decode(errors="replace")
+                while "\r\n" in buffer:
+                    line, buffer = buffer.split("\r\n", 1)
+                    if not line.strip():
+                        continue
+                    msg = Message.parse(line)
+                    if msg.command in end_numerics:
+                        return results
+                    if msg.command == "PING":
+                        token = msg.params[0] if msg.params else ""
+                        writer.write(f"PONG :{token}\r\n".encode())
+                        await writer.drain()
+                        continue
+                    parsed = parse_line(msg)
+                    if parsed is not None:
+                        results.append(parsed)
+            return results
+        except asyncio.TimeoutError:
+            return results
+        finally:
+            await self._disconnect(writer)
+
     async def read_channel(self, channel: str, limit: int = 50) -> list[str]:
         """Read recent messages from a channel using HISTORY RECENT.
 
         Returns list of formatted strings: "<nick> message" with timestamp info.
         """
-        reader, writer, nick = await self._connect_and_register()
-        try:
-            # Send HISTORY RECENT <channel> <limit>
-            writer.write(f"HISTORY RECENT {channel} {limit}\r\n".encode())
-            await writer.drain()
+        return await self._irc_query(
+            f"HISTORY RECENT {channel} {limit}",
+            {"HISTORYEND"},
+            self._parse_history_line,
+        )
 
-            results: list[str] = []
-            buffer = ""
-            while True:
-                data = await asyncio.wait_for(reader.read(4096), timeout=RECV_TIMEOUT)
-                if not data:
-                    break
-                buffer += data.decode(errors="replace")
-                while "\r\n" in buffer:
-                    line, buffer = buffer.split("\r\n", 1)
-                    if not line.strip():
-                        continue
-                    msg = Message.parse(line)
-                    if msg.command == "HISTORY":
-                        # params: [channel, nick, timestamp, text]
-                        if len(msg.params) >= 4:
-                            chan, entry_nick, ts, text = (
-                                msg.params[0],
-                                msg.params[1],
-                                msg.params[2],
-                                msg.params[3],
-                            )
-                            results.append(f"[{ts}] <{entry_nick}> {text}")
-                        elif len(msg.params) >= 3:
-                            results.append(f"<{msg.params[1]}> {msg.params[2]}")
-                    elif msg.command == "HISTORYEND":
-                        return results
-                    elif msg.command == "PING":
-                        token = msg.params[0] if msg.params else ""
-                        writer.write(f"PONG :{token}\r\n".encode())
-                        await writer.drain()
-            return results
-        except asyncio.TimeoutError:
-            return results
-        finally:
-            await self._disconnect(writer)
+    @staticmethod
+    def _parse_history_line(msg):
+        if msg.command != "HISTORY":
+            return None
+        if len(msg.params) >= 4:
+            entry_nick, ts, text = msg.params[1], msg.params[2], msg.params[3]
+            return f"[{ts}] <{entry_nick}> {text}"
+        if len(msg.params) >= 3:
+            return f"<{msg.params[1]}> {msg.params[2]}"
+        return None
+
+    @staticmethod
+    def _parse_who_line(msg):
+        if msg.command == "352" and len(msg.params) >= 6:
+            return msg.params[5]
+        return None
+
+    @staticmethod
+    def _parse_list_line(msg):
+        if msg.command == "322" and len(msg.params) >= 2:
+            return msg.params[1]
+        return None
 
     async def who(self, target: str) -> list[str]:
         """WHO query -- returns list of nicks in a channel or matching a target."""
-        reader, writer, nick = await self._connect_and_register()
-        try:
-            writer.write(f"WHO {target}\r\n".encode())
-            await writer.drain()
-
-            nicks: list[str] = []
-            buffer = ""
-            while True:
-                data = await asyncio.wait_for(reader.read(4096), timeout=RECV_TIMEOUT)
-                if not data:
-                    break
-                buffer += data.decode(errors="replace")
-                while "\r\n" in buffer:
-                    line, buffer = buffer.split("\r\n", 1)
-                    if not line.strip():
-                        continue
-                    msg = Message.parse(line)
-                    if msg.command == "352":
-                        # RPL_WHOREPLY via send_numeric:
-                        # params[0]=our_nick, [1]=target, [2]=user, [3]=host,
-                        # [4]=server_name, [5]=member_nick, [6]=flags, [7]=realname
-                        if len(msg.params) >= 6:
-                            nicks.append(msg.params[5])
-                    elif msg.command == "315":
-                        # RPL_ENDOFWHO
-                        return nicks
-                    elif msg.command == "PING":
-                        token = msg.params[0] if msg.params else ""
-                        writer.write(f"PONG :{token}\r\n".encode())
-                        await writer.drain()
-            return nicks
-        except asyncio.TimeoutError:
-            return nicks
-        finally:
-            await self._disconnect(writer)
+        return await self._irc_query(
+            f"WHO {target}",
+            {"315"},
+            self._parse_who_line,
+        )
 
     async def send_message(self, target: str, text: str) -> None:
         """Send a PRIVMSG to a channel or nick, then disconnect.
@@ -219,36 +211,9 @@ class IRCObserver:
 
         Returns sorted list of channel names.
         """
-        reader, writer, nick = await self._connect_and_register()
-        try:
-            writer.write(b"LIST\r\n")
-            await writer.drain()
-
-            channels: list[str] = []
-            buffer = ""
-            while True:
-                data = await asyncio.wait_for(reader.read(4096), timeout=RECV_TIMEOUT)
-                if not data:
-                    break
-                buffer += data.decode(errors="replace")
-                while "\r\n" in buffer:
-                    line, buffer = buffer.split("\r\n", 1)
-                    if not line.strip():
-                        continue
-                    msg = Message.parse(line)
-                    if msg.command == "322":
-                        # RPL_LIST: params[1] is channel name
-                        if len(msg.params) >= 2:
-                            channels.append(msg.params[1])
-                    elif msg.command == "323":
-                        # RPL_LISTEND
-                        return sorted(channels)
-                    elif msg.command == "PING":
-                        token = msg.params[0] if msg.params else ""
-                        writer.write(f"PONG :{token}\r\n".encode())
-                        await writer.drain()
-            return sorted(channels)
-        except asyncio.TimeoutError:
-            return sorted(channels)
-        finally:
-            await self._disconnect(writer)
+        channels = await self._irc_query(
+            "LIST",
+            {"323"},
+            self._parse_list_line,
+        )
+        return sorted(channels)

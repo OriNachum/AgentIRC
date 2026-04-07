@@ -18,6 +18,60 @@ def _temp_nick(server_name: str) -> str:
     return f"{server_name}-_overview{os.urandom(2).hex()}"
 
 
+def _build_room_agent(member_nick, who_data, server_name, all_agents, ch_name):
+    """Build or update an Agent for a room member, return (Agent, is_remote)."""
+    server_of = who_data.get(member_nick, server_name)
+    is_remote = server_of != server_name
+
+    if member_nick not in all_agents:
+        all_agents[member_nick] = Agent(
+            nick=member_nick,
+            status="remote" if is_remote else "active",
+            activity="",
+            channels=[],
+            server=server_of,
+        )
+    agent = all_agents[member_nick]
+    if ch_name not in agent.channels:
+        agent.channels.append(ch_name)
+    return agent, is_remote
+
+
+async def _collect_room(
+    reader, writer, nick, ch_name, ch_topic, server_name, all_agents, message_limit
+):
+    """Query IRC for a single channel and return a Room."""
+    members, _ = await _query_names(reader, writer, nick, ch_name)
+    who_data = await _query_who(reader, writer, nick, ch_name)
+    messages = await _query_history(reader, writer, nick, ch_name, message_limit)
+
+    room_agents = []
+    fed_servers: set[str] = set()
+    for member_nick, _is_op in members:
+        agent, is_remote = _build_room_agent(
+            member_nick, who_data, server_name, all_agents, ch_name
+        )
+        if is_remote:
+            fed_servers.add(agent.server)
+        room_agents.append(agent)
+
+    op_nicks = [n for n, is_op in members if is_op]
+    room_meta = await _query_roommeta(reader, writer, nick, ch_name)
+    return Room(
+        name=ch_name,
+        topic=ch_topic,
+        members=room_agents,
+        operators=op_nicks,
+        federation_servers=sorted(fed_servers),
+        messages=messages,
+        room_id=room_meta.get("room_id"),
+        owner=room_meta.get("owner"),
+        purpose=room_meta.get("purpose"),
+        tags=room_meta.get("tags", []),
+        persistent=room_meta.get("persistent", False),
+    )
+
+
 async def collect_mesh_state(
     host: str,
     port: int,
@@ -37,48 +91,17 @@ async def collect_mesh_state(
         all_agents: dict[str, Agent] = {}
 
         for ch_name, ch_topic in channels:
-            members, _ = await _query_names(reader, writer, nick, ch_name)
-            who_data = await _query_who(reader, writer, nick, ch_name)
-            messages = await _query_history(reader, writer, nick, ch_name, message_limit)
-
-            room_agents = []
-            fed_servers: set[str] = set()
-            for member_nick, _is_op in members:
-                server_of = who_data.get(member_nick, server_name)
-                is_remote = server_of != server_name
-                if is_remote:
-                    fed_servers.add(server_of)
-
-                if member_nick not in all_agents:
-                    all_agents[member_nick] = Agent(
-                        nick=member_nick,
-                        status="remote" if is_remote else "active",
-                        activity="",
-                        channels=[],
-                        server=server_of,
-                    )
-                agent = all_agents[member_nick]
-                if ch_name not in agent.channels:
-                    agent.channels.append(ch_name)
-                room_agents.append(agent)
-
-            op_nicks = [n for n, is_op in members if is_op]
-            room_meta = await _query_roommeta(reader, writer, nick, ch_name)
-            rooms.append(
-                Room(
-                    name=ch_name,
-                    topic=ch_topic,
-                    members=room_agents,
-                    operators=op_nicks,
-                    federation_servers=sorted(fed_servers),
-                    messages=messages,
-                    room_id=room_meta.get("room_id"),
-                    owner=room_meta.get("owner"),
-                    purpose=room_meta.get("purpose"),
-                    tags=room_meta.get("tags", []),
-                    persistent=room_meta.get("persistent", False),
-                )
+            room = await _collect_room(
+                reader,
+                writer,
+                nick,
+                ch_name,
+                ch_topic,
+                server_name,
+                all_agents,
+                message_limit,
             )
+            rooms.append(room)
 
         fed_links = sorted({a.server for a in all_agents.values() if a.server != server_name})
 

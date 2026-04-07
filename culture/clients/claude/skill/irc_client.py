@@ -83,14 +83,7 @@ class SkillClient:
                 msg = decode_message(line)
                 if msg is None:
                     continue
-                msg_type = msg.get("type")
-                if msg_type == MSG_TYPE_RESPONSE:
-                    req_id = msg.get("id", "")
-                    future = self._pending.pop(req_id, None)
-                    if future is not None and not future.done():
-                        future.set_result(msg)
-                elif msg_type == MSG_TYPE_WHISPER:
-                    self.pending_whispers.append(msg)
+                self._dispatch_message(msg)
         except (asyncio.IncompleteReadError, ConnectionError, OSError):
             pass
         finally:
@@ -99,6 +92,17 @@ class SkillClient:
                 if not future.done():
                     future.set_exception(ConnectionError("Connection lost"))
             self._pending.clear()
+
+    def _dispatch_message(self, msg: dict[str, Any]) -> None:
+        """Route a decoded message to the appropriate handler."""
+        msg_type = msg.get("type")
+        if msg_type == MSG_TYPE_RESPONSE:
+            req_id = msg.get("id", "")
+            future = self._pending.pop(req_id, None)
+            if future is not None and not future.done():
+                future.set_result(msg)
+        elif msg_type == MSG_TYPE_WHISPER:
+            self.pending_whispers.append(msg)
 
     # ------------------------------------------------------------------
     # Request dispatch
@@ -182,6 +186,86 @@ def _sock_path_from_env() -> str:
     return os.path.join(runtime_dir, f"culture-{nick}.sock")
 
 
+def _parse_ask_timeout(remaining: list[str]) -> tuple[int, list[str]]:
+    """Extract --timeout N from args, returning (timeout, filtered_args)."""
+    if "--timeout" in remaining:
+        idx = remaining.index("--timeout")
+        if idx + 1 >= len(remaining):
+            print("ERROR: --timeout requires a value", file=sys.stderr)
+            sys.exit(2)
+        try:
+            timeout = int(remaining[idx + 1])
+        except ValueError:
+            print(
+                f"ERROR: --timeout value must be an integer, got {remaining[idx + 1]!r}",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        if timeout <= 0:
+            print("ERROR: --timeout must be positive", file=sys.stderr)
+            sys.exit(2)
+        remaining = remaining[:idx] + remaining[idx + 2 :]
+    else:
+        timeout = 30
+    return timeout, remaining
+
+
+async def _cmd_send(client: SkillClient, args: list[str]) -> dict[str, Any]:
+    channel = args[1]
+    message = " ".join(args[2:])
+    return await client.irc_send(channel, message)
+
+
+async def _cmd_read(client: SkillClient, args: list[str]) -> dict[str, Any]:
+    channel = args[1]
+    limit = int(args[2]) if len(args) > 2 else 50
+    return await client.irc_read(channel, limit=limit)
+
+
+async def _cmd_ask(client: SkillClient, args: list[str]) -> dict[str, Any]:
+    channel = args[1]
+    timeout, remaining = _parse_ask_timeout(args[2:])
+    question = " ".join(remaining)
+    return await client.irc_ask(channel, question, timeout=timeout)
+
+
+async def _cmd_join(client: SkillClient, args: list[str]) -> dict[str, Any]:
+    return await client.irc_join(args[1])
+
+
+async def _cmd_part(client: SkillClient, args: list[str]) -> dict[str, Any]:
+    return await client.irc_part(args[1])
+
+
+async def _cmd_channels(client: SkillClient, args: list[str]) -> dict[str, Any]:
+    return await client.irc_channels()
+
+
+async def _cmd_who(client: SkillClient, args: list[str]) -> dict[str, Any]:
+    return await client.irc_who(args[1])
+
+
+async def _cmd_compact(client: SkillClient, args: list[str]) -> dict[str, Any]:
+    return await client.compact()
+
+
+async def _cmd_clear(client: SkillClient, args: list[str]) -> dict[str, Any]:
+    return await client.clear()
+
+
+_SUBCOMMANDS: dict[str, Any] = {
+    "send": _cmd_send,
+    "read": _cmd_read,
+    "ask": _cmd_ask,
+    "join": _cmd_join,
+    "part": _cmd_part,
+    "channels": _cmd_channels,
+    "who": _cmd_who,
+    "compact": _cmd_compact,
+    "clear": _cmd_clear,
+}
+
+
 async def _main(args: list[str]) -> None:
     """CLI entry point. First arg is the subcommand."""
     if not args:
@@ -195,59 +279,16 @@ async def _main(args: list[str]) -> None:
     sock_path = _sock_path_from_env()
     subcommand = args[0]
 
+    handler = _SUBCOMMANDS.get(subcommand)
+    if handler is None:
+        print(f"ERROR: Unknown subcommand: {subcommand!r}", file=sys.stderr)
+        sys.exit(1)
+
     client = SkillClient(sock_path)
     await client.connect()
 
     try:
-        if subcommand == "send":
-            # send <channel> <message...>
-            channel = args[1]
-            message = " ".join(args[2:])
-            result = await client.irc_send(channel, message)
-
-        elif subcommand == "read":
-            # read <channel> [limit]
-            channel = args[1]
-            limit = int(args[2]) if len(args) > 2 else 50
-            result = await client.irc_read(channel, limit=limit)
-
-        elif subcommand == "ask":
-            # ask <channel> [--timeout N] <question...>
-            channel = args[1]
-            remaining = args[2:]
-            if "--timeout" in remaining:
-                idx = remaining.index("--timeout")
-                timeout = int(remaining[idx + 1])
-                remaining = remaining[:idx] + remaining[idx + 2 :]
-            else:
-                timeout = 30
-            question = " ".join(remaining)
-            result = await client.irc_ask(channel, question, timeout=timeout)
-
-        elif subcommand == "join":
-            channel = args[1]
-            result = await client.irc_join(channel)
-
-        elif subcommand == "part":
-            channel = args[1]
-            result = await client.irc_part(channel)
-
-        elif subcommand == "channels":
-            result = await client.irc_channels()
-
-        elif subcommand == "who":
-            target = args[1]
-            result = await client.irc_who(target)
-
-        elif subcommand == "compact":
-            result = await client.compact()
-
-        elif subcommand == "clear":
-            result = await client.clear()
-
-        else:
-            print(f"ERROR: Unknown subcommand: {subcommand!r}", file=sys.stderr)
-            sys.exit(1)
+        result = await handler(client, args)
 
         # Print result as JSON
         print(json.dumps(result, indent=2))

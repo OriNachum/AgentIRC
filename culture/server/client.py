@@ -58,17 +58,21 @@ class Client:
         )
         await self.send(msg)
 
+    async def _process_buffer(self, buffer: str) -> str:
+        """Parse and dispatch all complete lines from buffer, return remainder."""
+        while "\n" in buffer:
+            line, buffer = buffer.split("\n", 1)
+            if line.strip():
+                msg = Message.parse(line)
+                if msg.command:
+                    await self._dispatch(msg)
+        return buffer
+
     async def handle(self, initial_msg: str | None = None) -> None:
         buffer = ""
         if initial_msg:
-            buffer = initial_msg
-            buffer = buffer.replace("\r\n", "\n").replace("\r", "\n")
-            while "\n" in buffer:
-                line, buffer = buffer.split("\n", 1)
-                if line.strip():
-                    msg = Message.parse(line)
-                    if msg.command:
-                        await self._dispatch(msg)
+            buffer = initial_msg.replace("\r\n", "\n").replace("\r", "\n")
+            buffer = await self._process_buffer(buffer)
         while True:
             data = await self.reader.read(4096)
             if not data:
@@ -79,12 +83,7 @@ class Client:
                 buffer = buffer[-4096:]
             # Normalize all line endings to \n for simpler parsing
             buffer = buffer.replace("\r\n", "\n").replace("\r", "\n")
-            while "\n" in buffer:
-                line, buffer = buffer.split("\n", 1)
-                if line.strip():
-                    msg = Message.parse(line)
-                    if msg.command:
-                        await self._dispatch(msg)
+            buffer = await self._process_buffer(buffer)
 
     async def _dispatch(self, msg: Message) -> None:
         handler = getattr(self, f"_handle_{msg.command.lower()}", None)
@@ -346,6 +345,47 @@ class Client:
         else:
             await self._handle_user_mode(msg)
 
+    def _apply_mode_r(self, channel, adding, applied_modes):
+        if adding:
+            channel.restricted = True
+        else:
+            channel.restricted = False
+        applied_modes.append(("+" if adding else "-") + "R")
+
+    def _apply_mode_s(self, channel, adding, param_value, applied_modes, applied_params):
+        if adding:
+            channel.shared_with.add(param_value)
+        else:
+            channel.shared_with.discard(param_value)
+        applied_modes.append(("+" if adding else "-") + "S")
+        applied_params.append(param_value)
+
+    async def _apply_mode_membership(
+        self, channel, channel_name, ch, adding, param_value, applied_modes, applied_params
+    ):
+        target_nick = param_value
+        target_client = self.server.clients.get(target_nick)
+        if not target_client or target_client not in channel.members:
+            await self.send_numeric(
+                replies.ERR_USERNOTINCHANNEL,
+                target_nick,
+                channel_name,
+                "They aren't on that channel",
+            )
+            return
+        if ch == "o":
+            if adding:
+                channel.operators.add(target_client)
+            else:
+                channel.operators.discard(target_client)
+        elif ch == "v":
+            if adding:
+                channel.voiced.add(target_client)
+            else:
+                channel.voiced.discard(target_client)
+        applied_modes.append(("+" if adding else "-") + ch)
+        applied_params.append(target_nick)
+
     async def _handle_channel_mode(self, msg: Message) -> None:
         channel_name = msg.params[0]
         channel = self.server.channels.get(channel_name)
@@ -378,47 +418,23 @@ class Client:
             elif ch == "-":
                 adding = False
             elif ch == "R":
-                # +R / -R — restrict channel from federation
-                if adding:
-                    channel.restricted = True
-                else:
-                    channel.restricted = False
-                applied_modes.append(("+" if adding else "-") + ch)
+                self._apply_mode_r(channel, adding, applied_modes)
             elif ch in param_modes:
                 if not param_queue:
                     continue
                 param_value = param_queue.pop(0)
                 if ch == "S":
-                    # +S <server> / -S <server> — share with specific servers
-                    if adding:
-                        channel.shared_with.add(param_value)
-                    else:
-                        channel.shared_with.discard(param_value)
-                    applied_modes.append(("+" if adding else "-") + ch)
-                    applied_params.append(param_value)
+                    self._apply_mode_s(channel, adding, param_value, applied_modes, applied_params)
                 else:
-                    target_nick = param_value
-                    target_client = self.server.clients.get(target_nick)
-                    if not target_client or target_client not in channel.members:
-                        await self.send_numeric(
-                            replies.ERR_USERNOTINCHANNEL,
-                            target_nick,
-                            channel_name,
-                            "They aren't on that channel",
-                        )
-                        continue
-                    if ch == "o":
-                        if adding:
-                            channel.operators.add(target_client)
-                        else:
-                            channel.operators.discard(target_client)
-                    elif ch == "v":
-                        if adding:
-                            channel.voiced.add(target_client)
-                        else:
-                            channel.voiced.discard(target_client)
-                    applied_modes.append(("+" if adding else "-") + ch)
-                    applied_params.append(target_nick)
+                    await self._apply_mode_membership(
+                        channel,
+                        channel_name,
+                        ch,
+                        adding,
+                        param_value,
+                        applied_modes,
+                        applied_params,
+                    )
 
         # Auto-promote if no operators remain
         if not channel.operators and channel.members:
@@ -457,6 +473,48 @@ class Client:
         mode_str = "+" + "".join(sorted(self.modes)) if self.modes else "+"
         await self.send_numeric(replies.RPL_UMODEIS, mode_str)
 
+    async def _send_to_channel(self, channel, target, relay, text, is_notice):
+        for member in list(channel.members):
+            if member is not self:
+                await member.send(relay)
+        event_data = {"text": text}
+        if is_notice:
+            event_data["notice"] = True
+        await self.server.emit_event(
+            Event(
+                type=EventType.MESSAGE,
+                channel=target,
+                nick=self.nick,
+                data=event_data,
+            )
+        )
+
+    async def _send_to_client(self, target, relay, text, is_notice):
+        from culture.server.remote_client import RemoteClient
+
+        recipient = self.server.get_client(target)
+        if not recipient:
+            return False
+        if isinstance(recipient, RemoteClient):
+            s2s_cmd = "SNOTICE" if is_notice else "SMSG"
+            await recipient.link.send_raw(
+                f":{self.server.config.name} {s2s_cmd} {target} {self.nick} :{text}"
+            )
+        else:
+            await recipient.send(relay)
+        event_data = {"text": text, "target": target}
+        if is_notice:
+            event_data["notice"] = True
+        await self.server.emit_event(
+            Event(
+                type=EventType.MESSAGE,
+                channel=None,
+                nick=self.nick,
+                data=event_data,
+            )
+        )
+        return True
+
     async def _handle_privmsg(self, msg: Message) -> None:
         if len(msg.params) < 2:
             await self.send_numeric(replies.ERR_NEEDMOREPARAMS, "PRIVMSG", "Not enough parameters")
@@ -476,40 +534,13 @@ class Client:
                     replies.ERR_CANNOTSENDTOCHAN, target, "Cannot send to channel"
                 )
                 return
-            for member in list(channel.members):
-                if member is not self:
-                    await member.send(relay)
-            await self.server.emit_event(
-                Event(
-                    type=EventType.MESSAGE,
-                    channel=target,
-                    nick=self.nick,
-                    data={"text": text},
-                )
-            )
+            await self._send_to_channel(channel, target, relay, text, False)
             await self._notify_mentions(target, text)
         else:
-            from culture.server.remote_client import RemoteClient
-
-            recipient = self.server.get_client(target)
-            if not recipient:
+            found = await self._send_to_client(target, relay, text, False)
+            if not found:
                 await self.send_numeric(replies.ERR_NOSUCHNICK, target, "No such nick")
                 return
-            if isinstance(recipient, RemoteClient):
-                # Send DM through the S2S link
-                await recipient.link.send_raw(
-                    f":{self.server.config.name} SMSG {target} {self.nick} :{text}"
-                )
-            else:
-                await recipient.send(relay)
-            await self.server.emit_event(
-                Event(
-                    type=EventType.MESSAGE,
-                    channel=None,
-                    nick=self.nick,
-                    data={"text": text, "target": target},
-                )
-            )
             await self._notify_mentions(None, text)
 
     async def _notify_mentions(self, channel_name: str | None, text: str) -> None:
@@ -564,40 +595,41 @@ class Client:
                 return
             if self not in channel.members:
                 return
-            for member in list(channel.members):
-                if member is not self:
-                    await member.send(relay)
-            await self.server.emit_event(
-                Event(
-                    type=EventType.MESSAGE,
-                    channel=target,
-                    nick=self.nick,
-                    data={"text": text, "notice": True},
-                )
-            )
+            await self._send_to_channel(channel, target, relay, text, True)
         else:
-            from culture.server.remote_client import RemoteClient
+            await self._send_to_client(target, relay, text, True)
 
-            recipient = self.server.get_client(target)
-            if recipient:
-                if isinstance(recipient, RemoteClient):
-                    await recipient.link.send_raw(
-                        f":{self.server.config.name} SNOTICE {target} {self.nick} :{text}"
-                    )
-                else:
-                    await recipient.send(relay)
-                await self.server.emit_event(
-                    Event(
-                        type=EventType.MESSAGE,
-                        channel=None,
-                        nick=self.nick,
-                        data={"text": text, "notice": True, "target": target},
-                    )
-                )
+    def _build_who_flags(self, member, channel) -> str:
+        flags = "H"
+        if channel and channel.is_operator(member):
+            flags += "@"
+        elif channel and channel.is_voiced(member):
+            flags += "+"
+        if hasattr(member, "modes") and member.modes:
+            flags += "[" + "".join(sorted(member.modes)) + "]"
+        if hasattr(member, "icon") and member.icon:
+            flags += "{" + member.icon + "}"
+        return flags
+
+    async def _send_who_reply(self, member, channel_name: str, channel=None) -> None:
+        from culture.server.remote_client import RemoteClient  # noqa: F811
+
+        flags = self._build_who_flags(member, channel)
+        server_name = (
+            member.server_name if isinstance(member, RemoteClient) else self.server.config.name
+        )
+        await self.send_numeric(
+            replies.RPL_WHOREPLY,
+            channel_name,
+            member.user or "*",
+            member.host,
+            server_name,
+            member.nick,
+            flags,
+            f"0 {member.realname or ''}",
+        )
 
     async def _handle_who(self, msg: Message) -> None:
-        from culture.server.remote_client import RemoteClient
-
         if not msg.params:
             await self.send_numeric(replies.RPL_ENDOFWHO, "*", "End of WHO list")
             return
@@ -607,58 +639,18 @@ class Client:
             channel = self.server.channels.get(target)
             if channel:
                 for member in list(channel.members):
-                    flags = "H"
-                    if channel.is_operator(member):
-                        flags += "@"
-                    elif channel.is_voiced(member):
-                        flags += "+"
-                    if hasattr(member, "modes") and member.modes:
-                        flags += "[" + "".join(sorted(member.modes)) + "]"
-                    if hasattr(member, "icon") and member.icon:
-                        flags += "{" + member.icon + "}"
-                    server_name = (
-                        member.server_name
-                        if isinstance(member, RemoteClient)
-                        else self.server.config.name
-                    )
-                    await self.send_numeric(
-                        replies.RPL_WHOREPLY,
-                        target,
-                        member.user or "*",
-                        member.host,
-                        server_name,
-                        member.nick,
-                        flags,
-                        f"0 {member.realname or ''}",
-                    )
+                    await self._send_who_reply(member, target, channel)
             await self.send_numeric(replies.RPL_ENDOFWHO, target, "End of WHO list")
         else:
             client = self.server.get_client(target)
             if client:
                 chan_name = "*"
-                flags = "H"
+                chan_context = None
                 for ch in client.channels:
                     chan_name = ch.name
-                    if ch.is_operator(client):
-                        flags += "@"
-                    elif ch.is_voiced(client):
-                        flags += "+"
+                    chan_context = ch
                     break
-                server_name = (
-                    client.server_name
-                    if isinstance(client, RemoteClient)
-                    else self.server.config.name
-                )
-                await self.send_numeric(
-                    replies.RPL_WHOREPLY,
-                    chan_name,
-                    client.user or "*",
-                    client.host,
-                    server_name,
-                    client.nick,
-                    flags,
-                    f"0 {client.realname or ''}",
-                )
+                await self._send_who_reply(client, chan_name, chan_context)
             await self.send_numeric(replies.RPL_ENDOFWHO, target, "End of WHO list")
 
     async def _handle_whois(self, msg: Message) -> None:

@@ -115,6 +115,18 @@ class AgentRunner:
             opts.resume = self._session_id
         return opts
 
+    def _handle_result_message(self, msg: ResultMessage) -> None:
+        """Handle a ResultMessage — track session and log errors."""
+        self._session_id = msg.session_id
+        if msg.is_error:
+            logger.warning("SDK session error: %s", msg.result)
+
+    async def _handle_assistant_message(self, msg: AssistantMessage) -> None:
+        """Handle an AssistantMessage — convert and fire callback."""
+        if self.on_message:
+            msg_dict = self._assistant_to_dict(msg)
+            await self.on_message(msg_dict)
+
     async def _run_loop(self) -> None:
         """Main session loop: run turns, process prompt queue between turns."""
         try:
@@ -132,13 +144,9 @@ class AgentRunner:
                         options=self._make_options(),
                     ):
                         if isinstance(message, ResultMessage):
-                            self._session_id = message.session_id
-                            if message.is_error:
-                                logger.warning("SDK session error: %s", message.result)
+                            self._handle_result_message(message)
                         elif isinstance(message, AssistantMessage):
-                            if self.on_message:
-                                msg_dict = self._assistant_to_dict(message)
-                                await self.on_message(msg_dict)
+                            await self._handle_assistant_message(message)
                 except Exception:
                     logger.exception("SDK session turn error")
                     if not self._stopping and self.on_exit:

@@ -117,6 +117,13 @@ def _format_window(window: list[dict[str, Any]], task: str) -> str:
     return "\n".join(lines)
 
 
+def _extract_verdict_text(response) -> str:
+    """Extract text from an SDK response message."""
+    if isinstance(response, AssistantMessage):
+        return "".join(block.text for block in response.content if isinstance(block, TextBlock))
+    return ""
+
+
 def make_sdk_evaluate_fn(
     model: str = "claude-sonnet-4-6",
     thinking: str | None = None,
@@ -137,10 +144,7 @@ def make_sdk_evaluate_fn(
         if thinking:
             opts.effort = thinking
         async for message in query(prompt=prompt, options=opts):
-            if isinstance(message, AssistantMessage):
-                for block in message.content:
-                    if isinstance(block, TextBlock):
-                        result_text += block.text
+            result_text += _extract_verdict_text(message)
         return SupervisorVerdict.parse(result_text)
 
     return evaluate

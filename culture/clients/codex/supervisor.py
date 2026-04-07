@@ -85,17 +85,8 @@ class CodexSupervisor:
         if self._turn_count % self.eval_interval == 0:
             await self._evaluate()
 
-    async def _evaluate(self) -> None:
-        """Run codex exec to evaluate the agent's recent activity."""
-        transcript = self._format_transcript()
-        template = self.prompt_override or SUPERVISOR_PROMPT
-        try:
-            prompt = template.format(transcript=transcript)
-        except (KeyError, IndexError, ValueError) as exc:
-            logger.warning("Invalid prompt_override template, falling back to default: %s", exc)
-            prompt = SUPERVISOR_PROMPT.format(transcript=transcript)
-
-        # Isolate from host config (~/.codex/, XDG, etc.)
+    async def _run_supervisor_process(self, prompt: str) -> SupervisorVerdict | None:
+        """Run codex exec and return the parsed verdict, or None on failure."""
         isolated_home = tempfile.mkdtemp(prefix="culture-codex-sv-")
         isolated_env = dict(os.environ)
         isolated_env["HOME"] = isolated_home
@@ -119,7 +110,7 @@ class CodexSupervisor:
                 proc.communicate(prompt.encode()),
                 timeout=30,
             )
-            verdict = SupervisorVerdict.parse(stdout.decode())
+            return SupervisorVerdict.parse(stdout.decode())
         except asyncio.TimeoutError:
             logger.warning("Codex supervisor timed out, killing process")
             if proc:
@@ -128,7 +119,7 @@ class CodexSupervisor:
                 except ProcessLookupError:
                     pass
                 await proc.wait()
-            return
+            return None
         except Exception:
             logger.exception("Codex supervisor evaluation failed")
             if proc and proc.returncode is None:
@@ -137,10 +128,12 @@ class CodexSupervisor:
                 except ProcessLookupError:
                     pass
                 await proc.wait()
-            return
+            return None
         finally:
             shutil.rmtree(isolated_home, ignore_errors=True)
 
+    async def _process_verdict(self, verdict: SupervisorVerdict) -> None:
+        """Handle a supervisor verdict by dispatching whispers or escalations."""
         if verdict.action == "ESCALATION":
             self._escalation_count += 1
             if self._escalation_count >= self.escalation_threshold:
@@ -152,6 +145,21 @@ class CodexSupervisor:
                 await self.on_whisper(verdict.message, verdict.action)
         else:
             self._escalation_count = 0
+
+    async def _evaluate(self) -> None:
+        """Run codex exec to evaluate the agent's recent activity."""
+        transcript = self._format_transcript()
+        template = self.prompt_override or SUPERVISOR_PROMPT
+        try:
+            prompt = template.format(transcript=transcript)
+        except (KeyError, IndexError, ValueError) as exc:
+            logger.warning("Invalid prompt_override template, falling back to default: %s", exc)
+            prompt = SUPERVISOR_PROMPT.format(transcript=transcript)
+
+        verdict = await self._run_supervisor_process(prompt)
+        if verdict is None:
+            return
+        await self._process_verdict(verdict)
 
     def _format_transcript(self) -> str:
         """Format recent turns into a readable transcript."""

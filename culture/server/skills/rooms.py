@@ -292,42 +292,52 @@ class RoomsSkill(Skill):
             )
         )
 
+    async def _handle_tags_added(self, channel, added_tags: set) -> None:
+        """Invite local agents whose tags match newly added room tags."""
+        from culture.server.remote_client import RemoteClient
+
+        for client in list(self.server.clients.values()):
+            if isinstance(client, RemoteClient):
+                continue
+            client_tags = set(client.tags)
+            if client_tags & added_tags and client not in channel.members:
+                await self._send_system_invite(client, channel)
+
+    async def _handle_tags_removed(self, channel, removed_tags: set) -> None:
+        """Notify local members whose tags match removed room tags."""
+        from culture.server.remote_client import RemoteClient
+
+        for member in list(channel.members):
+            if isinstance(member, RemoteClient):
+                continue
+            member_tags = set(member.tags)
+            if member_tags & removed_tags:
+                await member.send(
+                    Message(
+                        prefix=self.server.config.name,
+                        command="ROOMTAGNOTICE",
+                        params=[
+                            member.nick,
+                            channel.name,
+                            f"Tags removed from room: {','.join(removed_tags & member_tags)}",
+                        ],
+                    )
+                )
+
     async def _on_room_tags_changed(self, channel, old_tags: set, new_tags: set) -> None:
         """Fire tag-based notifications when a room's tags change.
 
         - Tags ADDED: find agents with matching tags not in room → ROOMINVITE
         - Tags REMOVED: find in-room local agents with those tags → ROOMTAGNOTICE
         """
-        from culture.server.remote_client import RemoteClient
-
         added = new_tags - old_tags
         removed = old_tags - new_tags
 
         if added:
-            for client in list(self.server.clients.values()):
-                if isinstance(client, RemoteClient):
-                    continue
-                client_tags = set(client.tags)
-                if client_tags & added and client not in channel.members:
-                    await self._send_system_invite(client, channel)
+            await self._handle_tags_added(channel, added)
 
         if removed:
-            for member in list(channel.members):
-                if isinstance(member, RemoteClient):
-                    continue
-                member_tags = set(member.tags)
-                if member_tags & removed:
-                    await member.send(
-                        Message(
-                            prefix=self.server.config.name,
-                            command="ROOMTAGNOTICE",
-                            params=[
-                                member.nick,
-                                channel.name,
-                                f"Tags removed from room: {','.join(removed & member_tags)}",
-                            ],
-                        )
-                    )
+            await self._handle_tags_removed(channel, removed)
 
     async def _handle_tags(self, client: Client, msg: Message) -> None:
         if not msg.params:

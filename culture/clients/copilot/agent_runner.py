@@ -140,6 +140,30 @@ class CopilotAgentRunner:
     # Internal: prompt processing loop
     # ------------------------------------------------------------------
 
+    async def _handle_turn_response(self, response) -> None:
+        """Convert a Copilot response to a message dict and fire callback."""
+        content_text = self._extract_response_text(response)
+        if not content_text or not self.on_message:
+            return
+        msg_dict = {
+            "type": "assistant",
+            "model": self.model,
+            "content": [{"type": "text", "text": content_text}],
+        }
+        await self.on_message(msg_dict)
+
+    async def _handle_turn_error(self) -> bool:
+        """Handle a turn error. Returns True if the loop should exit."""
+        logger.exception("Copilot session turn error")
+        if self.on_turn_error:
+            await maybe_await(self.on_turn_error())
+        if self._stopping:
+            return False
+        self._running = False
+        if self.on_exit:
+            await self.on_exit(1)
+        return True
+
     async def _prompt_loop(self) -> None:
         """Process queued prompts one at a time using send_and_wait."""
         try:
@@ -150,24 +174,9 @@ class CopilotAgentRunner:
 
                 try:
                     response = await self._session.send_and_wait(text, timeout=120.0)
-                    content_text = self._extract_response_text(response)
-
-                    if content_text and self.on_message:
-                        msg_dict = {
-                            "type": "assistant",
-                            "model": self.model,
-                            "content": [{"type": "text", "text": content_text}],
-                        }
-                        await self.on_message(msg_dict)
-
+                    await self._handle_turn_response(response)
                 except Exception:
-                    logger.exception("Copilot session turn error")
-                    if self.on_turn_error:
-                        await maybe_await(self.on_turn_error())
-                    if not self._stopping:
-                        self._running = False
-                        if self.on_exit:
-                            await self.on_exit(1)
+                    if await self._handle_turn_error():
                         return
 
         except asyncio.CancelledError:

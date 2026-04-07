@@ -85,19 +85,8 @@ class CopilotSupervisor:
         if self._turn_count % self.eval_interval == 0:
             await self._evaluate()
 
-    async def _evaluate(self) -> None:
-        """Run a Copilot SDK session to evaluate the agent's recent activity."""
-        transcript = self._format_transcript()
-        try:
-            if self._prompt_override:
-                prompt = self._prompt_override.format(transcript=transcript)
-            else:
-                prompt = SUPERVISOR_PROMPT.format(transcript=transcript)
-        except (KeyError, IndexError, ValueError) as exc:
-            logger.warning("Invalid prompt_override template, falling back to default: %s", exc)
-            prompt = SUPERVISOR_PROMPT.format(transcript=transcript)
-
-        # Isolate from host config
+    async def _run_supervisor_session(self, prompt: str) -> SupervisorVerdict | None:
+        """Run a Copilot SDK session and return the parsed verdict, or None on failure."""
         isolated_home = tempfile.mkdtemp(prefix="culture-copilot-sv-")
 
         try:
@@ -128,15 +117,19 @@ class CopilotSupervisor:
             finally:
                 await client.stop()
 
+            return verdict
+
         except asyncio.TimeoutError:
             logger.warning("Copilot supervisor timed out")
-            return
+            return None
         except Exception:
             logger.exception("Copilot supervisor evaluation failed")
-            return
+            return None
         finally:
             shutil.rmtree(isolated_home, ignore_errors=True)
 
+    async def _process_verdict(self, verdict: SupervisorVerdict) -> None:
+        """Handle a supervisor verdict by dispatching whispers or escalations."""
         if verdict.action == "ESCALATION":
             self._escalation_count += 1
             if self._escalation_count >= self.escalation_threshold:
@@ -148,6 +141,23 @@ class CopilotSupervisor:
                 await self.on_whisper(verdict.message, verdict.action)
         else:
             self._escalation_count = 0
+
+    async def _evaluate(self) -> None:
+        """Run a Copilot SDK session to evaluate the agent's recent activity."""
+        transcript = self._format_transcript()
+        try:
+            if self._prompt_override:
+                prompt = self._prompt_override.format(transcript=transcript)
+            else:
+                prompt = SUPERVISOR_PROMPT.format(transcript=transcript)
+        except (KeyError, IndexError, ValueError) as exc:
+            logger.warning("Invalid prompt_override template, falling back to default: %s", exc)
+            prompt = SUPERVISOR_PROMPT.format(transcript=transcript)
+
+        verdict = await self._run_supervisor_session(prompt)
+        if verdict is None:
+            return
+        await self._process_verdict(verdict)
 
     def _format_transcript(self) -> str:
         """Format recent turns into a readable transcript."""

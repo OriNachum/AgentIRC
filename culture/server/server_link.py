@@ -71,6 +71,16 @@ class ServerLink:
         except (ConnectionError, BrokenPipeError, OSError):
             pass
 
+    async def _process_buffer(self, buffer: str) -> str:
+        """Parse and dispatch all complete lines from *buffer*, return remainder."""
+        while "\n" in buffer:
+            line, buffer = buffer.split("\n", 1)
+            if line.strip():
+                msg = Message.parse(line)
+                if msg.command:
+                    await self._dispatch(msg)
+        return buffer
+
     async def handle(self, initial_msg: str | None = None) -> None:
         """Main S2S connection loop."""
         try:
@@ -80,21 +90,15 @@ class ServerLink:
             buffer = ""
             if initial_msg:
                 buffer = initial_msg + "\n"
+                buffer = await self._process_buffer(buffer)
 
             while True:
-                if "\n" not in buffer:
-                    data = await self.reader.read(4096)
-                    if not data:
-                        break
-                    buffer += data.decode("utf-8", errors="replace")
-                    buffer = buffer.replace("\r\n", "\n").replace("\r", "\n")
-
-                while "\n" in buffer:
-                    line, buffer = buffer.split("\n", 1)
-                    if line.strip():
-                        msg = Message.parse(line)
-                        if msg.command:
-                            await self._dispatch(msg)
+                data = await self.reader.read(4096)
+                if not data:
+                    break
+                buffer += data.decode("utf-8", errors="replace")
+                buffer = buffer.replace("\r\n", "\n").replace("\r", "\n")
+                buffer = await self._process_buffer(buffer)
         except (ConnectionError, asyncio.IncompleteReadError):
             pass
         finally:
@@ -195,40 +199,20 @@ class ServerLink:
 
     # --- Burst handlers ---
 
-    async def send_burst(self) -> None:
-        """Send our local state to the peer."""
-        # Send all local clients
-        for client in self.server.clients.values():
-            await self.send_raw(
-                f"SNICK {client.nick} {client.user} {client.host} :{client.realname}"
-            )
-
-        # Send channel membership (filtered by trust)
-        for channel in self.server.channels.values():
-            if not self.should_relay(channel.name):
-                continue
-            local_nicks = [m.nick for m in channel.members if not isinstance(m, RemoteClient)]
-            if local_nicks:
-                nicks_str = " ".join(local_nicks)
-                await self.send_raw(f"SJOIN {channel.name} {nicks_str}")
-
-        # Send channel topics (filtered by trust)
-        for channel in self.server.channels.values():
-            if not self.should_relay(channel.name):
-                continue
+    async def _send_burst_topics(self, channels: list) -> None:
+        """Send channel topics for relayable channels."""
+        for channel in channels:
             if channel.topic:
-                # Find who set it (use first local member as setter)
                 local_members = [m for m in channel.members if not isinstance(m, RemoteClient)]
                 setter = local_members[0].nick if local_members else self.server.config.name
                 await self.send_raw(f"STOPIC {channel.name} {setter} :{channel.topic}")
 
-        # Send room metadata for managed rooms
-        for channel in self.server.channels.values():
-            if not self.should_relay(channel.name):
-                continue
-            if channel.is_managed:
-                import json
+    async def _send_burst_metadata(self, channels: list) -> None:
+        """Send room metadata for managed relayable channels."""
+        import json
 
+        for channel in channels:
+            if channel.is_managed:
                 meta = json.dumps(
                     {
                         "room_id": channel.room_id,
@@ -245,6 +229,30 @@ class ServerLink:
                     }
                 )
                 await self.send_raw(f"SROOMMETA {channel.name} :{meta}")
+
+    async def send_burst(self) -> None:
+        """Send our local state to the peer."""
+        # Send all local clients
+        for client in self.server.clients.values():
+            await self.send_raw(
+                f"SNICK {client.nick} {client.user} {client.host} :{client.realname}"
+            )
+
+        # Collect relayable channels once
+        relayable = [ch for ch in self.server.channels.values() if self.should_relay(ch.name)]
+
+        # Send channel membership
+        for channel in relayable:
+            local_nicks = [m.nick for m in channel.members if not isinstance(m, RemoteClient)]
+            if local_nicks:
+                nicks_str = " ".join(local_nicks)
+                await self.send_raw(f"SJOIN {channel.name} {nicks_str}")
+
+        # Send channel topics
+        await self._send_burst_topics(relayable)
+
+        # Send room metadata for managed rooms
+        await self._send_burst_metadata(relayable)
 
     def _handle_snick(self, msg: Message) -> None:
         if len(msg.params) < 4:
@@ -271,6 +279,33 @@ class ServerLink:
         )
         self.server.remote_clients[nick] = rc
 
+    def _check_incoming_trust(self, channel_name: str) -> bool:
+        """Return True if we should accept incoming data for this channel."""
+        existing = self.server.channels.get(channel_name)
+        if existing:
+            if existing.restricted:
+                return False
+            if self.trust == "restricted" and self.peer_name not in existing.shared_with:
+                return False
+        else:
+            if self.trust == "restricted":
+                return False
+        return True
+
+    async def _join_remote_nick(self, nick: str, channel, channel_name: str) -> None:
+        """Process a single remote nick joining a channel."""
+        rc = self.server.remote_clients.get(nick)
+        if not rc or rc in channel.members:
+            return
+        channel.members.add(rc)
+        rc.channels.add(channel)
+
+        if self._authenticated:
+            join_msg = Message(prefix=rc.prefix, command="JOIN", params=[channel_name])
+            for member in list(channel.members):
+                if not isinstance(member, RemoteClient):
+                    await member.send(join_msg)
+
     async def _handle_sjoin(self, msg: Message) -> None:
         if len(msg.params) < 2:
             return
@@ -278,33 +313,13 @@ class ServerLink:
         channel_name = msg.params[0]
         nicks = msg.params[1:]
 
-        # Check incoming trust: if we have a restricted trust for this peer,
-        # only accept channel data for channels that have +S <peer>
-        existing = self.server.channels.get(channel_name)
-        if existing:
-            if existing.restricted:
-                return
-            if self.trust == "restricted" and self.peer_name not in existing.shared_with:
-                return
-        else:
-            # Channel doesn't exist locally yet — restricted links cannot create new channels
-            if self.trust == "restricted":
-                return
+        if not self._check_incoming_trust(channel_name):
+            return
 
         channel = self.server.get_or_create_channel(channel_name)
 
         for nick in nicks:
-            rc = self.server.remote_clients.get(nick)
-            if rc and rc not in channel.members:
-                channel.members.add(rc)
-                rc.channels.add(channel)
-
-                if self._authenticated:
-                    # Notify local members about the join
-                    join_msg = Message(prefix=rc.prefix, command="JOIN", params=[channel_name])
-                    for member in list(channel.members):
-                        if not isinstance(member, RemoteClient):
-                            await member.send(join_msg)
+            await self._join_remote_nick(nick, channel, channel_name)
 
     def _handle_stopic(self, msg: Message) -> None:
         if len(msg.params) < 3:
@@ -324,79 +339,18 @@ class ServerLink:
 
     # --- Real-time relay handlers (incoming from peer) ---
 
-    async def _handle_smsg(self, msg: Message) -> None:
-        """Handle relayed PRIVMSG from peer."""
-        if len(msg.params) < 3:
-            return
-        target = msg.params[0]
-        sender_nick = msg.params[1]
-        text = msg.params[2]
-
-        # Check incoming trust for channel messages
-        if target.startswith("#"):
-            channel = self.server.channels.get(target)
-            if channel:
-                if channel.restricted:
-                    return
-                if self.trust == "restricted" and self.peer_name not in channel.shared_with:
-                    return
-
-        relay = Message(
-            prefix=f"{sender_nick}!*@*",
-            command="PRIVMSG",
-            params=[target, text],
-        )
-
-        # Build the sender prefix from remote client if available
-        rc = self.server.remote_clients.get(sender_nick)
-        if rc:
-            relay = Message(
-                prefix=rc.prefix,
-                command="PRIVMSG",
-                params=[target, text],
-            )
-
-        if target.startswith("#"):
-            channel = self.server.channels.get(target)
-            if channel:
-                for member in list(channel.members):
-                    if not isinstance(member, RemoteClient):
-                        await member.send(relay)
-                # Emit event for skills (e.g., history) with _origin to prevent re-relay
-                await self.server.emit_event(
-                    Event(
-                        type=EventType.MESSAGE,
-                        channel=target,
-                        nick=sender_nick,
-                        data={"text": text, "_origin": self.peer_name},
-                    )
-                )
-                # Notify mentions for remote messages
-                await self._notify_remote_mentions(target, sender_nick, text)
-        else:
-            # DM to a local client
-            local = self.server.clients.get(target)
-            if local:
-                await local.send(relay)
-                await self.server.emit_event(
-                    Event(
-                        type=EventType.MESSAGE,
-                        channel=None,
-                        nick=sender_nick,
-                        data={"text": text, "_origin": self.peer_name},
-                    )
-                )
-                await self._notify_remote_mentions(None, sender_nick, text)
-
-    async def _handle_snotice(self, msg: Message) -> None:
-        """Handle relayed NOTICE from peer."""
-        if len(msg.params) < 3:
-            return
-        target = msg.params[0]
-        sender_nick = msg.params[1]
-        text = msg.params[2]
-
-        # Check incoming trust for channel notices
+    async def _relay_peer_message(
+        self,
+        target: str,
+        sender_nick: str,
+        text: str,
+        command: str,
+        *,
+        notify_mentions: bool = False,
+        emit_dm_event: bool = False,
+    ) -> None:
+        """Route an incoming peer message/notice to local clients and emit events."""
+        # Check incoming trust for channel targets
         if target.startswith("#"):
             channel = self.server.channels.get(target)
             if channel:
@@ -407,7 +361,7 @@ class ServerLink:
 
         rc = self.server.remote_clients.get(sender_nick)
         prefix = rc.prefix if rc else f"{sender_nick}!*@*"
-        relay = Message(prefix=prefix, command="NOTICE", params=[target, text])
+        relay = Message(prefix=prefix, command=command, params=[target, text])
 
         if target.startswith("#"):
             channel = self.server.channels.get(target)
@@ -423,10 +377,48 @@ class ServerLink:
                         data={"text": text, "_origin": self.peer_name},
                     )
                 )
+                if notify_mentions:
+                    await self._notify_remote_mentions(target, sender_nick, text)
         else:
             local = self.server.clients.get(target)
             if local:
                 await local.send(relay)
+                if emit_dm_event:
+                    await self.server.emit_event(
+                        Event(
+                            type=EventType.MESSAGE,
+                            channel=None,
+                            nick=sender_nick,
+                            data={"text": text, "_origin": self.peer_name},
+                        )
+                    )
+                if notify_mentions:
+                    await self._notify_remote_mentions(None, sender_nick, text)
+
+    async def _handle_smsg(self, msg: Message) -> None:
+        """Handle relayed PRIVMSG from peer."""
+        if len(msg.params) < 3:
+            return
+        await self._relay_peer_message(
+            msg.params[0],
+            msg.params[1],
+            msg.params[2],
+            "PRIVMSG",
+            notify_mentions=True,
+            emit_dm_event=True,
+        )
+
+    async def _handle_snotice(self, msg: Message) -> None:
+        """Handle relayed NOTICE from peer."""
+        if len(msg.params) < 3:
+            return
+        await self._relay_peer_message(
+            msg.params[0],
+            msg.params[1],
+            msg.params[2],
+            "NOTICE",
+            notify_mentions=False,
+        )
 
     async def _handle_spart(self, msg: Message) -> None:
         """Handle relayed PART from peer."""

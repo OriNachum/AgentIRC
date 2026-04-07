@@ -144,20 +144,7 @@ def _render_room_detail(mesh: MeshState, room_name: str, message_limit: int) -> 
     return "\n".join(parts) + "\n"
 
 
-def _render_agent_detail(mesh: MeshState, nick: str, message_limit: int) -> str:
-    """Render a single agent drill-down."""
-    agent = None
-    for a in mesh.agents:
-        if a.nick == nick:
-            agent = a
-            break
-    if agent is None:
-        return f"Agent {nick} not found.\n"
-
-    parts = [f"# {agent.nick}"]
-    parts.append("")
-
-    # Metadata table
+def _build_agent_metadata_rows(agent: Agent) -> list[tuple[str, str]]:
     rows = [
         ("Status", agent.status),
     ]
@@ -174,14 +161,11 @@ def _render_agent_detail(mesh: MeshState, nick: str, message_limit: int) -> str:
         rows.append(("Uptime", agent.uptime))
     if agent.tags:
         rows.append(("Tags", ", ".join(agent.tags)))
+    return rows
 
-    parts.append("| Field | Value |")
-    parts.append("|-------|-------|")
-    for field_name, value in rows:
-        parts.append(f"| {field_name} | {_escape_cell(value)} |")
 
-    # Channels table
-    parts.append("")
+def _render_agent_channels(agent: Agent, rooms: list[Room]) -> list[str]:
+    parts = []
     parts.append(f"## Channels ({len(agent.channels)})")
     parts.append("")
     parts.append("| Channel | Role | Last spoke |")
@@ -189,28 +173,33 @@ def _render_agent_detail(mesh: MeshState, nick: str, message_limit: int) -> str:
     for ch_name in agent.channels:
         role = (
             "operator"
-            if any(r.name == ch_name and agent.nick in r.operators for r in mesh.rooms)
+            if any(r.name == ch_name and agent.nick in r.operators for r in rooms)
             else "member"
         )
-        last_spoke = "never"
-        for room in mesh.rooms:
-            if room.name == ch_name:
-                for msg in room.messages:
-                    if msg.nick == agent.nick:
-                        last_spoke = _relative_time(msg.timestamp)
-                        break
-                break
+        last_spoke = _find_last_spoke(agent.nick, ch_name, rooms)
         parts.append(f"| {ch_name} | {role} | {last_spoke} |")
+    return parts
 
-    # Cross-channel recent activity
+
+def _find_last_spoke(nick: str, ch_name: str, rooms: list[Room]) -> str:
+    for room in rooms:
+        if room.name == ch_name:
+            for msg in room.messages:
+                if msg.nick == nick:
+                    return _relative_time(msg.timestamp)
+            break
+    return "never"
+
+
+def _render_agent_activity(agent: Agent, rooms: list[Room], message_limit: int) -> list[str]:
     all_msgs = []
-    for room in mesh.rooms:
+    for room in rooms:
         for msg in room.messages:
             if msg.nick == agent.nick:
                 all_msgs.append(msg)
     all_msgs.sort(key=lambda m: m.timestamp, reverse=True)
 
-    parts.append("")
+    parts = []
     parts.append(f"## Recent activity across channels (last {message_limit})")
     parts.append("")
     if all_msgs:
@@ -218,15 +207,54 @@ def _render_agent_detail(mesh: MeshState, nick: str, message_limit: int) -> str:
             parts.append(f"- {msg.channel} ({_relative_time(msg.timestamp)}): {msg.text}")
     else:
         parts.append("No recent activity.")
+    return parts
+
+
+def _render_agent_bots(nick: str, mesh: MeshState) -> list[str]:
+    owned_bots = [b for b in mesh.bots if b.owner == nick]
+    if not owned_bots:
+        return []
+    parts = []
+    parts.append(f"## Bots ({len(owned_bots)})")
+    parts.append("")
+    for bot in owned_bots:
+        channels = ", ".join(bot.channels) if bot.channels else "-"
+        parts.append(f"- {bot.name} ({bot.trigger_type}, {channels}, {bot.status})")
+    return parts
+
+
+def _render_agent_detail(mesh: MeshState, nick: str, message_limit: int) -> str:
+    """Render a single agent drill-down."""
+    agent = None
+    for a in mesh.agents:
+        if a.nick == nick:
+            agent = a
+            break
+    if agent is None:
+        return f"Agent {nick} not found.\n"
+
+    parts = [f"# {agent.nick}"]
+    parts.append("")
+
+    # Metadata table
+    rows = _build_agent_metadata_rows(agent)
+    parts.append("| Field | Value |")
+    parts.append("|-------|-------|")
+    for field_name, value in rows:
+        parts.append(f"| {field_name} | {_escape_cell(value)} |")
+
+    # Channels table
+    parts.append("")
+    parts.extend(_render_agent_channels(agent, mesh.rooms))
+
+    # Cross-channel recent activity
+    parts.append("")
+    parts.extend(_render_agent_activity(agent, mesh.rooms, message_limit))
 
     # Owned bots
-    owned_bots = [b for b in mesh.bots if b.owner == nick]
-    if owned_bots:
+    bot_parts = _render_agent_bots(nick, mesh)
+    if bot_parts:
         parts.append("")
-        parts.append(f"## Bots ({len(owned_bots)})")
-        parts.append("")
-        for bot in owned_bots:
-            channels = ", ".join(bot.channels) if bot.channels else "-"
-            parts.append(f"- {bot.name} ({bot.trigger_type}, {channels}, {bot.status})")
+        parts.extend(bot_parts)
 
     return "\n".join(parts) + "\n"

@@ -220,6 +220,48 @@ class ACPAgentRunner:
         self._process.stdin.write(line.encode())
         await self._process.stdin.drain()
 
+    def _dispatch_jsonrpc_message(self, msg: dict) -> bool:
+        """Route a JSON-RPC response to its pending future.
+
+        Returns True if the message was a response (handled here),
+        False if it should be treated as a notification.
+        """
+        if "id" in msg and ("result" in msg or "error" in msg):
+            req_id = msg["id"]
+            future = self._pending.pop(req_id, None)
+            if future and not future.done():
+                future.set_result(msg)
+            return True
+        return False
+
+    async def _cleanup_process(self) -> None:
+        """Wait for process exit, fail pending futures, cancel companion tasks, fire on_exit."""
+        returncode = -1
+        if self._process:
+            try:
+                returncode = await asyncio.wait_for(self._process.wait(), timeout=5)
+            except asyncio.TimeoutError:
+                try:
+                    self._process.kill()
+                except ProcessLookupError:
+                    pass
+
+        # Fail any still-pending requests
+        for future in self._pending.values():
+            if not future.done():
+                future.set_exception(ConnectionError("Process exited"))
+        self._pending.clear()
+
+        self._running = False
+
+        # Cancel companion tasks so they don't outlive the process
+        for task in (self._task, self._stderr_task):
+            if task and not task.done():
+                task.cancel()
+
+        if not self._stopping and self.on_exit:
+            await self.on_exit(returncode)
+
     async def _read_loop(self) -> None:
         """Read JSON-RPC messages from stdout."""
         if not self._process or not self._process.stdout:
@@ -234,16 +276,9 @@ class ACPAgentRunner:
                 except json.JSONDecodeError:
                     continue
 
-                # Response to a request
-                if "id" in msg and ("result" in msg or "error" in msg):
-                    req_id = msg["id"]
-                    future = self._pending.pop(req_id, None)
-                    if future and not future.done():
-                        future.set_result(msg)
-
-                # Notification from server
-                elif "method" in msg:
-                    await self._handle_notification(msg)
+                if not self._dispatch_jsonrpc_message(msg):
+                    if "method" in msg:
+                        await self._handle_notification(msg)
 
         except asyncio.CancelledError:
             raise
@@ -252,32 +287,7 @@ class ACPAgentRunner:
         except Exception:
             logger.exception("ACP read loop error")
         finally:
-            # Wait for process to fully exit and notify daemon for crash recovery
-            returncode = -1
-            if self._process:
-                try:
-                    returncode = await asyncio.wait_for(self._process.wait(), timeout=5)
-                except asyncio.TimeoutError:
-                    try:
-                        self._process.kill()
-                    except ProcessLookupError:
-                        pass
-
-            # Fail any still-pending requests
-            for future in self._pending.values():
-                if not future.done():
-                    future.set_exception(ConnectionError("Process exited"))
-            self._pending.clear()
-
-            self._running = False
-
-            # Cancel companion tasks so they don't outlive the process
-            for task in (self._task, self._stderr_task):
-                if task and not task.done():
-                    task.cancel()
-
-            if not self._stopping and self.on_exit:
-                await self.on_exit(returncode)
+            await self._cleanup_process()
 
     async def _stderr_loop(self) -> None:
         """Log stderr output from the ACP agent process."""

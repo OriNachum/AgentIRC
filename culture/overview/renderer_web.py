@@ -87,32 +87,40 @@ def render_html(
 </html>"""
 
 
+def _terminate_process(pid, timeout=2.0):
+    """Send SIGTERM, poll until dead, fall back to SIGKILL. Returns True if killed."""
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except (PermissionError, ProcessLookupError):
+        return False
+    steps = int(timeout / 0.1)
+    for _ in range(steps):
+        if not is_process_alive(pid):
+            return True
+        time.sleep(0.1)
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        pass
+    return not is_process_alive(pid)
+
+
 def _stop_existing_overview(pid_name: str) -> None:
     """Kill a previous overview instance if running, clean up its files."""
     existing_pid = read_pid(pid_name)
     if existing_pid and is_process_alive(existing_pid):
         existing_port = read_port(pid_name)
-        try:
-            os.kill(existing_pid, signal.SIGTERM)
-        except (PermissionError, ProcessLookupError) as exc:
+        if not _terminate_process(existing_pid):
             remove_pid(pid_name)
             remove_port(pid_name)
             port_msg = f", port {existing_port}" if existing_port else ""
             print(
-                f"Warning: could not stop previous overview (PID {existing_pid}"
-                f"{port_msg}): {exc}",
+                f"Warning: could not stop previous overview (PID {existing_pid}" f"{port_msg})",
                 flush=True,
             )
             return
-        for _ in range(20):
-            if not is_process_alive(existing_pid):
-                break
-            time.sleep(0.1)
-        else:
-            try:
-                os.kill(existing_pid, signal.SIGKILL)
-            except (PermissionError, ProcessLookupError):
-                pass
         remove_pid(pid_name)
         remove_port(pid_name)
         port_msg = f", port {existing_port}" if existing_port else ""
