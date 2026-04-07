@@ -191,7 +191,20 @@ def _parse_ask_timeout(remaining: list[str]) -> tuple[int, list[str]]:
     """Extract --timeout N from args, returning (timeout, filtered_args)."""
     if "--timeout" in remaining:
         idx = remaining.index("--timeout")
-        timeout = int(remaining[idx + 1])
+        if idx + 1 >= len(remaining):
+            print("ERROR: --timeout requires a value", file=sys.stderr)
+            sys.exit(2)
+        try:
+            timeout = int(remaining[idx + 1])
+        except ValueError:
+            print(
+                f"ERROR: --timeout value must be an integer, got {remaining[idx + 1]!r}",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        if timeout <= 0:
+            print("ERROR: --timeout must be positive", file=sys.stderr)
+            sys.exit(2)
         remaining = remaining[:idx] + remaining[idx + 2 :]
     else:
         timeout = 30

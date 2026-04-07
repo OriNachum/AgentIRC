@@ -100,9 +100,11 @@ def _terminate_process(pid, timeout=2.0):
         time.sleep(0.1)
     try:
         os.kill(pid, signal.SIGKILL)
-    except (PermissionError, ProcessLookupError):
+    except ProcessLookupError:
+        return True
+    except PermissionError:
         pass
-    return True
+    return not is_process_alive(pid)
 
 
 def _stop_existing_overview(pid_name: str) -> None:

@@ -19,7 +19,7 @@ def _temp_nick(server_name: str) -> str:
 
 
 def _build_room_agent(member_nick, who_data, server_name, all_agents, ch_name):
-    """Build or update an Agent for a room member, return the Agent."""
+    """Build or update an Agent for a room member, return (Agent, is_remote)."""
     server_of = who_data.get(member_nick, server_name)
     is_remote = server_of != server_name
 

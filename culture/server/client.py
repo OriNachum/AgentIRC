@@ -600,8 +600,6 @@ class Client:
             await self._send_to_client(target, relay, text, True)
 
     def _build_who_flags(self, member, channel) -> str:
-        from culture.server.remote_client import RemoteClient  # noqa: F811
-
         flags = "H"
         if channel and channel.is_operator(member):
             flags += "@"
