@@ -327,30 +327,39 @@ class CodexDaemon:
         """
         if self._paused:
             return
-        if self._agent_runner and self._agent_runner.is_running():
-            self._last_activation = time.time()
-            # Enqueue relay target (FIFO matches prompt queue order)
-            self._mention_targets.append(target if target.startswith("#") else sender)
-            if target.startswith("#"):
-                import re
+        if not (self._agent_runner and self._agent_runner.is_running()):
+            return
+        self._last_activation = time.time()
+        # Enqueue relay target (FIFO matches prompt queue order)
+        self._mention_targets.append(target if target.startswith("#") else sender)
+        if target.startswith("#"):
+            prompt = self._build_channel_prompt(target, sender, text)
+        else:
+            prompt = self._build_dm_prompt(sender, text)
+        task = asyncio.create_task(self._agent_runner.send_prompt(prompt))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
-                thread_match = re.match(r"^\[thread:([a-zA-Z0-9\-]+)\] ", text)
-                if thread_match and self._buffer:
-                    thread_name = thread_match.group(1)
-                    thread_msgs = self._buffer.read_thread(target, thread_name)
-                    history = "\n".join(f"  <{m.nick}> {m.text}" for m in thread_msgs)
-                    prompt = (
-                        f"[IRC @mention in {target}, thread:{thread_name}]\n"
-                        f"Thread history:\n{history}\n"
-                        f"  <{sender}> {text}"
-                    )
-                else:
-                    prompt = f"[IRC @mention in {target}] <{sender}> {text}"
-            else:
-                prompt = f"[IRC DM] <{sender}> {text}"
-            task = asyncio.create_task(self._agent_runner.send_prompt(prompt))
-            self._background_tasks.add(task)
-            task.add_done_callback(self._background_tasks.discard)
+    def _build_channel_prompt(self, target: str, sender: str, text: str) -> str:
+        """Build a prompt for a channel @mention, including thread context if present."""
+        import re
+
+        thread_match = re.match(r"^\[thread:([a-zA-Z0-9\-]+)\] ", text)
+        if thread_match and self._buffer:
+            thread_name = thread_match.group(1)
+            thread_msgs = self._buffer.read_thread(target, thread_name)
+            history = "\n".join(f"  <{m.nick}> {m.text}" for m in thread_msgs)
+            return (
+                f"[IRC @mention in {target}, thread:{thread_name}]\n"
+                f"Thread history:\n{history}\n"
+                f"  <{sender}> {text}"
+            )
+        return f"[IRC @mention in {target}] <{sender}> {text}"
+
+    @staticmethod
+    def _build_dm_prompt(sender: str, text: str) -> str:
+        """Build a prompt for a direct message."""
+        return f"[IRC DM] <{sender}> {text}"
 
     def _on_roominvite(self, channel: str, meta_text: str) -> None:
         """Called by IRCTransport when a ROOMINVITE is received."""
@@ -606,17 +615,21 @@ class CodexDaemon:
             },
         )
 
+    @staticmethod
+    def _truncate_first_line(text: str, max_len: int = 120) -> str:
+        """Return the first line of *text*, truncated to *max_len* characters."""
+        first_line = text.strip().split("\n")[0]
+        if len(first_line) > max_len:
+            return first_line[: max_len - 3] + "..."
+        return first_line
+
     def _describe_activity(self, live_query: bool = False) -> str:
         """Return a human-readable description of what the agent is doing."""
         if self._paused:
             return "paused"
         if not self._last_activity_text:
             return "nothing"
-        # Return first line of last activity, truncated
-        first_line = self._last_activity_text.strip().split("\n")[0]
-        if len(first_line) > 120:
-            first_line = first_line[:117] + "..."
-        return first_line
+        return self._truncate_first_line(self._last_activity_text)
 
     async def _query_agent_status(self) -> str:
         """Ask the agent directly what it's working on."""
@@ -634,14 +647,8 @@ class CodexDaemon:
                 "[SYSTEM] Briefly describe what you are currently working on "
                 "in one sentence. Reply with just the description, no preamble."
             )
-            # Wait up to 10s for the agent to respond
             await asyncio.wait_for(self._status_query_event.wait(), timeout=10.0)
-            response = self._status_query_response.strip()
-            # Take first line, truncate
-            first_line = response.split("\n")[0]
-            if len(first_line) > 120:
-                first_line = first_line[:117] + "..."
-            return first_line or "nothing"
+            return self._truncate_first_line(self._status_query_response) or "nothing"
         except asyncio.TimeoutError:
             return "busy (no response)"
         finally:

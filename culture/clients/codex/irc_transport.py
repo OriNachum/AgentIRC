@@ -189,16 +189,25 @@ class IRCTransport:
         sender = msg.prefix.split("!")[0] if msg.prefix else "unknown"
         if sender == self.nick:
             return
+        self._route_to_buffer(target, sender, text)
+        self._detect_and_fire_mention(target, sender, text)
+
+    def _route_to_buffer(self, target: str, sender: str, text: str) -> None:
+        """Insert the message into the appropriate buffer (channel or DM)."""
         if target.startswith("#"):
             self.buffer.add(target, sender, text)
         else:
             self.buffer.add(f"DM:{sender}", sender, text)
-        if self.on_mention:
-            short = self.nick.split("-", 1)[1] if "-" in self.nick else None
-            if re.search(rf"@{re.escape(self.nick)}\b", text) or (
-                short and re.search(rf"@{re.escape(short)}\b", text)
-            ):
-                self.on_mention(target, sender, text)
+
+    def _detect_and_fire_mention(self, target: str, sender: str, text: str) -> None:
+        """Check if the message mentions this agent and fire the callback."""
+        if not self.on_mention:
+            return
+        short = self.nick.split("-", 1)[1] if "-" in self.nick else None
+        if re.search(rf"@{re.escape(self.nick)}\b", text) or (
+            short and re.search(rf"@{re.escape(short)}\b", text)
+        ):
+            self.on_mention(target, sender, text)
 
     def _on_notice(self, msg: Message) -> None:
         if len(msg.params) < 2:
