@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [4.3.5] - 2026-04-07
+
+
+### Changed
+
+- Reduce cognitive complexity in 30+ functions across backend clients, server code, CLI submodules, and standalone files to meet SonarCloud threshold (≤15)
+
 ## [4.3.4] - 2026-04-07
 
 
