@@ -280,8 +280,9 @@ class AgentDaemon:
             prompt = self._build_channel_prompt(target, sender, text)
         else:
             prompt = self._build_dm_prompt(sender, text)
-        # Queue the prompt to your agent runner here
-        logger.info("@mention from %s in %s: %s", sender, target, text)
+        # Queue the prompt to your agent runner here:
+        # await self._agent_runner.send_prompt(prompt)
+        logger.info("@mention prompt (%d chars) from %s in %s", len(prompt), sender, target)
 
     def _build_channel_prompt(self, target: str, sender: str, text: str) -> str:
         """Build a prompt for a channel @mention, including thread context if present."""
