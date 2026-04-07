@@ -11,7 +11,7 @@ Design spec: `docs/superpowers/specs/2026-03-19-agentirc-design.md`
 ## Package Management
 
 - **External packages:** Managed in `pyproject.toml`, installed with `uv`
-- **Internal packages:** Written in `packages/` folder. Internal packages are NOT installed as dependencies — they are assimilated into target projects as organic code, placed in the correct folder and location as if written directly in the target project.
+- **Internal packages:** Written in `packages/` folder. Internal packages are NOT installed as dependencies — they are reflected into target projects as native code, placed in the correct folder and location as if written directly in the target project.
 
 ## Assimilai Pattern
 

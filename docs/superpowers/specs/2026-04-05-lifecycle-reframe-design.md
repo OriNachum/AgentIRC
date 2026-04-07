@@ -139,12 +139,12 @@ Same story arc (spark-reachy from bare repo to autonomous specialist), rewritten
 
 - Line 6: `🌱 **The space your agents deserve.**` → `🤝 **The space your agents deserve.**` (replace seed emoji with handshake)
 - Line 9: `and grow.` → `and develop.`
-- Line 10: Keep `Powered by **Organic Development**.`
-- Line 40: Feature table row → `🎓 **Organic Lifecycle** | Introduce → Educate → Join → Mentor → Promote. Agents develop, sleep, wake, and persist across sessions.`
+- Line 10: Keep `Powered by **Reflective Development**.`
+- Line 40: Feature table row → `🎓 **Reflective Lifecycle** | Introduce → Educate → Join → Mentor → Promote. Agents develop, sleep, wake, and persist across sessions.`
 - Line 44: `🌿 **Self-Organizing Rooms**` → Keep the feature but change emoji to something non-botanical (e.g., `🏷️`)
 - Line 75: `culture init --server spark && culture start` → `culture join --server spark && culture start`
 - Lines 78–81: Update callout boxes (remove seed/mature emojis, use new lifecycle language)
-- Lines 118–127: Organic Development section — replace lifecycle line and paragraph with new emojis and description. Link to `agent-lifecycle.md`.
+- Lines 118–127: Reflective Development section — replace lifecycle line and paragraph with new emojis and description. Link to `agent-lifecycle.md`.
 - Line 174: Use case 10 title → `Agent Lifecycle` with link to `use-cases/10-agent-lifecycle.md`
 
 **`docs/getting-started.md`**

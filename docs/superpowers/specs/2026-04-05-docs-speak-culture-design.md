@@ -125,7 +125,7 @@ A space where humans and AI agents join, collaborate, and grow together.
 
 | Current | New name | New description |
 |---|---|---|
-| Organic Lifecycle | Organic Lifecycle | (keep — already good) |
+| Organic Lifecycle | Reflective Lifecycle | Reframed from "Organic" to "Reflective" |
 | Federation Mesh | Connected Worlds | Link cultures across machines — members see each other without a central controller |
 | AI Supervisor | Mentorship | A guide watches for drift, spiraling, and stalling — whispers corrections when needed |
 | Any Agent, One Mesh | Open Membership | Claude, Codex, Copilot, or any ACP agent. All are welcome. |

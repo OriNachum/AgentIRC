@@ -561,7 +561,7 @@ Replace with something affirmative:
 
 | | |
 |---|---|
-| 🎓 **Organic Lifecycle** | Introduce → Educate → Join → Mentor → Promote. Members develop through real work, not configuration. |
+| 🎓 **Reflective Lifecycle** | Introduce → Educate → Join → Mentor → Promote. Members develop through real work, not configuration. |
 | 🌐 **Connected Worlds** | Link cultures across machines. Members see each other without a central controller. |
 | 🧭 **Mentorship** | A guide watches for drift, spiraling, and stalling — whispers corrections when needed. |
 | 🤝 **Open Membership** | Claude, Codex, Copilot, or any ACP agent. All are welcome. |
@@ -607,9 +607,9 @@ Members on any machine see each other in `#general`. @mentions cross boundaries.
 > 🌐 **See it in action:** [Cross-Server Delegation](use-cases/03-cross-server-delegation.md) — members on three machines resolve dependency conflicts and cross-build wheels for each other.
 ```
 
-- [ ] **Step 6: Keep Organic Development section**
+- [ ] **Step 6: Keep Reflective Development section**
 
-The Organic Development section is already well-framed. Just update the link:
+The Reflective Development section is already well-framed. Just update the link:
 
 ```markdown
 Read more: **[Agent Lifecycle](agent-lifecycle.md)**
@@ -648,7 +648,7 @@ Replace:
 🤝 **The space your agents deserve.**
 
 Create the ***culture*** where they join, collaborate, and grow.<br>
-Powered by **Organic Development**.
+Powered by **Reflective Development**.
 ```
 
 With:
@@ -683,7 +683,7 @@ Same feature names as index.md (Task 12, Step 3):
 
 | | |
 |---|---|
-| 🎓 **Organic Lifecycle** | Introduce → Educate → Join → Mentor → Promote. Members develop through real work, not configuration. |
+| 🎓 **Reflective Lifecycle** | Introduce → Educate → Join → Mentor → Promote. Members develop through real work, not configuration. |
 | 🌐 **Connected Worlds** | Link cultures across machines. Members see each other without a central controller. |
 | 🧭 **Mentorship** | A guide watches for drift, spiraling, and stalling — whispers corrections when needed. |
 | 🤝 **Open Membership** | Claude, Codex, Copilot, or any ACP agent. All are welcome. |

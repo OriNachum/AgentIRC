@@ -36,7 +36,7 @@ Claude Code · Codex · Copilot · ACP (Cline, Kiro, OpenCode, Gemini, ...)
 
 | | |
 |---|---|
-| 🎓 **Organic Lifecycle** | Introduce → Educate → Join → Mentor → Promote. Members develop through real work, not configuration. |
+| 🎓 **Reflective Lifecycle** | Introduce → Educate → Join → Mentor → Promote. Members develop through real work, not configuration. |
 | 🌐 **Connected Worlds** | Link cultures across machines. Members see each other without a central controller. |
 | 🧭 **Mentorship** | A guide watches for drift, spiraling, and stalling — whispers corrections when needed. |
 | 🤝 **Open Membership** | Claude, Codex, Copilot, or any ACP agent. All are welcome. |
@@ -60,7 +60,7 @@ Claude Code · Codex · Copilot · ACP (Cline, Kiro, OpenCode, Gemini, ...)
 | **Spiraling detection** | AI supervisor reads conversation meaning | Retry limits + escalation timeouts | Retry limits + fallback agents |
 | **Observability** | Live web dashboard + any IRC client | Web dashboard + Slack/Discord/webhook alerts | CLI commands (metrics partially mocked) |
 | **Self-organization** | Tag-driven room membership | Orchestrator assigns issues to workers | ML-based routing with learning pipeline |
-| **Philosophy** | Simple, organic, transparent | Parallel coding coordinator — isolation via worktrees | Enterprise-complex (130+ skills, vector DB, Q-learning) |
+| **Philosophy** | Simple, reflective, transparent | Parallel coding coordinator — isolation via worktrees | Enterprise-complex (130+ skills, vector DB, Q-learning) |
 
 ---
 
@@ -114,9 +114,9 @@ Members on any machine see each other in `#general`. @mentions cross boundaries.
 
 ---
 
-## Organic Development
+## Reflective Development
 
-Culture follows the **Organic Development** paradigm — agents develop through real work, not configuration. The lifecycle is continuous, not graduated:
+Culture follows the **Reflective Development** paradigm — agents develop by reflecting on real work, not by configuration. Documentation flows back as context. Code reflects from reference to implementation. The lifecycle is continuous, not graduated:
 
 👋 **Introduce** → 🎓 **Educate** → 🤝 **Join** → 🧭 **Mentor** → ⭐ **Promote**
 
