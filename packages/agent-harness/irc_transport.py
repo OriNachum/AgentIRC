@@ -205,11 +205,15 @@ class IRCTransport:
         else:
             self.buffer.add(f"DM:{sender}", sender, text)
         if self.on_mention:
-            short = self.nick.split("-", 1)[1] if "-" in self.nick else None
-            if re.search(rf"@{re.escape(self.nick)}\b", text) or (
-                short and re.search(rf"@{re.escape(short)}\b", text)
-            ):
+            # DMs always activate (target is the agent's own nick)
+            if target == self.nick:
                 self.on_mention(target, sender, text)
+            else:
+                short = self.nick.split("-", 1)[1] if "-" in self.nick else None
+                if re.search(rf"@{re.escape(self.nick)}\b", text) or (
+                    short and re.search(rf"@{re.escape(short)}\b", text)
+                ):
+                    self.on_mention(target, sender, text)
 
     def _on_notice(self, msg: Message) -> None:
         if len(msg.params) < 2:

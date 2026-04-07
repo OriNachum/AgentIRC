@@ -167,6 +167,32 @@ def save_config(path: str | Path, config: DaemonConfig) -> None:
         raise
 
 
+def _load_raw_yaml(path: str | Path) -> dict:
+    """Load raw YAML from a config file, returning empty dict if missing."""
+    path = Path(path)
+    if not path.exists():
+        return {}
+    with open(path) as f:
+        return yaml.safe_load(f) or {}
+
+
+def _save_raw_yaml(path: str | Path, raw: dict) -> None:
+    """Write raw YAML dict atomically."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), suffix=".yaml.tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            yaml.dump(raw, f, default_flow_style=False, sort_keys=False)
+        os.replace(tmp_path, str(path))
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
 def add_agent_to_config(
     path: str | Path,
     agent: AgentConfig,
@@ -176,20 +202,21 @@ def add_agent_to_config(
 
     If server_name is provided, updates config.server.name.
     Raises ValueError if an agent with the same nick already exists.
+    Operates on raw YAML to preserve backend-specific fields.
     """
-    config = load_config_or_default(path)
+    raw = _load_raw_yaml(path)
+    agents = raw.setdefault("agents", [])
 
-    if server_name is not None:
-        config.server.name = server_name
-
-    # Check for nick collision
-    for existing in config.agents:
-        if existing.nick == agent.nick:
+    for existing in agents:
+        if existing.get("nick") == agent.nick:
             raise ValueError(f"Agent with nick {agent.nick!r} already exists in config")
 
-    config.agents.append(agent)
-    save_config(path, config)
-    return config
+    if server_name is not None:
+        raw.setdefault("server", {})["name"] = server_name
+
+    agents.append(asdict(agent))
+    _save_raw_yaml(path, raw)
+    return load_config(path)
 
 
 def rename_server(
@@ -199,23 +226,26 @@ def rename_server(
     """Rename the server and update all agent nick prefixes.
 
     Returns (old_name, [(old_nick, new_nick), ...]).
+    Operates on raw YAML to preserve backend-specific fields.
     """
-    config = load_config_or_default(path)
-    old_name = config.server.name
+    raw = _load_raw_yaml(path)
+    server = raw.get("server", {})
+    old_name = server.get("name", "")
 
     if old_name == new_name:
         return old_name, []
 
-    # Plan renames and check for collisions before mutating
+    agents = raw.get("agents", [])
     prefix = f"{old_name}-"
     plan: list[tuple[int, str, str]] = []
-    for i, agent in enumerate(config.agents):
-        if agent.nick.startswith(prefix):
-            new_nick = f"{new_name}-{agent.nick[len(prefix):]}"
-            plan.append((i, agent.nick, new_nick))
+    for i, agent_raw in enumerate(agents):
+        nick = agent_raw.get("nick", "")
+        if nick.startswith(prefix):
+            new_nick = f"{new_name}-{nick[len(prefix):]}"
+            plan.append((i, nick, new_nick))
 
     planned_nicks = {new_nick for _, _, new_nick in plan}
-    existing_nicks = {a.nick for a in config.agents} - {old for _, old, _ in plan}
+    existing_nicks = {a.get("nick", "") for a in agents} - {old for _, old, _ in plan}
     collisions = planned_nicks & existing_nicks
     if collisions:
         raise ValueError(
@@ -223,14 +253,15 @@ def rename_server(
             f"duplicate nick(s): {', '.join(sorted(collisions))}"
         )
 
-    config.server.name = new_name
+    server["name"] = new_name
+    raw["server"] = server
 
     renamed: list[tuple[str, str]] = []
     for i, old_nick, new_nick in plan:
-        config.agents[i].nick = new_nick
+        agents[i]["nick"] = new_nick
         renamed.append((old_nick, new_nick))
 
-    save_config(path, config)
+    _save_raw_yaml(path, raw)
     return old_name, renamed
 
 
@@ -242,19 +273,19 @@ def rename_agent(
     """Rename an agent's nick in the config.
 
     Raises ValueError if old_nick is not found or new_nick already exists.
+    Operates on raw YAML to preserve backend-specific fields.
     """
-    config = load_config_or_default(path)
+    raw = _load_raw_yaml(path)
+    agents = raw.get("agents", [])
 
-    # Check new nick doesn't collide
-    for agent in config.agents:
-        if agent.nick == new_nick:
+    for agent_raw in agents:
+        if agent_raw.get("nick") == new_nick:
             raise ValueError(f"Agent with nick {new_nick!r} already exists in config")
 
-    # Find and rename
-    for agent in config.agents:
-        if agent.nick == old_nick:
-            agent.nick = new_nick
-            save_config(path, config)
+    for agent_raw in agents:
+        if agent_raw.get("nick") == old_nick:
+            agent_raw["nick"] = new_nick
+            _save_raw_yaml(path, raw)
             return
 
     raise ValueError(f"Agent {old_nick!r} not found in config")
@@ -268,16 +299,17 @@ def archive_agent(
     """Set the archived flag on an agent.
 
     Raises ValueError if the agent is not found.
+    Operates on raw YAML to preserve backend-specific fields.
     """
     import time
 
-    config = load_config_or_default(path)
-    for agent in config.agents:
-        if agent.nick == nick:
-            agent.archived = True
-            agent.archived_at = time.strftime("%Y-%m-%d")
-            agent.archived_reason = reason
-            save_config(path, config)
+    raw = _load_raw_yaml(path)
+    for agent_raw in raw.get("agents", []):
+        if agent_raw.get("nick") == nick:
+            agent_raw["archived"] = True
+            agent_raw["archived_at"] = time.strftime("%Y-%m-%d")
+            agent_raw["archived_reason"] = reason
+            _save_raw_yaml(path, raw)
             return
     raise ValueError(f"Agent {nick!r} not found in config")
 
@@ -289,16 +321,17 @@ def unarchive_agent(
     """Clear the archived flag on an agent.
 
     Raises ValueError if not found or not currently archived.
+    Operates on raw YAML to preserve backend-specific fields.
     """
-    config = load_config_or_default(path)
-    for agent in config.agents:
-        if agent.nick == nick:
-            if not agent.archived:
+    raw = _load_raw_yaml(path)
+    for agent_raw in raw.get("agents", []):
+        if agent_raw.get("nick") == nick:
+            if not agent_raw.get("archived"):
                 raise ValueError(f"Agent {nick!r} is not archived")
-            agent.archived = False
-            agent.archived_at = ""
-            agent.archived_reason = ""
-            save_config(path, config)
+            agent_raw["archived"] = False
+            agent_raw["archived_at"] = ""
+            agent_raw["archived_reason"] = ""
+            _save_raw_yaml(path, raw)
             return
     raise ValueError(f"Agent {nick!r} not found in config")
 
@@ -313,19 +346,15 @@ def remove_agent(
     acp_command) on other agents that the typed schema would strip.
     Raises ValueError if the agent is not found.
     """
-    path = Path(path)
-    if not path.exists():
+    raw = _load_raw_yaml(path)
+    if not raw:
         raise ValueError(f"Agent {nick!r} not found in config")
-
-    with open(path) as f:
-        raw = yaml.safe_load(f) or {}
 
     agents = raw.get("agents", [])
     for i, agent_raw in enumerate(agents):
         if agent_raw.get("nick") == nick:
             agents.pop(i)
-            with open(path, "w") as f:
-                yaml.dump(raw, f, default_flow_style=False, sort_keys=False)
+            _save_raw_yaml(path, raw)
             return
     raise ValueError(f"Agent {nick!r} not found in config")
 
@@ -337,24 +366,26 @@ def archive_server(
     """Set the archived flag on the server and all its agents.
 
     Returns a list of archived agent nicks.
+    Operates on raw YAML to preserve backend-specific fields.
     """
     import time
 
-    config = load_config_or_default(path)
+    raw = _load_raw_yaml(path)
     today = time.strftime("%Y-%m-%d")
 
-    config.server.archived = True
-    config.server.archived_at = today
-    config.server.archived_reason = reason
+    server = raw.setdefault("server", {})
+    server["archived"] = True
+    server["archived_at"] = today
+    server["archived_reason"] = reason
 
     archived_nicks = []
-    for agent in config.agents:
-        agent.archived = True
-        agent.archived_at = today
-        agent.archived_reason = reason
-        archived_nicks.append(agent.nick)
+    for agent_raw in raw.get("agents", []):
+        agent_raw["archived"] = True
+        agent_raw["archived_at"] = today
+        agent_raw["archived_reason"] = reason
+        archived_nicks.append(agent_raw.get("nick", ""))
 
-    save_config(path, config)
+    _save_raw_yaml(path, raw)
     return archived_nicks
 
 
@@ -364,20 +395,22 @@ def unarchive_server(
     """Clear the archived flag on the server and all its agents.
 
     Returns a list of unarchived agent nicks.
+    Operates on raw YAML to preserve backend-specific fields.
     """
-    config = load_config_or_default(path)
+    raw = _load_raw_yaml(path)
 
-    config.server.archived = False
-    config.server.archived_at = ""
-    config.server.archived_reason = ""
+    server = raw.setdefault("server", {})
+    server["archived"] = False
+    server["archived_at"] = ""
+    server["archived_reason"] = ""
 
     unarchived_nicks = []
-    for agent in config.agents:
-        if agent.archived:
-            agent.archived = False
-            agent.archived_at = ""
-            agent.archived_reason = ""
-            unarchived_nicks.append(agent.nick)
+    for agent_raw in raw.get("agents", []):
+        if agent_raw.get("archived"):
+            agent_raw["archived"] = False
+            agent_raw["archived_at"] = ""
+            agent_raw["archived_reason"] = ""
+            unarchived_nicks.append(agent_raw.get("nick", ""))
 
-    save_config(path, config)
+    _save_raw_yaml(path, raw)
     return unarchived_nicks

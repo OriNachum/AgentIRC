@@ -455,8 +455,12 @@ def _make_backend_config(config: DaemonConfig, backend_daemon_config_cls):
     """Build a backend-specific DaemonConfig from the base config."""
     return backend_daemon_config_cls(
         server=config.server,
+        supervisor=config.supervisor,
         webhooks=config.webhooks,
         buffer_size=config.buffer_size,
+        poll_interval=config.poll_interval,
+        sleep_start=config.sleep_start,
+        sleep_end=config.sleep_end,
         agents=config.agents,
     )
 
@@ -484,6 +488,7 @@ def _coerce_to_acp_agent(agent: AgentConfig):
         model=agent.model,
         system_prompt=agent.system_prompt,
         tags=agent.tags,
+        icon=agent.icon,
     )
 
 

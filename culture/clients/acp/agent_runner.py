@@ -70,11 +70,12 @@ class ACPAgentRunner:
         """Start the ACP agent as a subprocess and initialize a session."""
         self._stopping = False
 
-        # Isolate from host config (XDG, etc.)
+        # Isolate data/state dirs to prevent session interference, but
+        # preserve HOME and XDG_CONFIG_HOME so the agent finds auth tokens.
         self._isolated_home = tempfile.mkdtemp(prefix="culture-acp-")
         isolated_env = dict(os.environ)
-        isolated_env["HOME"] = self._isolated_home
-        isolated_env.pop("XDG_CONFIG_HOME", None)
+        isolated_env["XDG_DATA_HOME"] = os.path.join(self._isolated_home, ".local", "share")
+        isolated_env["XDG_STATE_HOME"] = os.path.join(self._isolated_home, ".local", "state")
 
         cmd_label = " ".join(self.acp_command)
         try:
@@ -108,6 +109,18 @@ class ACPAgentRunner:
             )
             logger.info("ACP initialized (%s): %s", cmd_label, resp)
 
+            # Log available auth methods as a hint
+            init_result = resp.get("result", {})
+            auth_methods = init_result.get("authMethods", [])
+            if auth_methods:
+                descriptions = [m.get("description", m.get("id", "unknown")) for m in auth_methods]
+                logger.warning(
+                    "ACP agent (%s) reports auth methods: %s. "
+                    "If prompts fail, configure auth tokens.",
+                    cmd_label,
+                    ", ".join(descriptions),
+                )
+
             # Create a session with model selection
             session_params = {
                 "cwd": self.directory,
@@ -120,6 +133,15 @@ class ACPAgentRunner:
             logger.info("ACP session/new raw response: %s", json.dumps(resp)[:500])
             result = resp.get("result", {})
             self._session_id = result.get("sessionId")
+            if not self._session_id:
+                # Session creation failed — likely auth or model issue
+                error = resp.get("error", {})
+                error_msg = error.get("message", "unknown error")
+                if auth_methods:
+                    error_msg += f". Auth may be required: " f"{', '.join(descriptions)}"
+                raise RuntimeError(
+                    f"ACP agent ({cmd_label}) session creation failed: " f"{error_msg}"
+                )
             self._running = True
             logger.info("ACP session started (%s): %s", cmd_label, self._session_id)
 

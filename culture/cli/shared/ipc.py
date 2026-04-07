@@ -31,7 +31,7 @@ async def ipc_request(socket_path: str, msg_type: str, **kwargs) -> dict | None:
         writer.write(encode_message(req))
         await writer.drain()
         loop = asyncio.get_running_loop()
-        deadline = loop.time() + 3.0
+        deadline = loop.time() + 15.0
         while True:
             remaining = deadline - loop.time()
             if remaining <= 0:

@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [4.4.1] - 2026-04-07
+
+
+### Fixed
+
+- Config save operations no longer strip backend-specific fields like acp_command (#150)
+- Agent status detail uses cached description by default, --full for live query; IPC deadline increased to 15s (#152)
+- DMs now activate agents — _detect_and_fire_mention handles direct messages in all backends (#153)
+- ACP agent runner preserves HOME/XDG_CONFIG_HOME for auth tokens; warns on authMethods, fails fast on session creation failure (#154)
+- _coerce_to_acp_agent now copies the icon field (#155)
+- _make_backend_config passes supervisor, poll_interval, sleep_start, sleep_end to non-claude backends (#156)
+- ACP load_config strips unknown fields, matching claude/codex/copilot pattern (#157)
+
 ## [4.4.0] - 2026-04-07
 
 

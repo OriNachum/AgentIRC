@@ -213,6 +213,10 @@ class IRCTransport:
         """Check if the message mentions this agent and fire the callback."""
         if not self.on_mention:
             return
+        # DMs always activate (target is the agent's own nick)
+        if target == self.nick:
+            self.on_mention(target, sender, text)
+            return
         short = self.nick.split("-", 1)[1] if "-" in self.nick else None
         if re.search(rf"@{re.escape(self.nick)}\b", text) or (
             short and re.search(rf"@{re.escape(short)}\b", text)

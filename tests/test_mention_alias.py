@@ -125,3 +125,32 @@ async def test_mention_substring_no_false_positive(server, make_client):
     assert len(mentions) == 0
 
     await daemon.stop()
+
+
+@pytest.mark.asyncio
+async def test_dm_activates_agent(server, make_client):
+    """A direct message (PRIVMSG to agent nick) should trigger mention callback (#153)."""
+    config = DaemonConfig(
+        server=ServerConnConfig(host="127.0.0.1", port=server.config.port),
+    )
+    agent = AgentConfig(nick="testserv-bot", directory="/tmp", channels=["#general"])
+    sock_dir = tempfile.mkdtemp()
+    daemon = AgentDaemon(config, agent, socket_dir=sock_dir, skip_claude=True)
+
+    mentions = []
+    await daemon.start()
+    daemon._transport.on_mention = lambda t, s, txt: mentions.append((t, s, txt))
+    await asyncio.sleep(0.5)
+
+    human = await make_client(nick="testserv-ori", user="ori")
+    await asyncio.sleep(0.3)
+
+    # Send a DM (PRIVMSG directly to agent nick, no @mention in text)
+    await human.send("PRIVMSG testserv-bot :hello, are you there?")
+    await asyncio.sleep(0.3)
+
+    assert len(mentions) >= 1
+    assert mentions[0][0] == "testserv-bot"
+    assert "hello" in mentions[0][2]
+
+    await daemon.stop()

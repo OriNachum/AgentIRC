@@ -193,3 +193,62 @@ async def test_acp_poll_loop_uses_fire_and_forget(server, make_client):
     assert len(daemon._mention_targets) >= 1
 
     await daemon.stop()
+
+
+@pytest.mark.asyncio
+async def test_acp_runner_auth_session_failure_raises():
+    """ACPAgentRunner raises RuntimeError when session creation fails with auth hint (#154)."""
+    from unittest.mock import patch
+
+    from culture.clients.acp.agent_runner import ACPAgentRunner
+
+    runner = ACPAgentRunner(
+        model="anthropic/claude-sonnet-4-6",
+        directory="/tmp",
+        acp_command=["echo", "noop"],
+        system_prompt="test",
+    )
+
+    init_response = {
+        "result": {
+            "protocolVersion": 1,
+            "serverInfo": {"name": "test"},
+            "authMethods": [
+                {"id": "opencode-login", "description": "Run opencode auth login"},
+            ],
+        },
+    }
+    # session/new fails — no sessionId
+    session_response = {
+        "error": {"code": -1, "message": "authentication required"},
+    }
+
+    async def fake_send_request(method, params=None, timeout=None):
+        if method == "initialize":
+            return init_response
+        if method == "session/new":
+            return session_response
+        return {}
+
+    fake_proc = MagicMock()
+    fake_proc.stdin = MagicMock()
+    fake_proc.stdout = MagicMock()
+    fake_proc.stderr = MagicMock()
+    fake_proc.terminate = MagicMock()
+    fake_proc.kill = MagicMock()
+    fake_proc.wait = AsyncMock(return_value=0)
+    fake_proc.returncode = 0
+
+    mock_exec = AsyncMock(return_value=fake_proc)
+
+    with patch.object(runner, "_send_request", side_effect=fake_send_request):
+        with patch.object(runner, "_read_loop", return_value=None):
+            with patch.object(runner, "_stderr_loop", return_value=None):
+                with patch(
+                    "asyncio.create_subprocess_exec",
+                    mock_exec,
+                ):
+                    import pytest as _pt
+
+                    with _pt.raises(RuntimeError, match="session creation failed"):
+                        await runner.start()

@@ -839,3 +839,170 @@ def test_remove_agent_preserves_other_agent_fields():
         assert result["agents"][0]["acp_command"] == ["opencode", "acp"]
     finally:
         shutil.rmtree(tmpdir)
+
+
+# -----------------------------------------------------------------------
+# Config mutations preserve backend-specific fields (#150)
+# -----------------------------------------------------------------------
+
+
+def _write_multi_backend_yaml(path):
+    """Write a YAML file with agents from different backends."""
+    import yaml as _yaml
+
+    raw = {
+        "server": {"name": "spark", "host": "127.0.0.1", "port": 6667},
+        "agents": [
+            {
+                "nick": "spark-claude",
+                "agent": "claude",
+                "directory": "/tmp/c",
+                "thinking": "medium",
+            },
+            {
+                "nick": "spark-daria",
+                "agent": "acp",
+                "acp_command": ["opencode", "acp"],
+                "directory": "/tmp/d",
+            },
+        ],
+    }
+    with open(path, "w") as f:
+        _yaml.dump(raw, f, default_flow_style=False, sort_keys=False)
+
+
+def test_archive_agent_preserves_backend_fields():
+    """archive_agent preserves acp_command on sibling agents (#150)."""
+    import yaml as _yaml
+
+    from culture.clients.claude.config import archive_agent
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        path = os.path.join(tmpdir, "agents.yaml")
+        _write_multi_backend_yaml(path)
+
+        archive_agent(path, "spark-claude", reason="test")
+
+        with open(path) as f:
+            result = _yaml.safe_load(f)
+        agents = {a["nick"]: a for a in result["agents"]}
+        assert agents["spark-claude"]["archived"] is True
+        assert agents["spark-daria"]["acp_command"] == ["opencode", "acp"]
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_unarchive_agent_preserves_backend_fields():
+    """unarchive_agent preserves acp_command on sibling agents (#150)."""
+    import yaml as _yaml
+
+    from culture.clients.claude.config import archive_agent, unarchive_agent
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        path = os.path.join(tmpdir, "agents.yaml")
+        _write_multi_backend_yaml(path)
+
+        archive_agent(path, "spark-claude", reason="test")
+        unarchive_agent(path, "spark-claude")
+
+        with open(path) as f:
+            result = _yaml.safe_load(f)
+        agents = {a["nick"]: a for a in result["agents"]}
+        assert agents["spark-claude"]["archived"] is False
+        assert agents["spark-daria"]["acp_command"] == ["opencode", "acp"]
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_rename_agent_preserves_backend_fields():
+    """rename_agent preserves acp_command on all agents (#150)."""
+    import yaml as _yaml
+
+    from culture.clients.claude.config import rename_agent
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        path = os.path.join(tmpdir, "agents.yaml")
+        _write_multi_backend_yaml(path)
+
+        rename_agent(path, "spark-claude", "spark-opus")
+
+        with open(path) as f:
+            result = _yaml.safe_load(f)
+        agents = {a["nick"]: a for a in result["agents"]}
+        assert "spark-opus" in agents
+        assert "spark-claude" not in agents
+        assert agents["spark-daria"]["acp_command"] == ["opencode", "acp"]
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_rename_server_preserves_backend_fields():
+    """rename_server preserves acp_command on all agents (#150)."""
+    import yaml as _yaml
+
+    from culture.clients.claude.config import rename_server
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        path = os.path.join(tmpdir, "agents.yaml")
+        _write_multi_backend_yaml(path)
+
+        rename_server(path, "thor")
+
+        with open(path) as f:
+            result = _yaml.safe_load(f)
+        agents = {a["nick"]: a for a in result["agents"]}
+        assert "thor-claude" in agents
+        assert "thor-daria" in agents
+        assert agents["thor-daria"]["acp_command"] == ["opencode", "acp"]
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_archive_server_preserves_backend_fields():
+    """archive_server preserves acp_command on all agents (#150)."""
+    import yaml as _yaml
+
+    from culture.clients.claude.config import archive_server
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        path = os.path.join(tmpdir, "agents.yaml")
+        _write_multi_backend_yaml(path)
+
+        archive_server(path, reason="maintenance")
+
+        with open(path) as f:
+            result = _yaml.safe_load(f)
+        agents = {a["nick"]: a for a in result["agents"]}
+        assert agents["spark-daria"]["acp_command"] == ["opencode", "acp"]
+        assert agents["spark-daria"]["archived"] is True
+        assert result["server"]["archived"] is True
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_add_agent_preserves_backend_fields():
+    """add_agent_to_config preserves acp_command on existing agents (#150)."""
+    import yaml as _yaml
+
+    from culture.clients.claude.config import AgentConfig, add_agent_to_config
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        path = os.path.join(tmpdir, "agents.yaml")
+        _write_multi_backend_yaml(path)
+
+        new_agent = AgentConfig(nick="spark-new", agent="claude", directory="/tmp/n")
+        add_agent_to_config(path, new_agent)
+
+        with open(path) as f:
+            result = _yaml.safe_load(f)
+        agents = {a["nick"]: a for a in result["agents"]}
+        assert "spark-new" in agents
+        assert agents["spark-daria"]["acp_command"] == ["opencode", "acp"]
+    finally:
+        shutil.rmtree(tmpdir)

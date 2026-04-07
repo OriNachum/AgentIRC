@@ -37,7 +37,8 @@ def print_agent_detail(agent, config_path: str, args: argparse.Namespace) -> Non
     print(f"  PID:        {pid or '-'}")
 
     if status == "running":
-        resp = asyncio.run(ipc_request(agent_socket_path(agent.nick), "status", query=True))
+        query = getattr(args, "full", False)
+        resp = asyncio.run(ipc_request(agent_socket_path(agent.nick), "status", query=query))
         if resp and resp.get("ok"):
             data = resp.get("data", {})
             print(f"  Activity:   {data.get('description', 'nothing')}")

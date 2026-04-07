@@ -626,3 +626,93 @@ def test_rename_agent_not_found():
             rename_agent(path, "spark-culture", "spark-claude")
     finally:
         shutil.rmtree(tmpdir)
+
+
+# -----------------------------------------------------------------------
+# ACP config load_config strips unknown fields (#157)
+# -----------------------------------------------------------------------
+
+
+def test_acp_load_config_strips_unknown_fields():
+    """ACP load_config should not crash on YAML with claude-specific fields (#157)."""
+    import yaml as _yaml
+
+    from culture.clients.acp.config import load_config
+
+    yaml_content = {
+        "server": {"host": "127.0.0.1", "port": 6667},
+        "agents": [
+            {
+                "nick": "spark-daria",
+                "agent": "acp",
+                "acp_command": ["opencode", "acp"],
+                "thinking": "medium",
+                "archived": True,
+                "archived_at": "2026-01-01",
+                "archived_reason": "test",
+            }
+        ],
+    }
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        _yaml.dump(yaml_content, f)
+        f.flush()
+        try:
+            config = load_config(f.name)
+            assert len(config.agents) == 1
+            assert config.agents[0].nick == "spark-daria"
+            assert config.agents[0].acp_command == ["opencode", "acp"]
+        finally:
+            os.unlink(f.name)
+
+
+# -----------------------------------------------------------------------
+# _coerce_to_acp_agent preserves icon (#155)
+# -----------------------------------------------------------------------
+
+
+def test_coerce_to_acp_agent_preserves_icon():
+    """_coerce_to_acp_agent copies the icon field (#155)."""
+    from culture.cli.agent import _coerce_to_acp_agent
+    from culture.clients.claude.config import AgentConfig
+
+    agent = AgentConfig(nick="spark-test", icon="robot")
+    acp_agent = _coerce_to_acp_agent(agent)
+    assert acp_agent.icon == "robot"
+
+
+def test_coerce_to_acp_agent_icon_none():
+    """_coerce_to_acp_agent handles icon=None gracefully."""
+    from culture.cli.agent import _coerce_to_acp_agent
+    from culture.clients.claude.config import AgentConfig
+
+    agent = AgentConfig(nick="spark-test")
+    acp_agent = _coerce_to_acp_agent(agent)
+    assert acp_agent.icon is None
+
+
+# -----------------------------------------------------------------------
+# _make_backend_config passes all fields (#156)
+# -----------------------------------------------------------------------
+
+
+def test_make_backend_config_passes_all_fields():
+    """_make_backend_config includes supervisor, poll_interval, sleep schedule (#156)."""
+    from culture.cli.agent import _make_backend_config
+    from culture.clients.acp.config import DaemonConfig as ACPDaemonConfig
+    from culture.clients.claude.config import (
+        DaemonConfig,
+        ServerConnConfig,
+        SupervisorConfig,
+    )
+
+    config = DaemonConfig(
+        server=ServerConnConfig(name="spark"),
+        supervisor=SupervisorConfig(model="custom-model"),
+        poll_interval=300,
+        sleep_start="22:00",
+        sleep_end="09:00",
+    )
+    result = _make_backend_config(config, ACPDaemonConfig)
+    assert result.poll_interval == 300
+    assert result.sleep_start == "22:00"
+    assert result.sleep_end == "09:00"
