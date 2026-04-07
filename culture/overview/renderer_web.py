@@ -134,6 +134,90 @@ def _stop_existing_overview(pid_name: str) -> None:
         remove_port(pid_name)
 
 
+class _OverviewHandler(SimpleHTTPRequestHandler):
+    """HTTP handler that renders a live mesh overview on each request.
+
+    Configuration is injected via class attributes set by the factory
+    :func:`_make_overview_handler`.
+    """
+
+    irc_host: str = ""
+    irc_port: int = 0
+    server_name: str = ""
+    room_filter: str | None = None
+    agent_filter: str | None = None
+    message_limit: int = 4
+    refresh_interval: int = 5
+
+    def do_GET(self):
+        mesh = asyncio.run(
+            collect_mesh_state(
+                host=self.irc_host,
+                port=self.irc_port,
+                server_name=self.server_name,
+                message_limit=self.message_limit,
+            )
+        )
+        html = render_html(
+            mesh,
+            room_filter=self.room_filter,
+            agent_filter=self.agent_filter,
+            message_limit=self.message_limit,
+            refresh_interval=self.refresh_interval,
+        )
+        content = html.encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(content)))
+        self.end_headers()
+        self.wfile.write(content)
+
+    def log_message(self, format, *args):
+        pass  # Suppress request logging
+
+
+def _make_overview_handler(
+    host: str,
+    port: int,
+    server_name: str,
+    room_filter: str | None,
+    agent_filter: str | None,
+    message_limit: int,
+    refresh_interval: int,
+) -> type[_OverviewHandler]:
+    """Return an _OverviewHandler subclass with config bound as class attrs."""
+    return type(
+        "_BoundOverviewHandler",
+        (_OverviewHandler,),
+        {
+            "irc_host": host,
+            "irc_port": port,
+            "server_name": server_name,
+            "room_filter": room_filter,
+            "agent_filter": agent_filter,
+            "message_limit": message_limit,
+            "refresh_interval": refresh_interval,
+        },
+    )
+
+
+def _setup_signal_handlers(httpd: HTTPServer) -> None:
+    """Register SIGTERM handler to gracefully shut down the server."""
+    if threading.current_thread() is not threading.main_thread():
+        return
+
+    def _handle_term(_sig, _frame):
+        threading.Thread(target=httpd.shutdown, daemon=True).start()
+
+    signal.signal(signal.SIGTERM, _handle_term)
+
+
+def _cleanup_server(pid_name: str) -> None:
+    """Remove PID and port files for the overview server."""
+    remove_pid(pid_name)
+    remove_port(pid_name)
+
+
 def serve_web(
     host: str,
     port: int,
@@ -149,50 +233,26 @@ def serve_web(
     pid_name = f"overview-{server_name}"
     _stop_existing_overview(pid_name)
 
-    class OverviewHandler(SimpleHTTPRequestHandler):
-        def do_GET(self):
-            mesh = asyncio.run(
-                collect_mesh_state(
-                    host=host,
-                    port=port,
-                    server_name=server_name,
-                    message_limit=message_limit,
-                )
-            )
-            html = render_html(
-                mesh,
-                room_filter=room_filter,
-                agent_filter=agent_filter,
-                message_limit=message_limit,
-                refresh_interval=refresh_interval,
-            )
-            content = html.encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(content)))
-            self.end_headers()
-            self.wfile.write(content)
-
-        def log_message(self, format, *args):
-            pass  # Suppress request logging
-
-    httpd = HTTPServer(("127.0.0.1", serve_port), OverviewHandler)
+    handler_cls = _make_overview_handler(
+        host,
+        port,
+        server_name,
+        room_filter,
+        agent_filter,
+        message_limit,
+        refresh_interval,
+    )
+    httpd = HTTPServer(("127.0.0.1", serve_port), handler_cls)
     actual_port = httpd.server_address[1]
 
     write_pid(pid_name, os.getpid())
     write_port(pid_name, actual_port)
 
-    def _cleanup():
-        remove_pid(pid_name)
-        remove_port(pid_name)
+    def cleanup():
+        _cleanup_server(pid_name)
 
-    atexit.register(_cleanup)
-    if threading.current_thread() is threading.main_thread():
-
-        def _handle_term(_sig, _frame):
-            threading.Thread(target=httpd.shutdown, daemon=True).start()
-
-        signal.signal(signal.SIGTERM, _handle_term)
+    atexit.register(cleanup)
+    _setup_signal_handlers(httpd)
 
     print(f"Overview dashboard: http://localhost:{actual_port}", flush=True)
     print("Press Ctrl+C to stop.", flush=True)
@@ -202,5 +262,5 @@ def serve_web(
         print("\nStopped.", flush=True)
     finally:
         httpd.server_close()
-        _cleanup()
-        atexit.unregister(_cleanup)
+        cleanup()
+        atexit.unregister(cleanup)

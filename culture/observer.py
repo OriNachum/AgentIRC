@@ -106,6 +106,24 @@ class IRCObserver:
                 messages.append(Message.parse(buffer.strip()))
         return messages
 
+    @staticmethod
+    async def _process_query_line(msg, end_numerics, parse_line, results, writer):
+        """Handle a single parsed IRC line during a query.
+
+        Returns True when an end marker is reached and collection should stop.
+        """
+        if msg.command in end_numerics:
+            return True
+        if msg.command == "PING":
+            token = msg.params[0] if msg.params else ""
+            writer.write(f"PONG :{token}\r\n".encode())
+            await writer.drain()
+            return False
+        parsed = parse_line(msg)
+        if parsed is not None:
+            results.append(parsed)
+        return False
+
     async def _irc_query(self, command, end_numerics, parse_line):
         """Send an IRC command, collect parsed results until an end marker."""
         reader, writer, nick = await self._connect_and_register()
@@ -125,16 +143,11 @@ class IRCObserver:
                     if not line.strip():
                         continue
                     msg = Message.parse(line)
-                    if msg.command in end_numerics:
+                    done = await self._process_query_line(
+                        msg, end_numerics, parse_line, results, writer
+                    )
+                    if done:
                         return results
-                    if msg.command == "PING":
-                        token = msg.params[0] if msg.params else ""
-                        writer.write(f"PONG :{token}\r\n".encode())
-                        await writer.drain()
-                        continue
-                    parsed = parse_line(msg)
-                    if parsed is not None:
-                        results.append(parsed)
             return results
         except asyncio.TimeoutError:
             return results

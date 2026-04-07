@@ -106,75 +106,99 @@ def _build_windows_bat(command: list[str]) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _install_linux_service(name: str, command: list[str], description: str) -> Path:
+    unit_dir = _systemd_user_dir()
+    unit_dir.mkdir(parents=True, exist_ok=True)
+    path = unit_dir / f"{name}.service"
+    path.write_text(_build_systemd_unit(name, command, description))
+    _run_cmd(["systemctl", "--user", "daemon-reload"])
+    _run_cmd(["systemctl", "--user", "enable", name])
+    return path
+
+
+def _install_macos_service(name: str, command: list[str], description: str) -> Path:
+    agent_dir = _launchd_dir()
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    plist_name = f"com.culture.{name}"
+    path = agent_dir / f"{plist_name}.plist"
+    path.write_text(_build_launchd_plist(plist_name, command, description))
+    _run_cmd(["launchctl", "load", str(path)])
+    return path
+
+
+def _install_windows_service(name: str, command: list[str], description: str) -> Path:
+    svc_dir = _windows_service_dir()
+    svc_dir.mkdir(parents=True, exist_ok=True)
+    bat_path = svc_dir / f"{name}.bat"
+    bat_path.write_text(_build_windows_bat(command))
+    _run_cmd(
+        [
+            "schtasks",
+            "/Create",
+            "/TN",
+            f"culture\\{name}",
+            "/TR",
+            subprocess.list2cmdline(["cmd.exe", "/c", str(bat_path)]),
+            "/SC",
+            "ONLOGON",
+            "/F",
+        ]
+    )
+    return bat_path
+
+
+_PLATFORM_INSTALLERS = {
+    "linux": _install_linux_service,
+    "macos": _install_macos_service,
+    "windows": _install_windows_service,
+}
+
+
 def install_service(name: str, command: list[str], description: str) -> Path:
     """Generate and install a platform-specific auto-start entry."""
     platform = get_platform()
+    installer = _PLATFORM_INSTALLERS.get(platform)
+    if installer is None:
+        raise RuntimeError(f"Unsupported platform: {platform}")
+    return installer(name, command, description)
 
-    if platform == "linux":
-        unit_dir = _systemd_user_dir()
-        unit_dir.mkdir(parents=True, exist_ok=True)
-        path = unit_dir / f"{name}.service"
-        path.write_text(_build_systemd_unit(name, command, description))
-        _run_cmd(["systemctl", "--user", "daemon-reload"])
-        _run_cmd(["systemctl", "--user", "enable", name])
-        return path
 
-    elif platform == "macos":
-        agent_dir = _launchd_dir()
-        agent_dir.mkdir(parents=True, exist_ok=True)
-        plist_name = f"com.culture.{name}"
-        path = agent_dir / f"{plist_name}.plist"
-        path.write_text(_build_launchd_plist(plist_name, command, description))
-        _run_cmd(["launchctl", "load", str(path)])
-        return path
+def _uninstall_linux_service(name: str) -> None:
+    _run_cmd(["systemctl", "--user", "disable", name])
+    _run_cmd(["systemctl", "--user", "stop", name])
+    path = _systemd_user_dir() / f"{name}.service"
+    if path.exists():
+        path.unlink()
+    _run_cmd(["systemctl", "--user", "daemon-reload"])
 
-    elif platform == "windows":
-        svc_dir = _windows_service_dir()
-        svc_dir.mkdir(parents=True, exist_ok=True)
-        bat_path = svc_dir / f"{name}.bat"
-        bat_path.write_text(_build_windows_bat(command))
-        _run_cmd(
-            [
-                "schtasks",
-                "/Create",
-                "/TN",
-                f"culture\\{name}",
-                "/TR",
-                subprocess.list2cmdline(["cmd.exe", "/c", str(bat_path)]),
-                "/SC",
-                "ONLOGON",
-                "/F",
-            ]
-        )
-        return bat_path
 
-    raise RuntimeError(f"Unsupported platform: {platform}")
+def _uninstall_macos_service(name: str) -> None:
+    plist_name = f"com.culture.{name}"
+    path = _launchd_dir() / f"{plist_name}.plist"
+    if path.exists():
+        _run_cmd(["launchctl", "unload", str(path)])
+        path.unlink()
+
+
+def _uninstall_windows_service(name: str) -> None:
+    _run_cmd(["schtasks", "/Delete", "/TN", f"culture\\{name}", "/F"])
+    bat_path = _windows_service_dir() / f"{name}.bat"
+    if bat_path.exists():
+        bat_path.unlink()
+
+
+_PLATFORM_UNINSTALLERS = {
+    "linux": _uninstall_linux_service,
+    "macos": _uninstall_macos_service,
+    "windows": _uninstall_windows_service,
+}
 
 
 def uninstall_service(name: str) -> None:
     """Remove a platform-specific auto-start entry."""
-    platform = get_platform()
-
-    if platform == "linux":
-        _run_cmd(["systemctl", "--user", "disable", name])
-        _run_cmd(["systemctl", "--user", "stop", name])
-        path = _systemd_user_dir() / f"{name}.service"
-        if path.exists():
-            path.unlink()
-        _run_cmd(["systemctl", "--user", "daemon-reload"])
-
-    elif platform == "macos":
-        plist_name = f"com.culture.{name}"
-        path = _launchd_dir() / f"{plist_name}.plist"
-        if path.exists():
-            _run_cmd(["launchctl", "unload", str(path)])
-            path.unlink()
-
-    elif platform == "windows":
-        _run_cmd(["schtasks", "/Delete", "/TN", f"culture\\{name}", "/F"])
-        bat_path = _windows_service_dir() / f"{name}.bat"
-        if bat_path.exists():
-            bat_path.unlink()
+    uninstaller = _PLATFORM_UNINSTALLERS.get(get_platform())
+    if uninstaller is not None:
+        uninstaller(name)
 
 
 def _list_systemd_services() -> list[str]:
@@ -207,18 +231,54 @@ def _list_windows_services() -> list[str]:
     return names
 
 
+_PLATFORM_LISTERS = {
+    "linux": _list_systemd_services,
+    "macos": _list_launchd_services,
+    "windows": _list_windows_services,
+}
+
+
 def list_services() -> list[str]:
     """Return names of installed culture auto-start services."""
-    platform = get_platform()
+    lister = _PLATFORM_LISTERS.get(get_platform())
+    return lister() if lister is not None else []
 
-    if platform == "linux":
-        return _list_systemd_services()
-    elif platform == "macos":
-        return _list_launchd_services()
-    elif platform == "windows":
-        return _list_windows_services()
 
-    return []
+def _restart_linux_service(name: str) -> bool:
+    path = _systemd_user_dir() / f"{name}.service"
+    if not path.exists():
+        return False
+    _run_cmd(["systemctl", "--user", "restart", name])
+    return True
+
+
+def _restart_macos_service(name: str) -> bool:
+    plist_name = f"com.culture.{name}"
+    path = _launchd_dir() / f"{plist_name}.plist"
+    if not path.exists():
+        return False
+    _run_cmd(["launchctl", "unload", str(path)])
+    _run_cmd(["launchctl", "load", str(path)])
+    return True
+
+
+def _restart_windows_service(name: str) -> bool:
+    probe = subprocess.run(
+        ["schtasks", "/Query", "/TN", f"culture\\{name}"],
+        capture_output=True,
+        text=True,
+    )
+    if probe.returncode != 0:
+        return False
+    _run_cmd(["schtasks", "/Run", "/TN", f"culture\\{name}"])
+    return True
+
+
+_PLATFORM_RESTARTERS = {
+    "linux": _restart_linux_service,
+    "macos": _restart_macos_service,
+    "windows": _restart_windows_service,
+}
 
 
 def restart_service(name: str) -> bool:
@@ -226,32 +286,5 @@ def restart_service(name: str) -> bool:
 
     Returns True if the restart command was issued, False if no service found.
     """
-    platform = get_platform()
-
-    if platform == "linux":
-        path = _systemd_user_dir() / f"{name}.service"
-        if path.exists():
-            _run_cmd(["systemctl", "--user", "restart", name])
-            return True
-
-    elif platform == "macos":
-        plist_name = f"com.culture.{name}"
-        path = _launchd_dir() / f"{plist_name}.plist"
-        if path.exists():
-            _run_cmd(["launchctl", "unload", str(path)])
-            _run_cmd(["launchctl", "load", str(path)])
-            return True
-
-    elif platform == "windows":
-        # Check if the scheduled task exists before attempting to run it
-        probe = subprocess.run(
-            ["schtasks", "/Query", "/TN", f"culture\\{name}"],
-            capture_output=True,
-            text=True,
-        )
-        if probe.returncode != 0:
-            return False
-        _run_cmd(["schtasks", "/Run", "/TN", f"culture\\{name}"])
-        return True
-
-    return False
+    restarter = _PLATFORM_RESTARTERS.get(get_platform())
+    return restarter(name) if restarter is not None else False

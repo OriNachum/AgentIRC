@@ -128,6 +128,31 @@ async def collect_mesh_state(
         await _disconnect(writer)
 
 
+async def _handle_registration_line(
+    msg: IRCMessage,
+    writer: asyncio.StreamWriter,
+    nick: str,
+    server_name: str,
+) -> tuple[bool, str]:
+    """Process a single line during registration.
+
+    Returns (is_done, current_nick).  *is_done* is True when RPL_WELCOME
+    (001) has been received and the connection is ready.
+    """
+    if msg.command == "PING":
+        writer.write(f"PONG :{msg.params[0]}\r\n".encode())
+        await writer.drain()
+        return False, nick
+    if msg.command == "001":
+        return True, nick
+    if msg.command == "433":
+        nick = _temp_nick(server_name)
+        writer.write(f"NICK {nick}\r\n".encode())
+        await writer.drain()
+        return False, nick
+    return False, nick
+
+
 async def _connect(
     host: str,
     port: int,
@@ -156,15 +181,9 @@ async def _connect(
             if not line:
                 continue
             msg = IRCMessage.parse(line)
-            if msg.command == "PING":
-                writer.write(f"PONG :{msg.params[0]}\r\n".encode())
-                await writer.drain()
-            elif msg.command == "001":
+            done, nick = await _handle_registration_line(msg, writer, nick, server_name)
+            if done:
                 return reader, writer, nick
-            elif msg.command == "433":
-                nick = _temp_nick(server_name)
-                writer.write(f"NICK {nick}\r\n".encode())
-                await writer.drain()
     except BaseException:
         await _disconnect(writer)
         raise
