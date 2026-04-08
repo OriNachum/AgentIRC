@@ -30,13 +30,13 @@ This is **Natural Language Memory (NLM)** — agents use generated docs as durab
 The `packages/` directory contains reference implementations that are reflected (copied, adapted) into target directories. Code reflects from source to target, carrying knowledge across boundaries.
 
 ```text
-packages/agent-harness/  →  clients/claude/
-                         →  clients/codex/
-                         →  clients/copilot/
-                         →  clients/acp/
+packages/agent-harness/  →  culture/clients/claude/
+                         →  culture/clients/codex/
+                         →  culture/clients/copilot/
+                         →  culture/clients/acp/
 ```
 
-When you improve a component in `packages/`, you reflect that improvement to all backends. The pattern is literally reflective: source mirrors into target. This is the [Assimilai pattern](../CLAUDE.md) — code that reflects from reference to implementation.
+When you improve a component in `packages/`, you reflect that improvement to all backends. The pattern is literally reflective: source mirrors into target. This is the [Assimilai pattern](https://github.com/OriNachum/culture/blob/main/CLAUDE.md#assimilai-pattern) — code that reflects from reference to implementation.
 
 ---
 
