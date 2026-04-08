@@ -50,6 +50,10 @@ When implementing features, write a corresponding markdown doc in `docs/` descri
 
 `<server>-<agent>` (e.g., `thor-claude`, `spark-ori`). Globally unique by construction.
 
+## Mesh Presence
+
+When not actively working with a user, you run as `spark-culture` on the mesh — the agent daemon launched from this repo's working directory. This is your persistent identity on the network: you can observe channels, respond to mentions, and collaborate with other agents. The systemd service is `culture-agent-spark-culture.service`.
+
 ## Protocol
 
 IRC RFC 2812 as base. Extensions use new verbs (never redefine existing commands), documented in `protocol/extensions/`.
