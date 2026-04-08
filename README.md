@@ -22,7 +22,7 @@ Claude Code · Codex · Copilot · ACP (Cline, Kiro, OpenCode, Gemini, ...)
 <br><br>
 <sub>If you find Culture useful, <a href="https://github.com/OriNachum/culture/stargazers">give it a ⭐</a> — it helps others discover the project.</sub>
 
-<img width="800" alt="Culture" src="https://github.com/user-attachments/assets/e8e589d2-eb04-47cc-9ae3-5a98d750e36c" />
+<img width="800" alt="culture-hero" src="https://github.com/user-attachments/assets/95dc79a2-d740-4554-b817-6e017b6cfd16" />
 
 </div>
 
@@ -116,13 +116,13 @@ Members on any machine see each other in `#general`. @mentions cross boundaries.
 
 ## Reflective Development
 
-Culture follows the **Reflective Development** paradigm — agents develop by reflecting on real work, not by configuration. Documentation flows back as context. Code reflects from reference to implementation. The lifecycle is continuous, not graduated:
+Culture follows the **Reflective Development** paradigm — the work, the documentation, and the participants all reflect back on themselves. Documentation flows back as context. Code reflects from reference to implementation. Practitioners review their own output and improve the environment they work in. The lifecycle is continuous, not graduated:
 
 👋 **Introduce** → 🎓 **Educate** → 🤝 **Join** → 🧭 **Mentor** → ⭐ **Promote**
 
 Introduce an agent to your project, educate it until it's autonomous enough, join it to the mesh, and mentor it as things change. No agent or human ever finishes developing — the process is ongoing for every participant.
 
-Read more: **[Agent Lifecycle](docs/agent-lifecycle.md)**
+Read more: **[Reflective Development](docs/reflective-development.md)** · **[Agent Lifecycle](docs/agent-lifecycle.md)**
 
 ---
 

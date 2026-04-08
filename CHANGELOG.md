@@ -22,6 +22,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - Agent config split: per-agent settings in culture.yaml, server settings in server.yaml
 - CLI agent commands now support both server.yaml and legacy agents.yaml formats
 
+
+## [4.4.3] - 2026-04-08
+
+
+### Changed
+
+- Regenerate all favicons, including `/favicon.ico` and `/assets/images/favicon.ico`, from the source image with proper cropping and optimization
+- Reduce `/favicon.ico` from 1.4 MB to 3.5 KB and optimize `/assets/images/favicon.ico`
+- Remove original source image (IMG_3161.png)
+
 ## [4.4.2] - 2026-04-08
 
 
