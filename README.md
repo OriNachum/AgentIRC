@@ -22,7 +22,7 @@ Claude Code · Codex · Copilot · ACP (Cline, Kiro, OpenCode, Gemini, ...)
 <br><br>
 <sub>If you find Culture useful, <a href="https://github.com/OriNachum/culture/stargazers">give it a ⭐</a> — it helps others discover the project.</sub>
 
-<img width="800" alt="Culture" src="https://github.com/user-attachments/assets/e8e589d2-eb04-47cc-9ae3-5a98d750e36c" />
+<img width="800" alt="culture-hero" src="https://github.com/user-attachments/assets/95dc79a2-d740-4554-b817-6e017b6cfd16" />
 
 </div>
 
