@@ -311,6 +311,105 @@ def load_config_or_default(path: str | Path) -> ServerConfig:
     return load_config(path)
 
 
+def _agent_to_yaml_dict(agent: AgentConfig) -> dict:
+    """Convert AgentConfig to a dict suitable for YAML serialization."""
+    data = {
+        "suffix": agent.suffix,
+        "backend": agent.backend,
+    }
+    defaults = AgentConfig()
+    if agent.channels != defaults.channels:
+        data["channels"] = agent.channels
+    if agent.model != defaults.model:
+        data["model"] = agent.model
+    if agent.thinking != defaults.thinking:
+        data["thinking"] = agent.thinking
+    if agent.system_prompt:
+        data["system_prompt"] = agent.system_prompt
+    if agent.tags:
+        data["tags"] = agent.tags
+    if agent.icon is not None:
+        data["icon"] = agent.icon
+    if agent.archived:
+        data["archived"] = agent.archived
+        data["archived_at"] = agent.archived_at
+        data["archived_reason"] = agent.archived_reason
+    data.update(agent.extras)
+    return data
+
+
+def save_culture_yaml(directory: str, agents: list[AgentConfig]) -> None:
+    """Write culture.yaml atomically. Single-agent uses flat format."""
+    path = Path(directory) / CULTURE_YAML
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    if len(agents) == 1:
+        data = _agent_to_yaml_dict(agents[0])
+    else:
+        data = {"agents": [_agent_to_yaml_dict(a) for a in agents]}
+
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".yaml.tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+        os.replace(tmp, str(path))
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _load_server_raw(path: str | Path) -> dict:
+    """Load raw server.yaml YAML."""
+    path = Path(path)
+    if not path.exists():
+        return {}
+    with open(path) as f:
+        return yaml.safe_load(f) or {}
+
+
+def _save_server_raw(path: str | Path, raw: dict) -> None:
+    """Write raw server.yaml atomically."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".yaml.tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            yaml.dump(raw, f, default_flow_style=False, sort_keys=False)
+        os.replace(tmp, str(path))
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def add_to_manifest(path: str | Path, suffix: str, directory: str) -> None:
+    """Add an agent to the server.yaml manifest. Raises ValueError if suffix exists."""
+    raw = _load_server_raw(path)
+    agents = raw.setdefault("agents", {})
+    if not isinstance(agents, dict):
+        agents = {}
+        raw["agents"] = agents
+    if suffix in agents:
+        raise ValueError(f"Agent suffix {suffix!r} already registered at {agents[suffix]}")
+    agents[suffix] = str(Path(directory).resolve())
+    _save_server_raw(path, raw)
+
+
+def remove_from_manifest(path: str | Path, suffix: str) -> None:
+    """Remove an agent from the server.yaml manifest. Raises ValueError if not found."""
+    raw = _load_server_raw(path)
+    agents = raw.get("agents", {})
+    if not isinstance(agents, dict) or suffix not in agents:
+        raise ValueError(f"Agent suffix {suffix!r} not found in manifest")
+    del agents[suffix]
+    _save_server_raw(path, raw)
+
+
 def save_server_config(path: str | Path, config: ServerConfig) -> None:
     """Write server.yaml atomically."""
     path = Path(path)

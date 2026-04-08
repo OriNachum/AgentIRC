@@ -372,3 +372,127 @@ def test_save_server_config(tmp_path):
     assert loaded.server.name == "spark"
     assert loaded.server.host == "10.0.0.1"
     assert loaded.manifest == {"culture": "/tmp/proj"}
+
+
+def test_save_culture_yaml_single(tmp_path):
+    """Save single-agent culture.yaml."""
+    from culture.config import AgentConfig, load_culture_yaml, save_culture_yaml
+
+    agent = AgentConfig(suffix="myagent", backend="claude", model="claude-opus-4-6")
+    save_culture_yaml(str(tmp_path), [agent])
+
+    loaded = load_culture_yaml(str(tmp_path))
+    assert len(loaded) == 1
+    assert loaded[0].suffix == "myagent"
+    assert loaded[0].backend == "claude"
+
+
+def test_save_culture_yaml_multi(tmp_path):
+    """Save multi-agent culture.yaml."""
+    from culture.config import AgentConfig, load_culture_yaml, save_culture_yaml
+
+    agents = [
+        AgentConfig(suffix="culture", backend="claude"),
+        AgentConfig(suffix="codex", backend="codex", model="gpt-5.4"),
+    ]
+    save_culture_yaml(str(tmp_path), agents)
+
+    loaded = load_culture_yaml(str(tmp_path))
+    assert len(loaded) == 2
+    assert loaded[0].suffix == "culture"
+    assert loaded[1].suffix == "codex"
+
+
+def test_save_culture_yaml_preserves_extras(tmp_path):
+    """Backend-specific fields round-trip through extras."""
+    from culture.config import AgentConfig, load_culture_yaml, save_culture_yaml
+
+    agent = AgentConfig(
+        suffix="daria",
+        backend="acp",
+        extras={"acp_command": ["opencode", "acp"]},
+    )
+    save_culture_yaml(str(tmp_path), [agent])
+
+    loaded = load_culture_yaml(str(tmp_path))
+    assert loaded[0].acp_command == ["opencode", "acp"]
+
+
+def test_add_to_manifest(tmp_path):
+    """Add entry to server.yaml manifest."""
+    from culture.config import (
+        ServerConfig,
+        ServerConnConfig,
+        add_to_manifest,
+        load_server_config,
+        save_server_config,
+    )
+
+    path = tmp_path / "server.yaml"
+    config = ServerConfig(server=ServerConnConfig(name="spark"))
+    save_server_config(str(path), config)
+
+    add_to_manifest(str(path), "culture", "/tmp/proj")
+
+    loaded = load_server_config(str(path))
+    assert loaded.manifest == {"culture": "/tmp/proj"}
+
+
+def test_add_to_manifest_collision(tmp_path):
+    """Duplicate suffix raises ValueError."""
+    from culture.config import (
+        ServerConfig,
+        ServerConnConfig,
+        add_to_manifest,
+        save_server_config,
+    )
+
+    path = tmp_path / "server.yaml"
+    config = ServerConfig(
+        server=ServerConnConfig(name="spark"),
+        manifest={"culture": "/tmp/proj"},
+    )
+    save_server_config(str(path), config)
+
+    with pytest.raises(ValueError, match="already registered"):
+        add_to_manifest(str(path), "culture", "/tmp/other")
+
+
+def test_remove_from_manifest(tmp_path):
+    """Remove entry from manifest."""
+    from culture.config import (
+        ServerConfig,
+        ServerConnConfig,
+        load_server_config,
+        remove_from_manifest,
+        save_server_config,
+    )
+
+    path = tmp_path / "server.yaml"
+    config = ServerConfig(
+        server=ServerConnConfig(name="spark"),
+        manifest={"culture": "/tmp/a", "daria": "/tmp/b"},
+    )
+    save_server_config(str(path), config)
+
+    remove_from_manifest(str(path), "culture")
+
+    loaded = load_server_config(str(path))
+    assert loaded.manifest == {"daria": "/tmp/b"}
+
+
+def test_remove_from_manifest_not_found(tmp_path):
+    """Removing nonexistent suffix raises ValueError."""
+    from culture.config import (
+        ServerConfig,
+        ServerConnConfig,
+        remove_from_manifest,
+        save_server_config,
+    )
+
+    path = tmp_path / "server.yaml"
+    config = ServerConfig(server=ServerConnConfig(name="spark"))
+    save_server_config(str(path), config)
+
+    with pytest.raises(ValueError, match="not found"):
+        remove_from_manifest(str(path), "ghost")
