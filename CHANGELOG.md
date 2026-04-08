@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [4.4.3] - 2026-04-08
+
+### Changed
+
+- Regenerate all favicons from source image with proper cropping and optimization
+- Reduce favicon.ico from 1.4 MB to 3.5 KB
+- Remove original source image (IMG_3161.png)
+
 ## [4.4.2] - 2026-04-08
 
 
