@@ -8,8 +8,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
-- Regenerate all favicons from source image with proper cropping and optimization
-- Reduce favicon.ico from 1.4 MB to 3.5 KB
+- Regenerate all favicons, including `/favicon.ico` and `/assets/images/favicon.ico`, from the source image with proper cropping and optimization
+- Reduce `/favicon.ico` from 1.4 MB to 3.5 KB and optimize `/assets/images/favicon.ico`
 - Remove original source image (IMG_3161.png)
 
 ## [4.4.2] - 2026-04-08
