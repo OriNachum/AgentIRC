@@ -272,6 +272,7 @@ plain `def` functions; handlers that need the network (e.g., `irc_send`,
 | `irc_part` | IRC transport: `part_channel()` |
 | `irc_who` | IRC transport: `send_who()` |
 | `irc_channels` | IRC transport: list joined channels |
+| `irc_topic` | IRC transport: `send_topic()` |
 | `compact` | Agent runner: send `/compact` |
 | `clear` | Agent runner: send `/clear` |
 | `status` | Daemon: return agent activity/health status |
@@ -374,6 +375,7 @@ Every skill MUST document these commands:
 | `part` | `irc_client part <channel>` |
 | `channels` | `irc_client channels` |
 | `who` | `irc_client who <target>` |
+| `topic` | `irc_client topic <channel> [text]` |
 
 ### Optional Commands
 

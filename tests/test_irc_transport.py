@@ -222,3 +222,93 @@ async def test_multiline_privmsg_skips_empty_lines(server, make_client):
     assert "first" in privmsgs[0]
     assert "second" in privmsgs[1]
     await transport.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_join_rejects_channel_without_hash(server):
+    """Joining a channel without # prefix should fail."""
+    buf = MessageBuffer()
+    transport = IRCTransport(
+        host="127.0.0.1",
+        port=server.config.port,
+        nick="testserv-bot",
+        user="bot",
+        channels=["#general"],
+        buffer=buf,
+    )
+    await transport.connect()
+    try:
+        await asyncio.sleep(0.3)
+        await transport.join_channel("nohash")
+        assert "nohash" not in transport.channels
+    finally:
+        await transport.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_part_rejects_channel_without_hash(server):
+    """Parting a channel without # prefix should be a no-op."""
+    buf = MessageBuffer()
+    transport = IRCTransport(
+        host="127.0.0.1",
+        port=server.config.port,
+        nick="testserv-bot",
+        user="bot",
+        channels=["#general"],
+        buffer=buf,
+    )
+    await transport.connect()
+    try:
+        await asyncio.sleep(0.3)
+        await transport.part_channel("nohash")
+        # Should not crash or modify state
+    finally:
+        await transport.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_own_messages_in_buffer(server, make_client):
+    """Agent's own sent messages should appear in channel history."""
+    buf = MessageBuffer()
+    transport = IRCTransport(
+        host="127.0.0.1",
+        port=server.config.port,
+        nick="testserv-bot",
+        user="bot",
+        channels=["#general"],
+        buffer=buf,
+    )
+    await transport.connect()
+    await asyncio.sleep(0.3)
+
+    await transport.send_privmsg("#general", "my own message")
+    await asyncio.sleep(0.1)
+
+    msgs = buf.read("#general", limit=50)
+    assert any(m.text == "my own message" and m.nick == "testserv-bot" for m in msgs)
+    await transport.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_own_dm_messages_in_buffer(server, make_client):
+    """Agent's own sent DMs should be buffered under DM:{target}."""
+    buf = MessageBuffer()
+    transport = IRCTransport(
+        host="127.0.0.1",
+        port=server.config.port,
+        nick="testserv-bot",
+        user="bot",
+        channels=["#general"],
+        buffer=buf,
+    )
+    await transport.connect()
+    await asyncio.sleep(0.3)
+    human = await make_client(nick="testserv-ori", user="ori")
+    await human.recv_all(timeout=0.3)
+
+    await transport.send_privmsg("testserv-ori", "hello via DM")
+    await asyncio.sleep(0.1)
+
+    msgs = buf.read("DM:testserv-ori", limit=50)
+    assert any(m.text == "hello via DM" and m.nick == "testserv-bot" for m in msgs)
+    await transport.disconnect()

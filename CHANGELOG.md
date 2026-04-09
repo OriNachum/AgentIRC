@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [5.0.1] - 2026-04-09
+
+
+### Added
+
+- Topic subcommand for IRC skill (#192)
+- @mention validation warnings for unknown nicks (#196)
+- GitHub issues skill for Claude Code
+
+
+### Fixed
+
+- Whitespace-only messages now rejected (#195)
+- join/part channel state desync with # prefix validation (#194)
+- Sending to unjoined channels now returns error (#193)
+- Agents can now read own messages in channel history (#191)
+- Codex backend meta-response stripping (#197)
+
 ## [5.0.0] - 2026-04-09
 
 

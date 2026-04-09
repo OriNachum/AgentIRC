@@ -32,6 +32,16 @@ _ERR_MISSING_CHANNEL = "Missing 'channel'"
 _ERR_MISSING_CHANNEL_THREAD = "Missing 'channel' or 'thread'"
 _ERR_MISSING_CHANNEL_THREAD_MSG = "Missing 'channel', 'thread', or 'message'"
 
+# Regex to extract @mentioned nicks from messages
+_MENTION_RE = re.compile(r"@([\w-]+)")
+
+# Regex to strip meta-response patterns from Codex output
+_META_RESPONSE_RE = re.compile(
+    r"^(?:I(?:'d| would) (?:reply|respond|say|post|send)(?: (?:in|to|on|with))?\s*"
+    r"(?:`?#\S+`?)?\s*(?:with)?:?\s*(?:>\s*)?)",
+    re.IGNORECASE,
+)
+
 MAX_CRASH_COUNT = 3
 CRASH_WINDOW_SECONDS = 300
 CRASH_RESTART_DELAY = 5
@@ -100,6 +110,7 @@ class CodexDaemon:
             "irc_part": self._ipc_irc_part,
             "irc_channels": self._ipc_irc_channels,
             "irc_who": self._ipc_irc_who,
+            "irc_topic": self._ipc_irc_topic,
             "irc_ask": self._ipc_irc_ask,
             "compact": self._ipc_compact,
             "clear": self._ipc_clear,
@@ -462,8 +473,17 @@ class CodexDaemon:
                     if text:
                         for line in text.split("\n"):
                             line = line.strip()
-                            if line:
-                                await self._transport.send_privmsg(relay_target, line)
+                            if not line:
+                                continue
+                            # Strip meta-response patterns
+                            line = _META_RESPONSE_RE.sub("", line).strip()
+                            # Skip lines that are just blockquote markers
+                            if line and line != ">":
+                                # Remove leading > from blockquoted actual content
+                                if line.startswith("> "):
+                                    line = line[2:]
+                                if line:
+                                    await self._transport.send_privmsg(relay_target, line)
 
     def _capture_agent_status(self, msg: dict) -> None:
         """Capture the last assistant text for status reporting and fulfill any pending query."""
@@ -499,7 +519,11 @@ class CodexDaemon:
             "You have IRC tools available via the irc skill. Use them to communicate.\n"
             f"Your working directory is {self.agent.directory}.\n"
             "Check IRC channels periodically with irc_read() for new messages.\n"
-            "When you finish a task, share results in the appropriate channel with irc_send()."
+            "When you finish a task, share results in the appropriate channel with irc_send().\n\n"
+            "IMPORTANT: When responding to messages, write your response DIRECTLY — "
+            "do not describe what you would say, do not wrap responses in meta-commentary "
+            "like 'I'd reply with:' or 'I would say:'. Just write the actual message content. "
+            "Your text output is relayed verbatim to IRC channels."
         )
 
     async def _record_crash_time(self, exit_code: int) -> None:
@@ -709,16 +733,34 @@ class CodexDaemon:
             self._status_query_event = None
             self._status_query_response = ""
 
+    def _check_mention_warnings(self, text: str) -> list[str]:
+        """Return warnings for @mentioned nicks not seen in any buffer."""
+        mentions = _MENTION_RE.findall(text)
+        if not mentions or not self._buffer:
+            return []
+        known_nicks = self._buffer.known_nicks()
+        warnings = []
+        for nick in mentions:
+            if nick not in known_nicks:
+                warnings.append(f"Mentioned nick not found: {nick}")
+        return warnings
+
     async def _ipc_irc_send(self, req_id: str, msg: dict) -> dict:
         channel = msg.get("channel", "")
         text = msg.get("message", "")
         if not channel:
             return make_response(req_id, ok=False, error=_ERR_MISSING_CHANNEL)
-        if not text:
+        if not text or not text.strip():
             return make_response(req_id, ok=False, error="Missing 'message'")
         assert self._transport is not None
+        if channel.startswith("#") and channel not in self._transport.channels:
+            return make_response(req_id, ok=False, error=f"Not joined to {channel}")
         await self._transport.send_privmsg(channel, text)
-        return make_response(req_id, ok=True)
+        warnings = self._check_mention_warnings(text)
+        resp = make_response(req_id, ok=True)
+        if warnings:
+            resp["warnings"] = warnings
+        return resp
 
     def _ipc_irc_read(self, req_id: str, msg: dict) -> dict:
         channel = msg.get("channel", "")
@@ -741,6 +783,8 @@ class CodexDaemon:
         channel = msg.get("channel", "")
         if not channel:
             return make_response(req_id, ok=False, error=_ERR_MISSING_CHANNEL)
+        if not channel.startswith("#"):
+            return make_response(req_id, ok=False, error="Channel name must start with '#'")
         assert self._transport is not None
         await self._transport.join_channel(channel)
         return make_response(req_id, ok=True)
@@ -749,6 +793,8 @@ class CodexDaemon:
         channel = msg.get("channel", "")
         if not channel:
             return make_response(req_id, ok=False, error=_ERR_MISSING_CHANNEL)
+        if not channel.startswith("#"):
+            return make_response(req_id, ok=False, error="Channel name must start with '#'")
         assert self._transport is not None
         await self._transport.part_channel(channel)
         return make_response(req_id, ok=True)
@@ -822,13 +868,24 @@ class CodexDaemon:
         await self._transport.send_who(target)
         return make_response(req_id, ok=True)
 
+    async def _ipc_irc_topic(self, req_id: str, msg: dict) -> dict:
+        channel = msg.get("channel", "")
+        if not channel:
+            return make_response(req_id, ok=False, error=_ERR_MISSING_CHANNEL)
+        if not channel.startswith("#"):
+            return make_response(req_id, ok=False, error="Channel name must start with '#'")
+        assert self._transport is not None
+        topic = msg.get("topic")  # None means query, string means set
+        await self._transport.send_topic(channel, topic)
+        return make_response(req_id, ok=True)
+
     async def _ipc_irc_ask(self, req_id: str, msg: dict) -> dict:
         """Send a PRIVMSG and fire a question webhook. Response matching is TODO."""
         channel = msg.get("channel", "")
         question = msg.get("message", "")
         if not channel:
             return make_response(req_id, ok=False, error=_ERR_MISSING_CHANNEL)
-        if not question:
+        if not question or not question.strip():
             return make_response(req_id, ok=False, error="Missing 'message'")
         assert self._transport is not None
         await self._transport.send_privmsg(channel, question)

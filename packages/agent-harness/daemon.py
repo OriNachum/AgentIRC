@@ -36,6 +36,9 @@ _ERR_MISSING_CHANNEL = "Missing 'channel'"
 _ERR_MISSING_CHANNEL_THREAD = "Missing 'channel' or 'thread'"
 _ERR_MISSING_CHANNEL_THREAD_MSG = "Missing 'channel', 'thread', or 'message'"
 
+# Regex to extract @mentioned nicks from messages
+_MENTION_RE = re.compile(r"@([\w-]+)")
+
 logger = logging.getLogger(__name__)
 
 
@@ -103,6 +106,7 @@ class AgentDaemon:
             "irc_join": self._ipc_irc_join,
             "irc_part": self._ipc_irc_part,
             "irc_who": self._ipc_irc_who,
+            "irc_topic": self._ipc_irc_topic,
             "irc_channels": self._ipc_irc_channels,
             "compact": self._ipc_compact,
             "clear": self._ipc_clear,
@@ -364,12 +368,34 @@ class AgentDaemon:
     # Extracted IPC handlers (inline logic from original _handle_ipc)
     # ------------------------------------------------------------------
 
+    def _check_mention_warnings(self, text: str) -> list[str]:
+        """Return warnings for @mentioned nicks not seen in any buffer."""
+        mentions = _MENTION_RE.findall(text)
+        if not mentions or not self._buffer:
+            return []
+        known_nicks = self._buffer.known_nicks()
+        warnings = []
+        for nick in mentions:
+            if nick not in known_nicks:
+                warnings.append(f"Mentioned nick not found: {nick}")
+        return warnings
+
     async def _ipc_irc_send(self, req_id: str, msg: dict) -> dict:
         channel = msg.get("channel", "")
         message = msg.get("message", "")
+        if not channel:
+            return make_response(req_id, ok=False, error=_ERR_MISSING_CHANNEL)
+        if not message or not message.strip():
+            return make_response(req_id, ok=False, error="Missing 'message'")
         if self._transport:
+            if channel.startswith("#") and channel not in self._transport.channels:
+                return make_response(req_id, ok=False, error=f"Not joined to {channel}")
             await self._transport.send_privmsg(channel, message)
-        return make_response(req_id, ok=True)
+        warnings = self._check_mention_warnings(message)
+        resp = make_response(req_id, ok=True)
+        if warnings:
+            resp["warnings"] = warnings
+        return resp
 
     def _ipc_irc_read(self, req_id: str, msg: dict) -> dict:
         channel = msg.get("channel", "")
@@ -390,6 +416,10 @@ class AgentDaemon:
     async def _ipc_irc_ask(self, req_id: str, msg: dict) -> dict:
         channel = msg.get("channel", "")
         message = msg.get("message", "")
+        if not channel:
+            return make_response(req_id, ok=False, error=_ERR_MISSING_CHANNEL)
+        if not message or not message.strip():
+            return make_response(req_id, ok=False, error="Missing 'message'")
         if self._transport and channel:
             await self._transport.send_privmsg(channel, message)
         if self._webhook:
@@ -404,12 +434,20 @@ class AgentDaemon:
 
     async def _ipc_irc_join(self, req_id: str, msg: dict) -> dict:
         channel = msg.get("channel", "")
+        if not channel:
+            return make_response(req_id, ok=False, error=_ERR_MISSING_CHANNEL)
+        if not channel.startswith("#"):
+            return make_response(req_id, ok=False, error="Channel name must start with '#'")
         if self._transport:
             await self._transport.join_channel(channel)
         return make_response(req_id, ok=True)
 
     async def _ipc_irc_part(self, req_id: str, msg: dict) -> dict:
         channel = msg.get("channel", "")
+        if not channel:
+            return make_response(req_id, ok=False, error=_ERR_MISSING_CHANNEL)
+        if not channel.startswith("#"):
+            return make_response(req_id, ok=False, error="Channel name must start with '#'")
         if self._transport:
             await self._transport.part_channel(channel)
         return make_response(req_id, ok=True)
@@ -418,6 +456,17 @@ class AgentDaemon:
         target = msg.get("target", "")
         if self._transport:
             await self._transport.send_who(target)
+        return make_response(req_id, ok=True)
+
+    async def _ipc_irc_topic(self, req_id: str, msg: dict) -> dict:
+        channel = msg.get("channel", "")
+        if not channel:
+            return make_response(req_id, ok=False, error=_ERR_MISSING_CHANNEL)
+        if not channel.startswith("#"):
+            return make_response(req_id, ok=False, error="Channel name must start with '#'")
+        if self._transport:
+            topic = msg.get("topic")  # None means query, string means set
+            await self._transport.send_topic(channel, topic)
         return make_response(req_id, ok=True)
 
     def _ipc_irc_channels(self, req_id: str, msg: dict) -> dict:

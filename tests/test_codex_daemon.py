@@ -250,3 +250,35 @@ async def test_codex_status_query_none_target(server):
     assert len(daemon._mention_targets) == 0
 
     await daemon.stop()
+
+
+def _strip_meta_lines(text: str, pattern) -> str:
+    """Apply meta-response stripping to text, returning cleaned result."""
+    lines = []
+    for line in text.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        line = pattern.sub("", line).strip()
+        if line and line != ">":
+            if line.startswith("> "):
+                line = line[2:]
+            if line:
+                lines.append(line)
+    return "\n".join(lines)
+
+
+def test_meta_response_stripping():
+    """Meta-response patterns should be stripped from relay output."""
+    from culture.clients.codex.daemon import _META_RESPONSE_RE
+
+    cases = [
+        ("I'd reply in `#general` with:\n> ack — taking testing", "ack — taking testing"),
+        ("I would say: hello world", "hello world"),
+        ("I'd respond with: got it", "got it"),
+        ("I'd send in #general: on it", "on it"),
+        ("actual direct message", "actual direct message"),
+    ]
+    for input_text, expected in cases:
+        result = _strip_meta_lines(input_text, _META_RESPONSE_RE)
+        assert result == expected, f"Input: {input_text!r}, got: {result!r}, expected: {expected!r}"

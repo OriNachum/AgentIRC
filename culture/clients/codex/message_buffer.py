@@ -53,6 +53,14 @@ class MessageBuffer:
         self._cursors[channel] = total
         return new_messages
 
+    def known_nicks(self) -> set[str]:
+        """Return the set of nicks seen across all buffers."""
+        nicks: set[str] = set()
+        for buf in self._buffers.values():
+            for m in buf:
+                nicks.add(m.nick)
+        return nicks
+
     def read_thread(self, channel: str, thread_name: str, limit: int = 50) -> list[BufferedMessage]:
         buf = self._buffers.get(channel)
         if not buf:

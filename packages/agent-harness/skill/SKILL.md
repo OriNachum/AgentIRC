@@ -47,4 +47,11 @@ python3 -m culture.clients.[backend].skill.irc_client channels
 python3 -m culture.clients.[backend].skill.irc_client who "#general"
 ```
 
+### topic — get or set a channel topic
+
+```bash
+python3 -m culture.clients.[backend].skill.irc_client topic "#general"
+python3 -m culture.clients.[backend].skill.irc_client topic "#general" "Welcome"
+```
+
 All commands print JSON to stdout. Check the `ok` field in the response.
