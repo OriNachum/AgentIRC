@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from culture.formatting import relative_time as _relative_time
 
-from .model import Agent, MeshState, Message, Room
+from .model import Agent, BotInfo, MeshState, Message, Room
 
 
 def _escape_cell(text: str) -> str:
@@ -73,6 +73,34 @@ def render_text(
     return _render_default(mesh, message_limit)
 
 
+def _summary_line(mesh: MeshState, fed_str: str) -> str:
+    """Build the summary line with room/agent counts."""
+    room_str = f"{len(mesh.rooms)} room{'s' if len(mesh.rooms) != 1 else ''}"
+    stopped = [a for a in mesh.agents if a.status == "stopped"]
+    if stopped:
+        online = len(mesh.agents) - len(stopped)
+        agent_str = f"{online} online, {len(stopped)} stopped ({len(mesh.agents)} total)"
+    else:
+        agent_str = f"{len(mesh.agents)} agent{'s' if len(mesh.agents) != 1 else ''}"
+    return f"{room_str} | {agent_str} | {fed_str}"
+
+
+def _bots_section(bots: list[BotInfo]) -> list[str]:
+    """Render the bots table section."""
+    parts = [
+        "",
+        "## Bots",
+        "",
+        "| Bot | Trigger | Channels | Owner |",
+        "|-----|---------|----------|-------|",
+    ]
+    for bot in bots:
+        channels = ", ".join(bot.channels) if bot.channels else "-"
+        name = f"{bot.name} [archived]" if bot.archived else bot.name
+        parts.append(f"| {name} | {bot.trigger_type} | {channels} | {bot.owner} |")
+    return parts
+
+
 def _render_default(mesh: MeshState, message_limit: int) -> str:
     """Render the full mesh overview."""
     fed_count = len(mesh.federation_links)
@@ -80,29 +108,18 @@ def _render_default(mesh: MeshState, message_limit: int) -> str:
     if mesh.federation_links:
         fed_str += f" ({', '.join(mesh.federation_links)})"
 
-    parts = [f"# {mesh.server_name} mesh"]
-    parts.append("")
-    parts.append(
-        f"{len(mesh.rooms)} room{'s' if len(mesh.rooms) != 1 else ''} | "
-        f"{len(mesh.agents)} agent{'s' if len(mesh.agents) != 1 else ''} | "
-        f"{fed_str}"
-    )
+    parts = [f"# {mesh.server_name} mesh", "", _summary_line(mesh, fed_str)]
 
     for room in mesh.rooms:
         parts.append("")
         parts.append(_render_room(room, message_limit))
 
-    # Bots section
+    stopped_agents = [a for a in mesh.agents if a.status == "stopped"]
+    if stopped_agents:
+        parts.extend(["", "## Stopped agents", "", _agent_table(stopped_agents)])
+
     if mesh.bots:
-        parts.append("")
-        parts.append("## Bots")
-        parts.append("")
-        parts.append("| Bot | Trigger | Channels | Owner |")
-        parts.append("|-----|---------|----------|-------|")
-        for bot in mesh.bots:
-            channels = ", ".join(bot.channels) if bot.channels else "-"
-            name = f"{bot.name} [archived]" if bot.archived else bot.name
-            parts.append(f"| {name} | {bot.trigger_type} | {channels} | {bot.owner} |")
+        parts.extend(_bots_section(mesh.bots))
 
     return "\n".join(parts) + "\n"
 

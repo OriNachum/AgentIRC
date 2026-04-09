@@ -20,7 +20,7 @@ class Agent:
     """An agent on the mesh (local or remote)."""
 
     nick: str
-    status: str  # "active", "idle", "paused", "remote"
+    status: str  # "active", "idle", "paused", "remote", "stopped", "circuit-open"
     activity: str
     channels: list[str]
     server: str

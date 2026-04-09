@@ -120,7 +120,13 @@ def dispatch(args: argparse.Namespace) -> None:
 # -----------------------------------------------------------------------
 
 
-def _collect_mesh_data(host: str, port: int, server_name: str, message_limit: int):
+def _collect_mesh_data(
+    host: str,
+    port: int,
+    server_name: str,
+    message_limit: int,
+    manifest_agents: list | None = None,
+):
     """Collect mesh state, exiting with an error message on connection failure."""
     from culture.overview.collector import collect_mesh_state
 
@@ -131,6 +137,7 @@ def _collect_mesh_data(host: str, port: int, server_name: str, message_limit: in
                 port=port,
                 server_name=server_name,
                 message_limit=message_limit,
+                manifest_agents=manifest_agents,
             )
         )
     except ConnectionRefusedError:
@@ -169,11 +176,16 @@ def _cmd_overview(args: argparse.Namespace) -> None:
             agent_filter=args.agent,
             message_limit=message_limit,
             refresh_interval=refresh_interval,
+            manifest_agents=config.agents,
         )
         return
 
     mesh = _collect_mesh_data(
-        config.server.host, config.server.port, config.server.name, message_limit
+        config.server.host,
+        config.server.port,
+        config.server.name,
+        message_limit,
+        manifest_agents=config.agents,
     )
     output = render_text(
         mesh,

@@ -346,10 +346,10 @@ culture mesh console                         # interactive admin console
 | Stop server | `culture server stop --name spark` |
 | Set default server | `culture server default spark` |
 | Link servers | `--link name:host:port:password` on each server |
-| Register agent | `culture init --server spark` |
-| Start/stop agent | `culture start/stop spark-myagent` |
-| Sleep/wake agent | `culture sleep/wake spark-myagent` |
-| Agent status | `culture status` (list) or `--full` (live query) |
+| Create agent | `culture agent create --server spark` |
+| Start/stop agent | `culture agent start/stop spark-myagent` |
+| Sleep/wake agent | `culture agent sleep/wake spark-myagent` |
+| Agent status | `culture agent status` (list) or `--full` (live query) |
 | Rename agent | `culture agent rename spark-old spark-new` |
 | Archive agent | `culture agent archive spark-myagent` |
 | Delete agent | `culture agent delete spark-myagent` |
@@ -359,5 +359,5 @@ culture mesh console                         # interactive admin console
 | Mesh overview | `culture mesh overview` |
 | Mesh console | `culture mesh console` |
 | Install skills | `culture skills install claude` |
-| Learn prompt | `culture learn` |
+| Learn prompt | `culture agent learn` |
 | Server logs | `~/.culture/logs/server-<name>.log` |

@@ -4,17 +4,37 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [5.0.0] - 2026-04-09
+
+
+### Added
+
+- Mesh overview shows stopped/registered agents from server.yaml manifest (#178)
+
+
+### Changed
+
+- CLI docs use correct noun-group syntax (culture agent create, culture channel read, etc.) (#186)
+- Replaced non-existent culture send with culture channel message / culture agent message (#187)
+- All doc references updated from agents.yaml to server.yaml (#188)
+- Documented --mesh-config, --webhook-port, --data-dir server start flags (#189)
+
+
+### Fixed
+
+- Mesh overview now includes agents that are registered but not running
+
 ## [4.5.2] - 2026-04-09
 
 
 ### Fixed
 
-- Agent status shows running when circuit breaker is open (#179)
-- Agent status list does not distinguish paused/sleeping agents (#180)
-- Learn prompt missing compact/clear commands and ask --timeout (#181)
-- Non-Claude backend skill docs missing features - all-backends rule violation (#182)
-- Admin skill and learn prompt missing many CLI commands (#183)
-- Mesh overview shows archived bots without archive indication (#184)
+- Agent status now reports the circuit-open state correctly instead of showing running (#179)
+- Agent status list now distinguishes paused and sleeping agents correctly (#180)
+- Learn prompt now includes compact/clear commands and ask --timeout (#181)
+- Non-Claude backend skill docs now include the required features and comply with the all-backends rule (#182)
+- Admin skill and learn prompt now include the missing CLI commands (#183)
+- Mesh overview now indicates when bots are archived (#184)
 
 ## [4.5.1] - 2026-04-09
 
