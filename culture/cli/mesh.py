@@ -469,14 +469,31 @@ def _upgrade_culture_package(args: argparse.Namespace) -> bool:
         os.execvp(culture_bin, reexec_args)
 
 
-def _wait_for_server_port(host: str, port: int, retries: int = 50, interval: float = 0.1) -> bool:
-    """Poll until *host*:*port* accepts a TCP connection. Returns True on success."""
+def _wait_for_server_port(
+    host: str,
+    port: int,
+    retries: int = 50,
+    interval: float = 0.1,
+    server_name: str | None = None,
+) -> bool:
+    """Poll until *host*:*port* accepts a TCP connection.
+
+    If *server_name* is given, also verify via PID file that the process
+    listening on the port is actually a culture server (defense-in-depth
+    against port collision with an unrelated process).
+    """
     import socket as _socket
+
+    from culture.pidfile import is_culture_process, read_pid
 
     probe = "localhost" if host in ("0.0.0.0", "::", "") else host
     for _ in range(retries):
         try:
             with _socket.create_connection((probe, port), timeout=1):
+                if server_name:
+                    pid = read_pid(f"server-{server_name}")
+                    if pid is not None and not is_culture_process(pid):
+                        return False
                 return True
         except OSError:
             time.sleep(interval)
@@ -566,7 +583,7 @@ def _restart_mesh_services(
     ]
     _restart_single_service(server_svc, server_fallback, restart_service)
 
-    if not _wait_for_server_port(mesh.server.host, mesh.server.port):
+    if not _wait_for_server_port(mesh.server.host, mesh.server.port, server_name=server_name):
         if sys.platform == "linux":
             hint = f"journalctl --user -u culture-server-{server_name}"
         else:

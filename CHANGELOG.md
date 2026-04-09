@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [5.0.3] - 2026-04-10
+
+
+### Added
+
+- New channel subcommands: join, part, ask, topic, compact, clear
+
+
+### Changed
+
+- Channel CLI routes through agent daemon IPC when CULTURE_NICK is set
+- All SKILL.md files and learn prompt use culture channel CLI instead of python3 -m
+- Mesh update readiness probe verifies PID-based server identity
+
+
+### Fixed
+
+- culture channel message sends as agent nick instead of temporary peek nick (#203)
+- IRC skill references culture channel CLI instead of broken python3 -m path (#202)
+
 ## [5.0.2] - 2026-04-09
 
 

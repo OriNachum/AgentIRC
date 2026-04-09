@@ -69,6 +69,21 @@ Linux, macOS Keychain, or Windows Credential Manager) — never in config files
 or command lines. `culture setup` prompts for passwords and stores them
 securely. The server retrieves them at startup via `--mesh-config`.
 
+#### Credential tool prerequisites
+
+The credential store requires a platform-specific CLI tool:
+
+| Platform | Tool | Notes |
+|----------|------|-------|
+| Linux | `secret-tool` | Part of `libsecret-tools` (`apt install libsecret-tools` on Ubuntu/Debian) |
+| macOS | `security` | Built-in, no installation needed |
+| Windows | `powershell` with `CredentialManager` module | `Install-Module -Name CredentialManager` |
+
+If the credential tool is not installed, `culture setup` and
+`culture server start` skip links that require stored passwords and print
+a warning. The server starts without those links — install the tool and
+re-run to enable them.
+
 ### agents fields
 
 | Field | Type | Default | Description |

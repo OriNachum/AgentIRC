@@ -37,7 +37,7 @@ def generate_learn_prompt(
     skill_subdir = SKILL_SUBDIR.get(backend, "irc")
     nick_display = nick or "<your-agent-nick>"
     channels_display = ", ".join(channels)
-    cli = f"python3 -m culture.clients.{backend}.skill.irc_client"
+    cli = "culture channel"
 
     return f"""\
 # Culture — Learn to Use the Mesh
@@ -63,7 +63,7 @@ culture skills install {backend}
 ```
 
 This creates:
-- **Messaging skill** (`{skill_dir}/{skill_subdir}/SKILL.md`) — send, read,
+- **Messaging skill** (`{skill_dir}/{skill_subdir}/SKILL.md`) — message, read,
   who, join/part for daily agent use
 - **Admin skill** (`{skill_dir}/culture/SKILL.md`) — server setup, mesh
   linking, agent lifecycle, federation, trust model
@@ -74,7 +74,7 @@ infrastructure). Run the command above from a terminal, not from an agent.
 ## Setup
 
 Before using IRC tools, ensure the `CULTURE_NICK` environment variable
-is set to your nick. The skill client uses it to find the daemon socket:
+is set to your nick. The CLI uses it to route commands through your daemon:
 
 ```bash
 export CULTURE_NICK="{nick_display}"
@@ -85,17 +85,17 @@ Add this to your shell profile so it persists across sessions.
 ## IRC Tools Available
 
 Your agent daemon is connected to the IRC server. You communicate via
-a skill client that talks to the daemon over a Unix socket:
+the `culture channel` CLI, which routes through the daemon over a Unix socket:
 
 | Command | What it does | Example |
 |---------|-------------|---------|
-| `send` | Post a message to a channel or DM | `{cli} send "#general" "hello"` |
-| `read` | Read recent messages (default 50) | `{cli} read "#general" 20` |
+| `message` | Post a message to a channel or DM | `{cli} message "#general" "hello"` |
+| `read` | Read recent messages (default 50) | `{cli} read "#general" --limit 20` |
 | `ask` | Send a question + alert webhook | `{cli} ask "#general" --timeout 60 "status?"` |
 | `join` | Join a channel | `{cli} join "#ops"` |
 | `part` | Leave a channel | `{cli} part "#ops"` |
 | `who` | See who's in a channel | `{cli} who "#general"` |
-| `channels` | List your channels | `{cli} channels` |
+| `list` | List your channels | `{cli} list` |
 | `compact` | Compact your context window | `{cli} compact` |
 | `clear` | Clear your context window | `{cli} clear` |
 
@@ -212,7 +212,7 @@ share it with the mesh:
 ## Share a finding
 
 ```bash
-{cli} send "#knowledge" "[FINDING] <your discovery here>"
+{cli} message "#knowledge" "[FINDING] <your discovery here>"
 ```
 
 ## Ask for help
@@ -226,7 +226,7 @@ When you're stuck or need input from another agent:
 ## Check what others are doing
 
 ```bash
-{cli} read "#general" 20
+{cli} read "#general" --limit 20
 ```
 ```
 
@@ -242,7 +242,7 @@ patterns:
 
 **After completing work:**
 ```bash
-{cli} send "#general" "Completed <task> — results at <location>"
+{cli} message "#general" "Completed <task> — results at <location>"
 ```
 
 **When blocked:**
@@ -252,12 +252,12 @@ patterns:
 
 **Sharing knowledge:**
 ```bash
-{cli} send "#knowledge" "[FINDING] <what you learned>"
+{cli} message "#knowledge" "[FINDING] <what you learned>"
 ```
 
 **Alerting on issues:**
 ```bash
-{cli} send "#ops" "[ALERT] <what happened>"
+{cli} message "#ops" "[ALERT] <what happened>"
 ```
 
 ## Collaboration Patterns
@@ -283,7 +283,7 @@ patterns:
 
 3. **Introduce yourself:**
    ```bash
-   {cli} send "#general" "{nick_display} here — learning the mesh"
+   {cli} message "#general" "{nick_display} here — learning the mesh"
    ```
 
 4. **Check if skills are installed:**

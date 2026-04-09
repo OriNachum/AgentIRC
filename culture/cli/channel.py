@@ -1,15 +1,54 @@
-"""Channel subcommands: culture channel {list,read,message,who}."""
+"""Channel subcommands: culture channel {list,read,message,who,join,part,ask,topic,compact,clear}."""
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import json
+import os
 import sys
 
 from .shared.constants import _CONFIG_HELP, DEFAULT_CONFIG
-from .shared.ipc import get_observer
+from .shared.ipc import agent_socket_path, get_observer, ipc_request
 
 NAME = "channel"
+
+_ALL_CMDS = "list|read|message|who|join|part|ask|topic|compact|clear"
+
+
+def _try_ipc(msg_type: str, **kwargs) -> dict | None:
+    """Try to route a command through the agent daemon's IPC socket.
+
+    Returns the response dict if CULTURE_NICK is set and the daemon is
+    reachable, otherwise None (caller should fall back to observer).
+    """
+    nick = os.environ.get("CULTURE_NICK")
+    if not nick:
+        return None
+    sock = agent_socket_path(nick)
+    return asyncio.run(ipc_request(sock, msg_type, **kwargs))
+
+
+def _require_ipc(msg_type: str, **kwargs) -> dict:
+    """Route a command through IPC, erroring if CULTURE_NICK is unset or daemon unreachable."""
+    nick = os.environ.get("CULTURE_NICK")
+    if not nick:
+        print(
+            "Error: CULTURE_NICK environment variable is required for this command.\n"
+            "  Set it to your agent nick (e.g. export CULTURE_NICK=spark-claude)",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    sock = agent_socket_path(nick)
+    resp = asyncio.run(ipc_request(sock, msg_type, **kwargs))
+    if resp is None:
+        print(
+            f"Error: cannot reach agent daemon for {nick}.\n"
+            f"  Is the agent running? Check: culture agent status {nick}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return resp
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
@@ -37,10 +76,36 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     who_parser.add_argument("target", help="Channel or nick target")
     who_parser.add_argument("--config", default=DEFAULT_CONFIG, help=_CONFIG_HELP)
 
+    # -- join -----------------------------------------------------------------
+    join_parser = channel_sub.add_parser("join", help="Join a channel")
+    join_parser.add_argument("target", help="Channel to join (e.g. #ops)")
+
+    # -- part -----------------------------------------------------------------
+    part_parser = channel_sub.add_parser("part", help="Leave a channel")
+    part_parser.add_argument("target", help="Channel to leave (e.g. #ops)")
+
+    # -- ask ------------------------------------------------------------------
+    ask_parser = channel_sub.add_parser("ask", help="Send a question and trigger webhook alert")
+    ask_parser.add_argument("target", help="Channel (e.g. #general)")
+    ask_parser.add_argument("text", help="Question text")
+    ask_parser.add_argument("--timeout", type=int, default=30, help="Timeout in seconds")
+
+    # -- topic ----------------------------------------------------------------
+    topic_parser = channel_sub.add_parser("topic", help="Get or set channel topic")
+    topic_parser.add_argument("target", help="Channel (e.g. #general)")
+    topic_parser.add_argument("text", nargs="?", default=None, help="New topic (omit to read)")
+    topic_parser.add_argument("--config", default=DEFAULT_CONFIG, help=_CONFIG_HELP)
+
+    # -- compact --------------------------------------------------------------
+    channel_sub.add_parser("compact", help="Compact the agent's context window")
+
+    # -- clear ----------------------------------------------------------------
+    channel_sub.add_parser("clear", help="Clear the agent's context window")
+
 
 def dispatch(args: argparse.Namespace) -> None:
     if not args.channel_command:
-        print("Usage: culture channel {list|read|message|who}", file=sys.stderr)
+        print(f"Usage: culture channel {{{_ALL_CMDS}}}", file=sys.stderr)
         sys.exit(1)
 
     handlers = {
@@ -48,6 +113,12 @@ def dispatch(args: argparse.Namespace) -> None:
         "read": _cmd_read,
         "message": _cmd_message,
         "who": _cmd_who,
+        "join": _cmd_join,
+        "part": _cmd_part,
+        "ask": _cmd_ask,
+        "topic": _cmd_topic,
+        "compact": _cmd_compact,
+        "clear": _cmd_clear,
     }
     handler = handlers.get(args.channel_command)
     if not handler:
@@ -78,6 +149,17 @@ def dispatch(args: argparse.Namespace) -> None:
 
 
 def _cmd_list(args: argparse.Namespace) -> None:
+    resp = _try_ipc("irc_channels")
+    if resp and resp.get("ok"):
+        channels = resp.get("data", {}).get("channels", [])
+        if not channels:
+            print("No active channels")
+            return
+        print("Active channels:")
+        for ch in channels:
+            print(f"  {ch}")
+        return
+
     observer = get_observer(args.config)
     channels = asyncio.run(observer.list_channels())
 
@@ -94,8 +176,21 @@ def _cmd_read(args: argparse.Namespace) -> None:
     if not args.target.strip():
         print("Error: channel name cannot be empty", file=sys.stderr)
         sys.exit(1)
-    observer = get_observer(args.config)
     channel = args.target if args.target.startswith("#") else f"#{args.target}"
+
+    resp = _try_ipc("irc_read", channel=channel, limit=args.limit)
+    if resp and resp.get("ok"):
+        messages = resp.get("data", {}).get("messages", [])
+        if not messages:
+            print(f"No messages in {channel}")
+            return
+        for msg in messages:
+            nick = msg.get("nick", "???")
+            text = msg.get("text", "")
+            print(f"<{nick}> {text}")
+        return
+
+    observer = get_observer(args.config)
     messages = asyncio.run(observer.read_channel(channel, limit=args.limit))
 
     if not messages:
@@ -113,8 +208,14 @@ def _cmd_message(args: argparse.Namespace) -> None:
     if not args.text.strip():
         print("Error: message text cannot be empty", file=sys.stderr)
         sys.exit(1)
-    observer = get_observer(args.config)
     target = args.target if args.target.startswith("#") else f"#{args.target}"
+
+    resp = _try_ipc("irc_send", channel=target, message=args.text)
+    if resp and resp.get("ok"):
+        print(f"Sent to {target}")
+        return
+
+    observer = get_observer(args.config)
     asyncio.run(observer.send_message(target, args.text))
     print(f"Sent to {target}")
 
@@ -123,8 +224,20 @@ def _cmd_who(args: argparse.Namespace) -> None:
     if not args.target.strip():
         print("Error: channel name cannot be empty", file=sys.stderr)
         sys.exit(1)
-    observer = get_observer(args.config)
     target = args.target
+
+    resp = _try_ipc("irc_who", channel=target)
+    if resp and resp.get("ok"):
+        nicks = resp.get("data", {}).get("nicks", [])
+        if not nicks:
+            print(f"No users in {target}")
+            return
+        print(f"Users in {target}:")
+        for nick in nicks:
+            print(f"  {nick}")
+        return
+
+    observer = get_observer(args.config)
     nicks = asyncio.run(observer.who(target))
 
     if not nicks:
@@ -134,3 +247,79 @@ def _cmd_who(args: argparse.Namespace) -> None:
     print(f"Users in {target}:")
     for nick in nicks:
         print(f"  {nick}")
+
+
+def _cmd_join(args: argparse.Namespace) -> None:
+    target = args.target if args.target.startswith("#") else f"#{args.target}"
+    resp = _require_ipc("irc_join", channel=target)
+    if resp.get("ok"):
+        print(f"Joined {target}")
+    else:
+        print(f"Error: {resp.get('error', 'unknown error')}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _cmd_part(args: argparse.Namespace) -> None:
+    target = args.target if args.target.startswith("#") else f"#{args.target}"
+    resp = _require_ipc("irc_part", channel=target)
+    if resp.get("ok"):
+        print(f"Left {target}")
+    else:
+        print(f"Error: {resp.get('error', 'unknown error')}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _cmd_ask(args: argparse.Namespace) -> None:
+    if not args.target.strip():
+        print("Error: channel name cannot be empty", file=sys.stderr)
+        sys.exit(1)
+    if not args.text.strip():
+        print("Error: question text cannot be empty", file=sys.stderr)
+        sys.exit(1)
+    target = args.target if args.target.startswith("#") else f"#{args.target}"
+    resp = _require_ipc("irc_ask", channel=target, message=args.text, timeout=args.timeout)
+    if resp.get("ok"):
+        print(json.dumps(resp, indent=2))
+    else:
+        print(f"Error: {resp.get('error', 'unknown error')}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _cmd_topic(args: argparse.Namespace) -> None:
+    if not args.target.strip():
+        print("Error: channel name cannot be empty", file=sys.stderr)
+        sys.exit(1)
+    target = args.target if args.target.startswith("#") else f"#{args.target}"
+
+    kwargs = {"channel": target}
+    if args.text is not None:
+        kwargs["topic"] = args.text
+
+    resp = _require_ipc("irc_topic", **kwargs)
+    if resp.get("ok"):
+        if args.text is not None:
+            print(f"Topic set for {target}")
+        else:
+            topic = resp.get("data", {}).get("topic", "")
+            print(f"Topic for {target}: {topic}" if topic else f"No topic set for {target}")
+    else:
+        print(f"Error: {resp.get('error', 'unknown error')}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _cmd_compact(args: argparse.Namespace) -> None:
+    resp = _require_ipc("compact")
+    if resp.get("ok"):
+        print("Context window compacted")
+    else:
+        print(f"Error: {resp.get('error', 'unknown error')}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _cmd_clear(args: argparse.Namespace) -> None:
+    resp = _require_ipc("clear")
+    if resp.get("ok"):
+        print("Context window cleared")
+    else:
+        print(f"Error: {resp.get('error', 'unknown error')}", file=sys.stderr)
+        sys.exit(1)

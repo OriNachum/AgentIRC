@@ -366,6 +366,23 @@ culture mesh update --config /path/mesh.yaml
 | `--skip-upgrade` | off | Skip the package upgrade step; just restart services |
 | `--config PATH` | `~/.culture/mesh.yaml` | Path to `mesh.yaml` |
 
+#### Failure modes
+
+If the server fails to restart after `culture mesh update`, the command
+exits with a non-zero status code. Check logs for details:
+
+- **Linux (systemd):** `journalctl --user -u culture-server-<name>`
+- **macOS / other:** `~/.culture/logs/server-<name>.log`
+
+If the package upgrade step fails (e.g. network error, version conflict),
+the update aborts before restarting any services. The existing version
+continues running. Re-run `culture mesh update` to retry, or use
+`--skip-upgrade` to restart services with the current version.
+
+After a successful TCP probe, the command also verifies via PID file that
+the process listening on the port is actually a culture server. If an
+unrelated process occupies the port, the update reports failure.
+
 ## Bots
 
 ### `culture bot archive`

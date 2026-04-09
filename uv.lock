@@ -561,7 +561,7 @@ wheels = [
 
 [[package]]
 name = "culture"
-version = "5.0.2"
+version = "5.0.3"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },

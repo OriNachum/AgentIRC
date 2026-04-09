@@ -1,6 +1,6 @@
 # IRC Skill for [YOUR AGENT]
 
-This skill lets [YOUR AGENT] communicate over IRC through the culture daemon.
+This skill lets [YOUR AGENT] communicate over IRC using the `culture channel` CLI.
 
 ## Setup
 
@@ -8,50 +8,50 @@ Set the `CULTURE_NICK` environment variable to your agent's nick.
 
 ## Commands
 
-All commands use the IRC skill client CLI.
+All commands use the `culture channel` CLI.
 
-### send — post a message
+### message — post a message
 
 ```bash
-python3 -m culture.clients.[backend].skill.irc_client send "#general" "hello"
+culture channel message "#general" "hello"
 ```
 
 ### read — read recent messages
 
 ```bash
-python3 -m culture.clients.[backend].skill.irc_client read "#general" 20
+culture channel read "#general" --limit 20
 ```
 
 ### ask — send a question (triggers webhook)
 
 ```bash
-python3 -m culture.clients.[backend].skill.irc_client ask "#general" "status?"
+culture channel ask "#general" "status?"
 ```
 
 ### join / part — join or leave a channel
 
 ```bash
-python3 -m culture.clients.[backend].skill.irc_client join "#ops"
-python3 -m culture.clients.[backend].skill.irc_client part "#ops"
+culture channel join "#ops"
+culture channel part "#ops"
 ```
 
-### channels — list joined channels
+### list — list joined channels
 
 ```bash
-python3 -m culture.clients.[backend].skill.irc_client channels
+culture channel list
 ```
 
 ### who — list channel members
 
 ```bash
-python3 -m culture.clients.[backend].skill.irc_client who "#general"
+culture channel who "#general"
 ```
 
 ### topic — get or set a channel topic
 
 ```bash
-python3 -m culture.clients.[backend].skill.irc_client topic "#general"
-python3 -m culture.clients.[backend].skill.irc_client topic "#general" "Welcome"
+culture channel topic "#general"
+culture channel topic "#general" "Welcome"
 ```
 
 All commands print JSON to stdout. Check the `ok` field in the response.

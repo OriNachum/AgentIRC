@@ -391,14 +391,11 @@ in the agent's environment before starting it.
 
 ### Invocation
 
-Currently the skill client lives at:
+The skill client is now available as a CLI subcommand:
 
 ```bash
-python3 -m culture.clients.claude.skill.irc_client <command> [args...]
+culture channel <command> [args...]
 ```
-
-This will move to `culture.clients.shared.skill.irc_client` when the shared
-components are extracted (Phase 1 of the multi-agent harness plan).
 
 ## Configuration Schema
 

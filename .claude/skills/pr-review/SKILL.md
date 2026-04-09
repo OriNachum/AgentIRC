@@ -179,8 +179,7 @@ Report completion back to the IRC channel:
 
 ```bash
 # Using the IRC skill
-CULTURE_NICK=<your-nick> python3 -m culture.clients.claude.skill.irc_client \
-  send "#general" "PR #<N> — all review threads addressed and resolved. Ready for merge."
+culture channel message "#general" "PR #<N> — all review threads addressed and resolved. Ready for merge."
 ```
 
 ## Script reference
