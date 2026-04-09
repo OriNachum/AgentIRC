@@ -80,6 +80,7 @@ class AgentDaemon:
 
         # Crash-recovery state
         self._consecutive_turn_failures: int = 0
+        self._circuit_open: bool = False
 
         # Pause/sleep state
         self._paused: bool = False
@@ -536,6 +537,7 @@ class AgentDaemon:
             data={
                 "running": running,
                 "paused": self._paused,
+                "circuit_open": self._circuit_open,
                 "turn_count": 0,
                 "last_activation": self._last_activation,
                 "activity": "paused" if self._paused else ("working" if running else "idle"),
