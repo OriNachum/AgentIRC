@@ -35,6 +35,13 @@ _ERR_MISSING_CHANNEL_THREAD_MSG = "Missing 'channel', 'thread', or 'message'"
 # Regex to extract @mentioned nicks from messages
 _MENTION_RE = re.compile(r"@([\w-]+)")
 
+# Regex to strip meta-response patterns from Codex output
+_META_RESPONSE_RE = re.compile(
+    r"^(?:I(?:'d| would) (?:reply|respond|say|post|send)(?: (?:in|to|on|with))?\s*"
+    r"(?:`?#\S+`?)?\s*(?:with)?:?\s*(?:>\s*)?)",
+    re.IGNORECASE,
+)
+
 MAX_CRASH_COUNT = 3
 CRASH_WINDOW_SECONDS = 300
 CRASH_RESTART_DELAY = 5
@@ -466,8 +473,17 @@ class CodexDaemon:
                     if text:
                         for line in text.split("\n"):
                             line = line.strip()
-                            if line:
-                                await self._transport.send_privmsg(relay_target, line)
+                            if not line:
+                                continue
+                            # Strip meta-response patterns
+                            line = _META_RESPONSE_RE.sub("", line).strip()
+                            # Skip lines that are just blockquote markers
+                            if line and line != ">":
+                                # Remove leading > from blockquoted actual content
+                                if line.startswith("> "):
+                                    line = line[2:]
+                                if line:
+                                    await self._transport.send_privmsg(relay_target, line)
 
     def _capture_agent_status(self, msg: dict) -> None:
         """Capture the last assistant text for status reporting and fulfill any pending query."""
@@ -503,7 +519,11 @@ class CodexDaemon:
             "You have IRC tools available via the irc skill. Use them to communicate.\n"
             f"Your working directory is {self.agent.directory}.\n"
             "Check IRC channels periodically with irc_read() for new messages.\n"
-            "When you finish a task, share results in the appropriate channel with irc_send()."
+            "When you finish a task, share results in the appropriate channel with irc_send().\n\n"
+            "IMPORTANT: When responding to messages, write your response DIRECTLY — "
+            "do not describe what you would say, do not wrap responses in meta-commentary "
+            "like 'I'd reply with:' or 'I would say:'. Just write the actual message content. "
+            "Your text output is relayed verbatim to IRC channels."
         )
 
     async def _record_crash_time(self, exit_code: int) -> None:
