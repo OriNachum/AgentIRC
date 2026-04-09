@@ -108,8 +108,6 @@ culture agent create --server spark --nick custom-name
 | `--acp-command` | `["opencode","acp"]` | ACP spawn command as JSON list (e.g. `'["cline","--acp"]'`). Optional; overrides the default when using `--agent acp`. |
 | `--config` | `~/.culture/server.yaml` | Config file path |
 
-> **Note:** `culture init` is a deprecated alias for `culture agent create`.
-
 ### `culture agent join`
 
 Create and start an agent — shorthand for `culture agent create` + `culture agent start`.

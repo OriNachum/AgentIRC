@@ -29,12 +29,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
-- Agent status shows running when circuit breaker is open (#179)
-- Agent status list does not distinguish paused/sleeping agents (#180)
-- Learn prompt missing compact/clear commands and ask --timeout (#181)
-- Non-Claude backend skill docs missing features - all-backends rule violation (#182)
-- Admin skill and learn prompt missing many CLI commands (#183)
-- Mesh overview shows archived bots without archive indication (#184)
+- Agent status now reports the circuit-open state correctly instead of showing running (#179)
+- Agent status list now distinguishes paused and sleeping agents correctly (#180)
+- Learn prompt now includes compact/clear commands and ask --timeout (#181)
+- Non-Claude backend skill docs now include the required features and comply with the all-backends rule (#182)
+- Admin skill and learn prompt now include the missing CLI commands (#183)
+- Mesh overview now indicates when bots are archived (#184)
 
 ## [4.5.1] - 2026-04-09
 

@@ -73,6 +73,26 @@ async def _collect_room(
     )
 
 
+def _inject_stopped_agents(
+    all_agents: dict[str, Agent],
+    manifest_agents: list,
+    server_name: str,
+) -> None:
+    """Add stopped/registered agents from manifest that aren't on IRC."""
+    for agent_cfg in manifest_agents:
+        if agent_cfg.nick in all_agents or getattr(agent_cfg, "archived", False):
+            continue
+        all_agents[agent_cfg.nick] = Agent(
+            nick=agent_cfg.nick,
+            status="stopped",
+            activity="",
+            channels=agent_cfg.channels if isinstance(agent_cfg.channels, list) else [],
+            server=server_name,
+            backend=getattr(agent_cfg, "backend", None),
+            directory=getattr(agent_cfg, "directory", None),
+        )
+
+
 async def collect_mesh_state(
     host: str,
     port: int,
@@ -118,19 +138,7 @@ async def collect_mesh_state(
 
         # Add stopped/registered agents from manifest
         if manifest_agents:
-            for agent_cfg in manifest_agents:
-                if agent_cfg.nick not in all_agents and not getattr(agent_cfg, "archived", False):
-                    all_agents[agent_cfg.nick] = Agent(
-                        nick=agent_cfg.nick,
-                        status="stopped",
-                        activity="",
-                        channels=(
-                            agent_cfg.channels if isinstance(agent_cfg.channels, list) else []
-                        ),
-                        server=server_name,
-                        backend=getattr(agent_cfg, "backend", None),
-                        directory=getattr(agent_cfg, "directory", None),
-                    )
+            _inject_stopped_agents(all_agents, manifest_agents, server_name)
 
         # Collect bot info from disk
         bots = _collect_bots()
