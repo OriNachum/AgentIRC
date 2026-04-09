@@ -221,6 +221,76 @@ def test_non_archived_bot_no_marker():
     assert "[archived]" not in output
 
 
+def test_default_view_shows_stopped_agents():
+    """Issue #178: Stopped agents appear in a separate section."""
+    active = Agent(
+        nick="spark-claude",
+        status="active",
+        activity="working",
+        channels=["#general"],
+        server="spark",
+    )
+    stopped = Agent(
+        nick="spark-offline",
+        status="stopped",
+        activity="",
+        channels=["#general"],
+        server="spark",
+    )
+    room = Room(
+        name="#general",
+        topic="test",
+        members=[active],
+        operators=[],
+        federation_servers=[],
+        messages=[],
+    )
+    mesh = MeshState(
+        server_name="spark",
+        rooms=[room],
+        agents=[active, stopped],
+        federation_links=[],
+    )
+    output = render_text(mesh)
+    assert "## Stopped agents" in output
+    assert "spark-offline" in output
+    assert "stopped" in output
+
+
+def test_stopped_agent_count_in_header():
+    """Issue #178: Header shows online vs stopped count."""
+    active = Agent(
+        nick="spark-claude",
+        status="active",
+        activity="",
+        channels=[],
+        server="spark",
+    )
+    stopped = Agent(
+        nick="spark-offline",
+        status="stopped",
+        activity="",
+        channels=[],
+        server="spark",
+    )
+    mesh = MeshState(
+        server_name="spark",
+        rooms=[],
+        agents=[active, stopped],
+        federation_links=[],
+    )
+    output = render_text(mesh)
+    assert "1 online, 1 stopped (2 total)" in output
+
+
+def test_no_stopped_section_when_all_online():
+    """No stopped section when all agents are online."""
+    mesh = _make_fixture()
+    output = render_text(mesh)
+    assert "## Stopped agents" not in output
+    assert "3 agents" in output
+
+
 def test_custom_message_limit():
     mesh = _make_fixture()
     output = render_text(mesh, message_limit=1)

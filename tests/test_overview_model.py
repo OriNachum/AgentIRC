@@ -140,6 +140,18 @@ def test_botinfo_archived_defaults_false():
     assert bot.archived is False
 
 
+def test_agent_stopped_is_local():
+    """Issue #178: Stopped agents are local."""
+    agent = Agent(
+        nick="spark-offline",
+        status="stopped",
+        activity="",
+        channels=[],
+        server="spark",
+    )
+    assert agent.is_local is True
+
+
 def test_room_defaults_no_metadata():
     """Room with only required fields defaults metadata to None/empty."""
     from culture.overview.model import Room

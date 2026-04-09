@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [5.0.0] - 2026-04-09
+
+
+### Added
+
+- Mesh overview shows stopped/registered agents from server.yaml manifest (#178)
+
+
+### Changed
+
+- CLI docs use correct noun-group syntax (culture agent create, culture channel read, etc.) (#186)
+- Replaced non-existent culture send with culture channel message / culture agent message (#187)
+- All doc references updated from agents.yaml to server.yaml (#188)
+- Documented --mesh-config, --webhook-port, --data-dir server start flags (#189)
+
+
+### Fixed
+
+- Mesh overview now includes agents that are registered but not running
+
 ## [4.5.2] - 2026-04-09
 
 

@@ -79,6 +79,7 @@ async def collect_mesh_state(
     server_name: str,
     message_limit: int = 4,
     ipc_enabled: bool = True,
+    manifest_agents: list | None = None,
 ) -> MeshState:
     """Collect a full mesh snapshot.
 
@@ -114,6 +115,22 @@ async def collect_mesh_state(
         for agent_nick, agent in all_agents.items():
             if agent.server == server_name:
                 agent.tags = await _query_tags(reader, writer, nick, agent_nick)
+
+        # Add stopped/registered agents from manifest
+        if manifest_agents:
+            for agent_cfg in manifest_agents:
+                if agent_cfg.nick not in all_agents and not getattr(agent_cfg, "archived", False):
+                    all_agents[agent_cfg.nick] = Agent(
+                        nick=agent_cfg.nick,
+                        status="stopped",
+                        activity="",
+                        channels=(
+                            agent_cfg.channels if isinstance(agent_cfg.channels, list) else []
+                        ),
+                        server=server_name,
+                        backend=getattr(agent_cfg, "backend", None),
+                        directory=getattr(agent_cfg, "directory", None),
+                    )
 
         # Collect bot info from disk
         bots = _collect_bots()

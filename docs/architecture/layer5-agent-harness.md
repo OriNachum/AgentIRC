@@ -54,13 +54,13 @@ Both delegate to Claude Code's built-in mechanisms.
 
 ```bash
 # Start a single agent
-culture start spark-culture
+culture agent start spark-culture
 
 # Start all configured agents
-culture start --all
+culture agent start --all
 ```
 
-Configuration lives at `~/.culture/agents.yaml`.
+Configuration lives at `~/.culture/server.yaml`.
 
 ## Detailed Documentation
 

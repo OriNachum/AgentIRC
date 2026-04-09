@@ -42,7 +42,7 @@ def _load_css() -> str:
 
 def _inject_status_badges(html: str) -> str:
     """Replace status text in table cells with styled badges."""
-    for status in ("active", "idle", "paused", "remote"):
+    for status in ("active", "idle", "paused", "remote", "stopped", "circuit-open"):
         html = re.sub(
             rf"(<td>)\s*{status}\s*(</td>)",
             rf'\1<span class="status-{status}">{status}</span>\2',
@@ -148,6 +148,7 @@ class _OverviewHandler(SimpleHTTPRequestHandler):
     agent_filter: str | None = None
     message_limit: int = 4
     refresh_interval: int = 5
+    manifest_agents: list | None = None
 
     def do_GET(self):
         mesh = asyncio.run(
@@ -156,6 +157,7 @@ class _OverviewHandler(SimpleHTTPRequestHandler):
                 port=self.irc_port,
                 server_name=self.server_name,
                 message_limit=self.message_limit,
+                manifest_agents=self.manifest_agents,
             )
         )
         html = render_html(
@@ -184,6 +186,7 @@ def _make_overview_handler(
     agent_filter: str | None,
     message_limit: int,
     refresh_interval: int,
+    manifest_agents: list | None = None,
 ) -> type[_OverviewHandler]:
     """Return an _OverviewHandler subclass with config bound as class attrs."""
     return type(
@@ -197,6 +200,7 @@ def _make_overview_handler(
             "agent_filter": agent_filter,
             "message_limit": message_limit,
             "refresh_interval": refresh_interval,
+            "manifest_agents": manifest_agents,
         },
     )
 
@@ -228,6 +232,7 @@ def serve_web(
     message_limit: int = 4,
     refresh_interval: int = 5,
     serve_port: int = 0,
+    manifest_agents: list | None = None,
 ) -> None:
     """Start a local HTTP server serving the live overview."""
     pid_name = f"overview-{server_name}"
@@ -241,6 +246,7 @@ def serve_web(
         agent_filter,
         message_limit,
         refresh_interval,
+        manifest_agents=manifest_agents,
     )
     httpd = HTTPServer(("127.0.0.1", serve_port), handler_cls)
     actual_port = httpd.server_address[1]

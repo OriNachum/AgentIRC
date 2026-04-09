@@ -80,17 +80,35 @@ def _render_default(mesh: MeshState, message_limit: int) -> str:
     if mesh.federation_links:
         fed_str += f" ({', '.join(mesh.federation_links)})"
 
+    online_agents = [a for a in mesh.agents if a.status != "stopped"]
+    stopped_agents = [a for a in mesh.agents if a.status == "stopped"]
+
     parts = [f"# {mesh.server_name} mesh"]
     parts.append("")
-    parts.append(
-        f"{len(mesh.rooms)} room{'s' if len(mesh.rooms) != 1 else ''} | "
-        f"{len(mesh.agents)} agent{'s' if len(mesh.agents) != 1 else ''} | "
-        f"{fed_str}"
-    )
+    if stopped_agents:
+        parts.append(
+            f"{len(mesh.rooms)} room{'s' if len(mesh.rooms) != 1 else ''} | "
+            f"{len(online_agents)} online, {len(stopped_agents)} stopped "
+            f"({len(mesh.agents)} total) | "
+            f"{fed_str}"
+        )
+    else:
+        parts.append(
+            f"{len(mesh.rooms)} room{'s' if len(mesh.rooms) != 1 else ''} | "
+            f"{len(mesh.agents)} agent{'s' if len(mesh.agents) != 1 else ''} | "
+            f"{fed_str}"
+        )
 
     for room in mesh.rooms:
         parts.append("")
         parts.append(_render_room(room, message_limit))
+
+    # Stopped agents section
+    if stopped_agents:
+        parts.append("")
+        parts.append("## Stopped agents")
+        parts.append("")
+        parts.append(_agent_table(stopped_agents))
 
     # Bots section
     if mesh.bots:
