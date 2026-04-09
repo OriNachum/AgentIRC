@@ -29,7 +29,8 @@ def _run(args: list[str], input: str | None = None) -> tuple[int, str]:
             text=True,
         )
     except FileNotFoundError:
-        logger.warning("Command not found: %s", args[0])
+        tool = {"darwin": "security", "win32": "powershell"}.get(sys.platform, "secret-tool")
+        logger.warning("Credential tool '%s' not found — is it installed?", tool)
         return 127, ""
     return result.returncode, result.stdout.strip()
 

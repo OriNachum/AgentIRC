@@ -469,13 +469,14 @@ def _upgrade_culture_package(args: argparse.Namespace) -> bool:
         os.execvp(culture_bin, reexec_args)
 
 
-def _wait_for_server_port(port: int, retries: int = 50, interval: float = 0.1) -> bool:
-    """Poll until *port* accepts a TCP connection. Returns True on success."""
+def _wait_for_server_port(host: str, port: int, retries: int = 50, interval: float = 0.1) -> bool:
+    """Poll until *host*:*port* accepts a TCP connection. Returns True on success."""
     import socket as _socket
 
+    probe = "localhost" if host in ("0.0.0.0", "::", "") else host
     for _ in range(retries):
         try:
-            with _socket.create_connection(("localhost", port), timeout=1):
+            with _socket.create_connection((probe, port), timeout=1):
                 return True
         except OSError:
             time.sleep(interval)
@@ -565,10 +566,14 @@ def _restart_mesh_services(
     ]
     _restart_single_service(server_svc, server_fallback, restart_service)
 
-    if not _wait_for_server_port(mesh.server.port):
+    if not _wait_for_server_port(mesh.server.host, mesh.server.port):
+        if sys.platform == "linux":
+            hint = f"journalctl --user -u culture-server-{server_name}"
+        else:
+            hint = f"~/.culture/logs/server-{server_name}.log"
         print(
             f"  Error: server {server_name} did not start on port {mesh.server.port}. "
-            f"Check logs: journalctl --user -u culture-server-{server_name}",
+            f"Check logs: {hint}",
             file=sys.stderr,
         )
         return False
@@ -675,4 +680,7 @@ def _cmd_update(args: argparse.Namespace) -> None:
         )
         sys.exit(1)
 
-    print("Update complete. All services restarted.")
+    if args.dry_run:
+        print("Dry run complete. No services were restarted.")
+    else:
+        print("Update complete. All services restarted.")
