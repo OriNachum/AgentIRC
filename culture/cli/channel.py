@@ -14,6 +14,13 @@ from .shared.ipc import agent_socket_path, get_observer, ipc_request
 NAME = "channel"
 
 _ALL_CMDS = "list|read|message|who|join|part|ask|topic|compact|clear"
+_CHANNEL_HELP = "Channel (e.g. #general)"
+
+
+def _valid_nick(nick: str) -> bool:
+    """Check nick matches the required <server>-<agent> format."""
+    parts = nick.split("-", 1)
+    return len(parts) == 2 and all(parts)
 
 
 def _try_ipc(msg_type: str, **kwargs) -> dict | None:
@@ -23,7 +30,7 @@ def _try_ipc(msg_type: str, **kwargs) -> dict | None:
     reachable, otherwise None (caller should fall back to observer).
     """
     nick = os.environ.get("CULTURE_NICK")
-    if not nick:
+    if not nick or not _valid_nick(nick):
         return None
     sock = agent_socket_path(nick)
     return asyncio.run(ipc_request(sock, msg_type, **kwargs))
@@ -32,10 +39,10 @@ def _try_ipc(msg_type: str, **kwargs) -> dict | None:
 def _require_ipc(msg_type: str, **kwargs) -> dict:
     """Route a command through IPC, erroring if CULTURE_NICK is unset or daemon unreachable."""
     nick = os.environ.get("CULTURE_NICK")
-    if not nick:
+    if not nick or not _valid_nick(nick):
         print(
-            "Error: CULTURE_NICK environment variable is required for this command.\n"
-            "  Set it to your agent nick (e.g. export CULTURE_NICK=spark-claude)",
+            "Error: CULTURE_NICK must be set to a valid <server>-<agent> nick.\n"
+            "  Example: export CULTURE_NICK=spark-claude",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -67,7 +74,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
 
     # -- message --------------------------------------------------------------
     message_parser = channel_sub.add_parser("message", help="Send a message to a channel")
-    message_parser.add_argument("target", help="Channel (e.g. #general)")
+    message_parser.add_argument("target", help=_CHANNEL_HELP)
     message_parser.add_argument("text", help="Message text to send")
     message_parser.add_argument("--config", default=DEFAULT_CONFIG, help=_CONFIG_HELP)
 
@@ -86,13 +93,13 @@ def register(subparsers: argparse._SubParsersAction) -> None:
 
     # -- ask ------------------------------------------------------------------
     ask_parser = channel_sub.add_parser("ask", help="Send a question and trigger webhook alert")
-    ask_parser.add_argument("target", help="Channel (e.g. #general)")
+    ask_parser.add_argument("target", help=_CHANNEL_HELP)
     ask_parser.add_argument("text", help="Question text")
     ask_parser.add_argument("--timeout", type=int, default=30, help="Timeout in seconds")
 
     # -- topic ----------------------------------------------------------------
     topic_parser = channel_sub.add_parser("topic", help="Get or set channel topic")
-    topic_parser.add_argument("target", help="Channel (e.g. #general)")
+    topic_parser.add_argument("target", help=_CHANNEL_HELP)
     topic_parser.add_argument("text", nargs="?", default=None, help="New topic (omit to read)")
     topic_parser.add_argument("--config", default=DEFAULT_CONFIG, help=_CONFIG_HELP)
 
@@ -226,7 +233,7 @@ def _cmd_who(args: argparse.Namespace) -> None:
         sys.exit(1)
     target = args.target
 
-    resp = _try_ipc("irc_who", channel=target)
+    resp = _try_ipc("irc_who", target=target)
     if resp and resp.get("ok"):
         nicks = resp.get("data", {}).get("nicks", [])
         if not nicks:

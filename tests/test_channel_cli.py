@@ -11,6 +11,7 @@ import pytest
 from culture.cli.channel import (
     _require_ipc,
     _try_ipc,
+    _valid_nick,
     dispatch,
     register,
 )
@@ -95,6 +96,33 @@ class TestMessageIpcRouting:
         monkeypatch.delenv("CULTURE_NICK", raising=False)
         result = _try_ipc("irc_send", channel="#general", message="hello")
         assert result is None
+
+
+class TestNickValidation:
+    """Issue #202 review: CULTURE_NICK must match <server>-<agent> format."""
+
+    def test_valid_nick(self):
+        assert _valid_nick("spark-claude") is True
+        assert _valid_nick("thor-ori") is True
+        assert _valid_nick("a-b") is True
+
+    def test_invalid_nick_no_dash(self):
+        assert _valid_nick("justanick") is False
+
+    def test_invalid_nick_empty_parts(self):
+        assert _valid_nick("-claude") is False
+        assert _valid_nick("spark-") is False
+
+    def test_try_ipc_rejects_invalid_nick(self, monkeypatch):
+        monkeypatch.setenv("CULTURE_NICK", "nodash")
+        result = _try_ipc("irc_send", channel="#general", message="hello")
+        assert result is None
+
+    def test_require_ipc_rejects_invalid_nick(self, monkeypatch):
+        monkeypatch.setenv("CULTURE_NICK", "nodash")
+        with pytest.raises(SystemExit) as exc_info:
+            _require_ipc("irc_join", channel="#ops")
+        assert exc_info.value.code == 1
 
 
 class TestRequireIpc:
