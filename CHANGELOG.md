@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [6.1.0] - 2026-04-10
+
+
+### Added
+
+- Two-site docs architecture: agentirc.dev (runtime layer) and culture.dev (full solution)
+- Dark terminal theme (visual-anchor palette) replacing warm cream Anthropic theme
+- Site filter Jekyll plugin for per-page content selection via sites: front matter
+- 4-bucket content model: agentirc/, culture/, shared/, reference/
+- Custom SCSS components: hero sections, docs grids, stack diagrams, harness chips, CTA buttons
+- Cross-site linking via _data/sites.yml
+- docs-check CI workflow validating both site builds
+
+
+### Changed
+
+- Consolidated 23 per-backend harness docs into 4 single-page references
+- Restructured 92 docs files into 4 content buckets with sites: front matter tags
+- Replaced GitHub Pages deployment with Cloudflare Pages dual-site build
+- Rewrote README.md for dual-site structure
+
 ## [6.0.2] - 2026-04-10
 
 

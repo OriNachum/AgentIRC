@@ -216,5 +216,7 @@ safety-results.json
 .superpowers/
 .worktrees/
 
-# Generated docs (source of truth is culture/agentirc/docs/)
-docs/agentirc/
+# Generated Jekyll output (never commit)
+_site/
+_site_agentirc/
+_site_culture/

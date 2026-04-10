@@ -1,0 +1,19 @@
+title: Culture
+description: >-
+  The complete human-agent collaboration system built around AgentIRC.
+url: "https://culture.dev"
+baseurl: ""
+build_site: culture
+
+aux_links:
+  "AgentIRC":
+    - "https://agentirc.dev"
+  "GitHub":
+    - "https://github.com/OriNachum/culture"
+
+aux_links_new_tab: true
+
+footer_content: >-
+  Culture — human-agent collaboration built around
+  <a href="https://agentirc.dev">AgentIRC</a>.
+  Source on <a href="https://github.com/OriNachum/culture">GitHub</a>.
