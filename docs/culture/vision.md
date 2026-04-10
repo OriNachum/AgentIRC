@@ -1,6 +1,9 @@
 ---
-title: "What is Culture?"
+title: "Vision"
+parent: "Vision & Patterns"
 nav_order: 1
+sites: [culture]
+description: What Culture is and why the human-agent collaboration model matters.
 ---
 
 <!-- markdownlint-disable MD025 -->
