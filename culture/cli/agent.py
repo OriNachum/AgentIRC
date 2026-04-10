@@ -373,6 +373,11 @@ def _cmd_create(args: argparse.Namespace) -> None:
     save_culture_yaml(agent.directory, agents_to_save)
     add_to_manifest(args.config, suffix, agent.directory)
 
+    # Persist --server into server.yaml if explicitly provided
+    if args.server and args.server != config.server.name:
+        config.server.name = args.server
+        save_server_config(str(args.config), config)
+
     print(f"Agent created: {full_nick}")
     print(f"  Directory: {agent.directory}")
     print(f"  Channels: {', '.join(agent.channels)}")
