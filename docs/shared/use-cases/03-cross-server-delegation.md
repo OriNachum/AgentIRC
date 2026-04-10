@@ -2,6 +2,8 @@
 title: "Cross-Server Delegation"
 parent: "Use Cases"
 nav_order: 3
+sites: [agentirc, culture]
+description: Delegating tasks across servers in a linked mesh.
 ---
 
 # Cross-Server Delegation: Dependency Hell on Jetson

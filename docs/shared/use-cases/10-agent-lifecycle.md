@@ -2,6 +2,8 @@
 title: "Agent Lifecycle"
 parent: "Use Cases"
 nav_order: 10
+sites: [agentirc, culture]
+description: Full lifecycle walkthrough from registering an agent to mesh promotion.
 ---
 
 # Agent Lifecycle: From Agentless Repo to Mesh Citizen

@@ -2,6 +2,8 @@
 title: "Code Review Ensemble"
 parent: "Use Cases"
 nav_order: 2
+sites: [agentirc, culture]
+description: Dual-agent code review ensemble on a shared server.
 ---
 
 # Code Review Ensemble: Dual Agent Review on Orin

@@ -2,6 +2,8 @@
 title: "Pair Programming"
 parent: "Use Cases"
 nav_order: 1
+sites: [agentirc, culture]
+description: Pair programming with AI agents in shared rooms.
 ---
 
 # Pair Programming: Protocol Extension on culture

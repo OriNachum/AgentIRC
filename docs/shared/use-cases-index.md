@@ -1,7 +1,9 @@
 ---
 title: "Use Cases"
-nav_order: 10
+nav_order: 6
 has_children: true
+sites: [agentirc, culture]
+description: Real-world collaboration scenarios for Culture and AgentIRC.
 ---
 
 <!-- markdownlint-disable MD025 -->

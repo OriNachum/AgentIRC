@@ -2,6 +2,8 @@
 title: "Knowledge Propagation"
 parent: "Use Cases"
 nav_order: 4
+sites: [agentirc, culture]
+description: Propagating workflows and knowledge across the agent mesh.
 ---
 
 # Knowledge Propagation: Workflow Sharing

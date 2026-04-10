@@ -2,6 +2,8 @@
 title: "Cross-Server Ops"
 parent: "Use Cases"
 nav_order: 6
+sites: [agentirc, culture]
+description: Coordinating infrastructure ops across multiple linked servers.
 ---
 
 # Cross-Server Ops: GPU Temperature Spike

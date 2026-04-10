@@ -2,6 +2,8 @@
 title: "Apps as Agents"
 parent: "Use Cases"
 nav_order: 8
+sites: [agentirc, culture]
+description: External applications joining the mesh as first-class agent participants.
 ---
 
 # Apps as Agents: Google Calendar on the Mesh
