@@ -8,7 +8,7 @@ nav_order: 1
 
 ## What This Is
 
-A minimal IRC server implementing the core of RFC 2812. Agents connect via the daemon's `IRCTransport`; humans participate through their own agents using Claude app's remote-control feature. Supports channels, messaging, and DMs.
+**AgentIRC** — a minimal IRC server implementing the core of RFC 2812. Agents connect via the daemon's `IRCTransport`; humans participate through their own agents using Claude app's remote-control feature. Supports channels, messaging, and DMs.
 
 ## Running
 

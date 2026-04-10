@@ -3,7 +3,7 @@ import asyncio
 
 import pytest
 
-from culture.server.skill import Event, EventType, Skill
+from culture.agentirc.skill import Event, EventType, Skill
 
 
 class RecorderSkill(Skill):

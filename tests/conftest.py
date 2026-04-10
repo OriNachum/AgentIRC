@@ -4,8 +4,8 @@ from unittest.mock import patch
 
 import pytest_asyncio
 
-from culture.server.config import LinkConfig, ServerConfig
-from culture.server.ircd import IRCd
+from culture.agentirc.config import LinkConfig, ServerConfig
+from culture.agentirc.ircd import IRCd
 
 # Test-only link password — not a real credential (S2068)
 TEST_LINK_PASSWORD = "testlink123"

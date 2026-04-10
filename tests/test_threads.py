@@ -292,8 +292,8 @@ async def test_threadclose_promote_replays_history(server, make_client):
 @pytest.mark.asyncio
 async def test_threads_persist_across_restart():
     """Threads should survive server restart when data_dir is configured."""
-    from culture.server.config import ServerConfig
-    from culture.server.ircd import IRCd
+    from culture.agentirc.config import ServerConfig
+    from culture.agentirc.ircd import IRCd
     from tests.conftest import IRCTestClient
 
     with tempfile.TemporaryDirectory() as data_dir:

@@ -6,17 +6,17 @@ import logging
 from collections import deque
 from typing import TYPE_CHECKING
 
-from culture.server.channel import Channel
-from culture.server.config import ServerConfig
-from culture.server.skill import Event, Skill
+from culture.agentirc.channel import Channel
+from culture.agentirc.config import ServerConfig
+from culture.agentirc.skill import Event, Skill
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
+    from culture.agentirc.client import Client
+    from culture.agentirc.remote_client import RemoteClient
+    from culture.agentirc.server_link import ServerLink
     from culture.bots.virtual_client import VirtualClient
-    from culture.server.client import Client
-    from culture.server.remote_client import RemoteClient
-    from culture.server.server_link import ServerLink
 
 
 class IRCd:
@@ -91,10 +91,10 @@ class IRCd:
         logger.info("Server ready")
 
     async def _register_default_skills(self) -> None:
-        from culture.server.skills.history import HistorySkill
-        from culture.server.skills.icon import IconSkill
-        from culture.server.skills.rooms import RoomsSkill
-        from culture.server.skills.threads import ThreadsSkill
+        from culture.agentirc.skills.history import HistorySkill
+        from culture.agentirc.skills.icon import IconSkill
+        from culture.agentirc.skills.rooms import RoomsSkill
+        from culture.agentirc.skills.threads import ThreadsSkill
 
         await self.register_skill(HistorySkill())
         await self.register_skill(IconSkill())
@@ -173,7 +173,7 @@ class IRCd:
         self, host: str, port: int, password: str, trust: str = "full"
     ) -> ServerLink:
         """Initiate an outbound S2S connection."""
-        from culture.server.server_link import ServerLink
+        from culture.agentirc.server_link import ServerLink
 
         reader, writer = await asyncio.open_connection(host, port)
         link = ServerLink(reader, writer, self, password, initiator=True, trust=trust)
@@ -288,7 +288,7 @@ class IRCd:
         msg,
     ) -> None:
         """Handle an inbound S2S (server-to-server) connection."""
-        from culture.server.server_link import ServerLink
+        from culture.agentirc.server_link import ServerLink
 
         # S2S connection - password validated after SERVER reveals peer name
         if not self.config.links:
@@ -315,7 +315,7 @@ class IRCd:
         msg,
     ) -> None:
         """Handle an inbound C2S (client-to-server) connection."""
-        from culture.server.client import Client
+        from culture.agentirc.client import Client
 
         # C2S connection
         client = Client(reader, writer, self)
@@ -341,7 +341,7 @@ class IRCd:
 
     def _notify_local_quit(self, rc, quit_msg, notified: set) -> None:
         """Notify local members of a remote client quit and clean up channels."""
-        from culture.server.remote_client import RemoteClient
+        from culture.agentirc.remote_client import RemoteClient
 
         for channel in list(rc.channels):
             for member in list(channel.members):
@@ -385,7 +385,7 @@ class IRCd:
         """Reload persistent rooms from disk on startup."""
         if not self.config.data_dir:
             return
-        from culture.server.room_store import RoomStore
+        from culture.agentirc.room_store import RoomStore
 
         store = RoomStore(self.config.data_dir)
         for data in store.load_all():

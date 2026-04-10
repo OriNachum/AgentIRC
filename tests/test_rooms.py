@@ -7,7 +7,7 @@ import pytest
 
 def test_channel_has_room_metadata_fields():
     """Channel should have room metadata fields, all None/empty by default."""
-    from culture.server.channel import Channel
+    from culture.agentirc.channel import Channel
 
     ch = Channel("#test")
     assert ch.room_id is None
@@ -25,7 +25,7 @@ def test_channel_has_room_metadata_fields():
 
 def test_channel_is_managed():
     """Channel with room_id is considered managed."""
-    from culture.server.channel import Channel
+    from culture.agentirc.channel import Channel
 
     ch = Channel("#test")
     assert ch.is_managed is False
@@ -37,7 +37,7 @@ def test_generate_room_id_format():
     """Room ID starts with R followed by uppercase alphanumeric."""
     import re
 
-    from culture.server.rooms_util import generate_room_id
+    from culture.agentirc.rooms_util import generate_room_id
 
     rid = generate_room_id()
     assert rid.startswith("R")
@@ -47,7 +47,7 @@ def test_generate_room_id_format():
 
 def test_generate_room_id_uniqueness():
     """Two consecutive calls produce different IDs."""
-    from culture.server.rooms_util import generate_room_id
+    from culture.agentirc.rooms_util import generate_room_id
 
     ids = {generate_room_id() for _ in range(100)}
     assert len(ids) == 100
@@ -55,7 +55,7 @@ def test_generate_room_id_uniqueness():
 
 def test_parse_room_meta_basic():
     """Parse key=value pairs separated by semicolons."""
-    from culture.server.rooms_util import parse_room_meta
+    from culture.agentirc.rooms_util import parse_room_meta
 
     meta = parse_room_meta("purpose=Help with Python;tags=python,code-help;persistent=true")
     assert meta["purpose"] == "Help with Python"
@@ -65,7 +65,7 @@ def test_parse_room_meta_basic():
 
 def test_parse_room_meta_instructions_last():
     """Instructions field is always last and may contain semicolons."""
-    from culture.server.rooms_util import parse_room_meta
+    from culture.agentirc.rooms_util import parse_room_meta
 
     meta = parse_room_meta("purpose=Help;tags=py;instructions=Do this; then that; finally done")
     assert meta["purpose"] == "Help"
@@ -75,7 +75,7 @@ def test_parse_room_meta_instructions_last():
 
 def test_parse_room_meta_empty():
     """Empty string returns empty dict."""
-    from culture.server.rooms_util import parse_room_meta
+    from culture.agentirc.rooms_util import parse_room_meta
 
     assert parse_room_meta("") == {}
 

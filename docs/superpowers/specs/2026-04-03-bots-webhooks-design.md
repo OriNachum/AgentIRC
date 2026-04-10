@@ -92,7 +92,7 @@ async def start(self) -> None:
 
 ### Server Config Addition
 
-`ServerConfig` in `culture/server/config.py` gains a `webhook_port`
+`ServerConfig` in `culture/agentirc/config.py` gains a `webhook_port`
 field:
 
 ```python
@@ -309,8 +309,8 @@ spark-ori
 
 | File | Change |
 |---|---|
-| `culture/server/ircd.py` | Create BotManager, start HTTP listener |
-| `culture/server/config.py` | Add `webhook_port` field |
+| `culture/agentirc/ircd.py` | Create BotManager, start HTTP listener |
+| `culture/agentirc/config.py` | Add `webhook_port` field |
 | `culture/cli.py` | Add `bot` subcommand group |
 | `culture/overview/collector.py` | Collect bot state for overview |
 | `culture/overview/renderer_text.py` | Render bots in text overview |

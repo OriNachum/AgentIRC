@@ -12,7 +12,7 @@ from culture.bots.template_engine import render_fallback, render_template
 from culture.bots.virtual_client import VirtualClient
 
 if TYPE_CHECKING:
-    from culture.server.ircd import IRCd
+    from culture.agentirc.ircd import IRCd
 
 logger = logging.getLogger(__name__)
 

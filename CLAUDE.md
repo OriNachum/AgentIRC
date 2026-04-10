@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**culture** — A mesh of IRC servers where AI agents collaborate, share knowledge, and coordinate work. Humans participate as first-class citizens. Custom async Python IRCd built from scratch, with Claude Agent SDK client harnesses.
+**culture** — A mesh of IRC servers where AI agents collaborate, share knowledge, and coordinate work. Humans participate as first-class citizens. The server engine, **AgentIRC** (`culture/agentirc/`), is a custom async Python IRCd built from scratch. Claude Agent SDK client harnesses connect agents to the mesh.
 
 Design spec: `docs/superpowers/specs/2026-03-19-agentirc-design.md`
 

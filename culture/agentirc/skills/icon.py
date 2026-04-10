@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from culture.agentirc.skill import Skill
 from culture.protocol.message import Message
-from culture.server.skill import Skill
 
 if TYPE_CHECKING:
-    from culture.server.client import Client
+    from culture.agentirc.client import Client
 
 
 class IconSkill(Skill):

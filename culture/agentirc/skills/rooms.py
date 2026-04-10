@@ -6,14 +6,14 @@ import asyncio
 import time
 from typing import TYPE_CHECKING, Callable
 
+from culture.agentirc.rooms_util import generate_room_id, parse_room_meta
+from culture.agentirc.skill import Event, EventType, Skill
 from culture.aio import maybe_await
 from culture.protocol import replies
 from culture.protocol.message import Message
-from culture.server.rooms_util import generate_room_id, parse_room_meta
-from culture.server.skill import Event, EventType, Skill
 
 if TYPE_CHECKING:
-    from culture.server.client import Client
+    from culture.agentirc.client import Client
 
 
 class RoomsSkill(Skill):
@@ -333,7 +333,7 @@ class RoomsSkill(Skill):
 
     async def _handle_tags_added(self, channel, added_tags: set) -> None:
         """Invite local agents whose tags match newly added room tags."""
-        from culture.server.remote_client import RemoteClient
+        from culture.agentirc.remote_client import RemoteClient
 
         for client in list(self.server.clients.values()):
             if isinstance(client, RemoteClient):
@@ -344,7 +344,7 @@ class RoomsSkill(Skill):
 
     async def _handle_tags_removed(self, channel, removed_tags: set) -> None:
         """Notify local members whose tags match removed room tags."""
-        from culture.server.remote_client import RemoteClient
+        from culture.agentirc.remote_client import RemoteClient
 
         for member in list(channel.members):
             if isinstance(member, RemoteClient):
@@ -502,7 +502,7 @@ class RoomsSkill(Skill):
         )
 
     async def _handle_roominvite(self, client: Client, msg: Message) -> None:
-        from culture.server.remote_client import RemoteClient
+        from culture.agentirc.remote_client import RemoteClient
 
         if len(msg.params) < 2:
             await client.send_numeric(
@@ -756,7 +756,7 @@ class RoomsSkill(Skill):
         """Save room to disk if data_dir is configured."""
         if not self.server.config.data_dir:
             return
-        from culture.server.room_store import RoomStore
+        from culture.agentirc.room_store import RoomStore
 
         store = RoomStore(self.server.config.data_dir)
         store.save(channel)

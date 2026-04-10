@@ -383,7 +383,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from culture.server.client import Client
+    from culture.agentirc.client import Client
 
 
 class Channel:
@@ -427,8 +427,8 @@ Create `tests/conftest.py` first (fixtures must exist before tests reference the
 # tests/conftest.py
 import asyncio
 import pytest_asyncio
-from culture.server.config import ServerConfig
-from culture.server.ircd import IRCd
+from culture.agentirc.config import ServerConfig
+from culture.agentirc.ircd import IRCd
 
 
 class IRCTestClient:
@@ -546,11 +546,11 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-from culture.server.config import ServerConfig
-from culture.server.channel import Channel
+from culture.agentirc.config import ServerConfig
+from culture.agentirc.channel import Channel
 
 if TYPE_CHECKING:
-    from culture.server.client import Client
+    from culture.agentirc.client import Client
 
 
 class IRCd:
@@ -577,7 +577,7 @@ class IRCd:
     async def _handle_connection(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
-        from culture.server.client import Client
+        from culture.agentirc.client import Client
 
         client = Client(reader, writer, self)
         try:
@@ -619,8 +619,8 @@ from culture.protocol.message import Message
 from culture.protocol import replies
 
 if TYPE_CHECKING:
-    from culture.server.ircd import IRCd
-    from culture.server.channel import Channel
+    from culture.agentirc.ircd import IRCd
+    from culture.agentirc.channel import Channel
 
 
 class Client:
@@ -1494,8 +1494,8 @@ git commit -m "feat: QUIT handler with channel notification"
 import argparse
 import asyncio
 
-from culture.server.config import ServerConfig
-from culture.server.ircd import IRCd
+from culture.agentirc.config import ServerConfig
+from culture.agentirc.ircd import IRCd
 
 
 async def main() -> None:

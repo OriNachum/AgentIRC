@@ -17,11 +17,11 @@
 | File | Responsibility |
 |------|---------------|
 | `culture/protocol/commands.py` | Add THREAD, THREADS, THREADCLOSE, STHREAD, STHREADCLOSE verb constants |
-| `culture/server/skill.py` | Add THREAD_CREATE, THREAD_MESSAGE, THREAD_CLOSE to EventType enum |
-| `culture/server/skills/threads.py` | **New** — ThreadsSkill: thread state, command handlers, persistence |
-| `culture/server/thread_store.py` | **New** — JSON disk persistence for threads (same pattern as room_store.py) |
-| `culture/server/ircd.py` | Register ThreadsSkill in `_register_default_skills` |
-| `culture/server/server_link.py` | Handle STHREAD/STHREADCLOSE in relay_event + inbound handlers |
+| `culture/agentirc/skill.py` | Add THREAD_CREATE, THREAD_MESSAGE, THREAD_CLOSE to EventType enum |
+| `culture/agentirc/skills/threads.py` | **New** — ThreadsSkill: thread state, command handlers, persistence |
+| `culture/agentirc/thread_store.py` | **New** — JSON disk persistence for threads (same pattern as room_store.py) |
+| `culture/agentirc/ircd.py` | Register ThreadsSkill in `_register_default_skills` |
+| `culture/agentirc/server_link.py` | Handle STHREAD/STHREADCLOSE in relay_event + inbound handlers |
 | `culture/clients/*/message_buffer.py` | Add `thread` field to BufferedMessage, add `read_thread()` method |
 | `culture/clients/*/irc_transport.py` | Add thread send methods, parse `[thread:name]` from incoming PRIVMSG |
 | `culture/clients/*/daemon.py` | Thread-scoped mention context, thread IPC handlers |
@@ -37,7 +37,7 @@
 **Files:**
 
 - Modify: `culture/protocol/commands.py`
-- Modify: `culture/server/skill.py`
+- Modify: `culture/agentirc/skill.py`
 
 No tests needed — these are just string/enum constants consumed by later tasks.
 
@@ -62,7 +62,7 @@ STHREADCLOSE = "STHREADCLOSE"
 
 - [ ] **Step 2: Add thread event types to EventType enum**
 
-Add three values to the `EventType` enum in `culture/server/skill.py` (after line 22, the `ROOMARCHIVE` entry):
+Add three values to the `EventType` enum in `culture/agentirc/skill.py` (after line 22, the `ROOMARCHIVE` entry):
 
 ```python
     THREAD_CREATE = "thread_create"
@@ -73,7 +73,7 @@ Add three values to the `EventType` enum in `culture/server/skill.py` (after lin
 - [ ] **Step 3: Commit**
 
 ```bash
-git add culture/protocol/commands.py culture/server/skill.py
+git add culture/protocol/commands.py culture/agentirc/skill.py
 git commit -m "feat(threads): add protocol constants and event types for conversation threads"
 ```
 
@@ -83,7 +83,7 @@ git commit -m "feat(threads): add protocol constants and event types for convers
 
 **Files:**
 
-- Create: `culture/server/skills/threads.py`
+- Create: `culture/agentirc/skills/threads.py`
 - Create: `tests/test_threads.py`
 
 - [ ] **Step 1: Write failing test — thread creation delivers prefixed PRIVMSG**
@@ -152,7 +152,7 @@ Expected: FAIL — `THREAD` command not recognized (ERR_UNKNOWNCOMMAND).
 
 - [ ] **Step 3: Create ThreadsSkill with CREATE handler**
 
-Create `culture/server/skills/threads.py`:
+Create `culture/agentirc/skills/threads.py`:
 
 ```python
 # server/skills/threads.py
@@ -167,10 +167,10 @@ from typing import TYPE_CHECKING
 
 from culture.protocol.message import Message
 from culture.protocol import replies
-from culture.server.skill import Event, EventType, Skill
+from culture.agentirc.skill import Event, EventType, Skill
 
 if TYPE_CHECKING:
-    from culture.server.client import Client
+    from culture.agentirc.client import Client
 
 _THREAD_NAME_RE = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,30}[a-zA-Z0-9])?$")
 
@@ -290,7 +290,7 @@ class ThreadsSkill(Skill):
             command="PRIVMSG",
             params=[channel_name, prefixed],
         )
-        from culture.server.remote_client import RemoteClient
+        from culture.agentirc.remote_client import RemoteClient
         for member in list(channel.members):
             if member is not client and not isinstance(member, RemoteClient):
                 await member.send(relay)
@@ -341,7 +341,7 @@ class ThreadsSkill(Skill):
             command="PRIVMSG",
             params=[channel_name, prefixed],
         )
-        from culture.server.remote_client import RemoteClient
+        from culture.agentirc.remote_client import RemoteClient
         for member in list(channel.members):
             if member is not client and not isinstance(member, RemoteClient):
                 await member.send(relay)
@@ -438,7 +438,7 @@ class ThreadsSkill(Skill):
                 command="NOTICE",
                 params=[channel_name, notice_text],
             )
-            from culture.server.remote_client import RemoteClient
+            from culture.agentirc.remote_client import RemoteClient
             for member in list(channel.members):
                 if not isinstance(member, RemoteClient):
                     await member.send(notice)
@@ -498,7 +498,7 @@ class ThreadsSkill(Skill):
 
         # Auto-join thread participants who are in the parent channel
         if channel:
-            from culture.server.remote_client import RemoteClient
+            from culture.agentirc.remote_client import RemoteClient
             for member in list(channel.members):
                 if isinstance(member, RemoteClient):
                     continue
@@ -540,7 +540,7 @@ class ThreadsSkill(Skill):
                 command="NOTICE",
                 params=[channel_name, notice_text],
             )
-            from culture.server.remote_client import RemoteClient
+            from culture.agentirc.remote_client import RemoteClient
             for member in list(channel.members):
                 if not isinstance(member, RemoteClient):
                     await member.send(notice)
@@ -566,10 +566,10 @@ class ThreadsSkill(Skill):
 
 - [ ] **Step 4: Register ThreadsSkill in IRCd**
 
-In `culture/server/ircd.py`, add to `_register_default_skills` (after line 48):
+In `culture/agentirc/ircd.py`, add to `_register_default_skills` (after line 48):
 
 ```python
-        from culture.server.skills.threads import ThreadsSkill
+        from culture.agentirc.skills.threads import ThreadsSkill
         await self.register_skill(ThreadsSkill())
 ```
 
@@ -584,7 +584,7 @@ Expected: 3 tests PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add culture/server/skills/threads.py culture/server/ircd.py tests/test_threads.py
+git add culture/agentirc/skills/threads.py culture/agentirc/ircd.py tests/test_threads.py
 git commit -m "feat(threads): add ThreadsSkill with CREATE, REPLY, and error handling"
 ```
 
@@ -822,8 +822,8 @@ git commit -m "test(threads): add breakout promotion tests"
 
 **Files:**
 
-- Create: `culture/server/thread_store.py`
-- Modify: `culture/server/skills/threads.py`
+- Create: `culture/agentirc/thread_store.py`
+- Modify: `culture/agentirc/skills/threads.py`
 - Modify: `tests/test_threads.py`
 
 - [ ] **Step 1: Write failing test — threads persist across restart**
@@ -832,8 +832,8 @@ Append to `tests/test_threads.py`:
 
 ```python
 import tempfile
-from culture.server.config import ServerConfig
-from culture.server.ircd import IRCd
+from culture.agentirc.config import ServerConfig
+from culture.agentirc.ircd import IRCd
 
 
 @pytest.mark.asyncio
@@ -897,7 +897,7 @@ Expected: FAIL — no persistence yet.
 
 - [ ] **Step 3: Create ThreadStore**
 
-Create `culture/server/thread_store.py`:
+Create `culture/agentirc/thread_store.py`:
 
 ```python
 # server/thread_store.py
@@ -944,7 +944,7 @@ class ThreadStore:
 
 - [ ] **Step 4: Add persistence to ThreadsSkill**
 
-Add these methods to the `ThreadsSkill` class in `culture/server/skills/threads.py`:
+Add these methods to the `ThreadsSkill` class in `culture/agentirc/skills/threads.py`:
 
 After the `__init__` method, add a `start` override:
 
@@ -956,7 +956,7 @@ After the `__init__` method, add a `start` override:
     def _restore_threads(self) -> None:
         if not self.server.config.data_dir:
             return
-        from culture.server.thread_store import ThreadStore
+        from culture.agentirc.thread_store import ThreadStore
         store = ThreadStore(self.server.config.data_dir)
         for data in store.load_all():
             thread = Thread(
@@ -978,7 +978,7 @@ After the `__init__` method, add a `start` override:
     def _persist_thread(self, thread: Thread) -> None:
         if not self.server.config.data_dir:
             return
-        from culture.server.thread_store import ThreadStore
+        from culture.agentirc.thread_store import ThreadStore
         store = ThreadStore(self.server.config.data_dir)
         store.save({
             "name": thread.name,
@@ -1008,7 +1008,7 @@ Expected: All tests PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add culture/server/thread_store.py culture/server/skills/threads.py tests/test_threads.py
+git add culture/agentirc/thread_store.py culture/agentirc/skills/threads.py tests/test_threads.py
 git commit -m "feat(threads): add JSON persistence for threads across server restarts"
 ```
 
@@ -1018,7 +1018,7 @@ git commit -m "feat(threads): add JSON persistence for threads across server res
 
 **Files:**
 
-- Modify: `culture/server/server_link.py`
+- Modify: `culture/agentirc/server_link.py`
 - Modify: `tests/test_threads.py`
 
 - [ ] **Step 1: Write failing test — thread messages federate**
@@ -1080,7 +1080,7 @@ Actually, checking the code: `emit_event` is called for `THREAD_CREATE` but `rel
 
 - [ ] **Step 3: Add THREAD_CREATE and THREAD_CLOSE relay to server_link.py**
 
-In `culture/server/server_link.py`, in the `relay_event` method, add handling after the `ROOMARCHIVE` block (around line 701):
+In `culture/agentirc/server_link.py`, in the `relay_event` method, add handling after the `ROOMARCHIVE` block (around line 701):
 
 ```python
         elif event.type == EventType.THREAD_CREATE or event.type == EventType.THREAD_MESSAGE:
@@ -1110,7 +1110,7 @@ In `culture/server/server_link.py`, in the `relay_event` method, add handling af
 Also add the `EventType` import if not already present:
 
 ```python
-from culture.server.skill import Event, EventType
+from culture.agentirc.skill import Event, EventType
 ```
 
 And add inbound S2S handlers. Find where `_handle_smsg` is defined and add nearby:
@@ -1132,7 +1132,7 @@ And add inbound S2S handlers. Find where `_handle_smsg` is defined and add nearb
             return
 
         # Deliver prefixed PRIVMSG to local members
-        from culture.server.remote_client import RemoteClient
+        from culture.agentirc.remote_client import RemoteClient
         relay = Message(
             prefix=f"{sender_nick}!{sender_nick}@{self.peer_name}",
             command="PRIVMSG",
@@ -1164,7 +1164,7 @@ And add inbound S2S handlers. Find where `_handle_smsg` is defined and add nearb
             return
 
         # Post close notice to local channel members
-        from culture.server.remote_client import RemoteClient
+        from culture.agentirc.remote_client import RemoteClient
         notice = Message(
             prefix=self.server.config.name,
             command="NOTICE",
@@ -1203,7 +1203,7 @@ Expected: All tests PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add culture/server/server_link.py tests/test_threads.py
+git add culture/agentirc/server_link.py tests/test_threads.py
 git commit -m "feat(threads): add S2S federation relay for thread create/reply/close"
 ```
 

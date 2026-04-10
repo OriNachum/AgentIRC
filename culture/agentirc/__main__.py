@@ -1,8 +1,8 @@
 import argparse
 import asyncio
 
-from culture.server.config import LinkConfig, ServerConfig
-from culture.server.ircd import IRCd
+from culture.agentirc.config import LinkConfig, ServerConfig
+from culture.agentirc.ircd import IRCd
 
 
 def parse_link(value: str) -> LinkConfig:

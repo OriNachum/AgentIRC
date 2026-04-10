@@ -420,7 +420,7 @@ room ID, and preserved metadata.
 ### Server Changes
 
 ```
-culture/server/
+culture/agentirc/
 ├── channel.py          # extended with room metadata fields
 ├── ircd.py             # room lifecycle, persistence, tag engine
 ├── client.py           # ROOMMETA, ROOMINVITE, ROOMKICK, TAGS handlers

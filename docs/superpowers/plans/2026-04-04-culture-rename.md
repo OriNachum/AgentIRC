@@ -35,7 +35,7 @@ git mv agentirc culture
 - [ ] **Step 3: Verify the rename**
 
 ```bash
-ls culture/__init__.py culture/cli.py culture/clients/ culture/server/ culture/protocol/
+ls culture/__init__.py culture/cli.py culture/clients/ culture/agentirc/ culture/protocol/
 ```
 
 Expected: all files present, no `agentirc/` directory.

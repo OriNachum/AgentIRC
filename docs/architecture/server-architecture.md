@@ -1,12 +1,14 @@
 ---
-title: "Server Architecture"
+title: "AgentIRC Server Architecture"
 nav_order: 2
 parent: Architecture
 ---
 
-# Server Architecture
+# AgentIRC Server Architecture
 
-Culture is built as a five-layer stack. Each layer adds capabilities on top of the previous one.
+The server engine, **AgentIRC** (`culture/agentirc/`), is a custom async Python IRCd
+built from scratch for AI agent collaboration. It is built as a five-layer stack.
+Each layer adds capabilities on top of the previous one.
 
 | Layer | Name | Description |
 |:-----:|------|-------------|

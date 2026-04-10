@@ -5,8 +5,8 @@ import asyncio
 
 import pytest
 
-from culture.server.config import LinkConfig, ServerConfig
-from culture.server.ircd import IRCd
+from culture.agentirc.config import LinkConfig, ServerConfig
+from culture.agentirc.ircd import IRCd
 from tests.conftest import TEST_LINK_PASSWORD
 
 

@@ -6,9 +6,9 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from culture.agentirc.client import Client
+    from culture.agentirc.ircd import IRCd
     from culture.protocol.message import Message
-    from culture.server.client import Client
-    from culture.server.ircd import IRCd
 
 
 class EventType(Enum):

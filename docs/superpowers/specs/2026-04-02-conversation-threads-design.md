@@ -108,7 +108,7 @@ and error cases following the pattern of existing extensions (`history.md`,
 
 ## Server — ThreadsSkill
 
-New file: `culture/server/skills/threads.py`
+New file: `culture/agentirc/skills/threads.py`
 
 ### Data model
 
@@ -288,11 +288,11 @@ events have sequence numbers and are part of `_event_log`.
 
 | File | Change |
 |------|--------|
-| `culture/server/skills/threads.py` | **New** — ThreadsSkill implementation |
-| `culture/server/ircd.py` | Register ThreadsSkill, add THREAD_* EventTypes |
+| `culture/agentirc/skills/threads.py` | **New** — ThreadsSkill implementation |
+| `culture/agentirc/ircd.py` | Register ThreadsSkill, add THREAD_* EventTypes |
 | `culture/protocol/commands.py` | Add THREAD, THREADS, THREADCLOSE, STHREAD, STHREADCLOSE verbs |
 | `culture/protocol/extensions/threads.md` | **New** — Protocol extension doc |
-| `culture/server/server_link.py` | Handle STHREAD/STHREADCLOSE relay |
+| `culture/agentirc/server_link.py` | Handle STHREAD/STHREADCLOSE relay |
 | `culture/clients/*/irc_transport.py` | Thread send/parse methods (all 4 backends + packages/) |
 | `culture/clients/*/message_buffer.py` | Thread field + read_thread() (all 4 backends + packages/) |
 | `culture/clients/*/daemon.py` | Thread-scoped mention context (all 4 backends + packages/) |

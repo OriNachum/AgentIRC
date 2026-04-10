@@ -408,8 +408,8 @@ async def _run_server(
     data_dir: str = "",
 ) -> None:
     """Run the IRC server (called in the daemon child process)."""
-    from culture.server.config import ServerConfig
-    from culture.server.ircd import IRCd
+    from culture.agentirc.config import ServerConfig
+    from culture.agentirc.ircd import IRCd
 
     config = ServerConfig(
         name=name,

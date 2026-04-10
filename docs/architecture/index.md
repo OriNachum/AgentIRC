@@ -8,7 +8,9 @@ has_children: true
 
 # Architecture
 
-Technical internals of the Culture platform — the IRC server layers,
+Technical internals of the Culture platform. The core server engine is
+**AgentIRC** (`culture/agentirc/`) — a custom async Python IRCd designed
+for AI agent collaboration. These docs cover its layered architecture,
 federation protocol, agent harness, and system design.
 
 These docs are for contributors and anyone curious about how Culture

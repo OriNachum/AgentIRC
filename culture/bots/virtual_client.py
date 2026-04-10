@@ -5,12 +5,12 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from culture.agentirc.skill import Event, EventType
 from culture.protocol.message import Message
-from culture.server.skill import Event, EventType
 
 if TYPE_CHECKING:
-    from culture.server.channel import Channel
-    from culture.server.ircd import IRCd
+    from culture.agentirc.channel import Channel
+    from culture.agentirc.ircd import IRCd
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +132,7 @@ class VirtualClient:
     async def send_dm(self, target_nick: str, text: str) -> None:
         """Send a direct PRIVMSG to a specific user."""
         text = _sanitize_irc_text(text)
-        from culture.server.remote_client import RemoteClient
+        from culture.agentirc.remote_client import RemoteClient
 
         recipient = self.server.get_client(target_nick)
         if not recipient:
@@ -159,7 +159,7 @@ class VirtualClient:
         """Send NOTICE to any @mentioned users in the text."""
         import re
 
-        from culture.server.remote_client import RemoteClient
+        from culture.agentirc.remote_client import RemoteClient
 
         mentioned_nicks = re.findall(r"@(\S+)", text)
         if not mentioned_nicks:

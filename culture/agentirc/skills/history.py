@@ -6,12 +6,12 @@ from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from culture.agentirc.skill import Event, EventType, Skill
 from culture.protocol import replies
 from culture.protocol.message import Message
-from culture.server.skill import Event, EventType, Skill
 
 if TYPE_CHECKING:
-    from culture.server.client import Client
+    from culture.agentirc.client import Client
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ class HistorySkill(Skill):
         """Reload persisted history from SQLite on startup."""
         if not self.server.config.data_dir:
             return
-        from culture.server.history_store import HistoryStore
+        from culture.agentirc.history_store import HistoryStore
 
         try:
             store = HistoryStore(self.server.config.data_dir)

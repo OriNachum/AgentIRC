@@ -15,7 +15,7 @@ from culture.bots.config import (
 )
 
 if TYPE_CHECKING:
-    from culture.server.ircd import IRCd
+    from culture.agentirc.ircd import IRCd
 
 logger = logging.getLogger(__name__)
 

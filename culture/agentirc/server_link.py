@@ -5,13 +5,13 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
+from culture.agentirc.remote_client import RemoteClient
+from culture.agentirc.skill import Event, EventType
 from culture.aio import maybe_await
 from culture.protocol.message import Message
-from culture.server.remote_client import RemoteClient
-from culture.server.skill import Event, EventType
 
 if TYPE_CHECKING:
-    from culture.server.ircd import IRCd
+    from culture.agentirc.ircd import IRCd
 
 logger = logging.getLogger(__name__)
 

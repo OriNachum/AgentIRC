@@ -4,7 +4,7 @@ import tempfile
 
 import pytest
 
-from culture.server.skills.history import HistorySkill
+from culture.agentirc.skills.history import HistorySkill
 
 # --- Task 4: Recording tests ---
 
@@ -378,7 +378,7 @@ async def test_history_auto_registered(server, make_client):
 
 
 def test_history_store_append_and_get_recent():
-    from culture.server.history_store import HistoryStore
+    from culture.agentirc.history_store import HistoryStore
 
     with tempfile.TemporaryDirectory() as data_dir:
         store = HistoryStore(data_dir)
@@ -399,7 +399,7 @@ def test_history_store_append_and_get_recent():
 
 
 def test_history_store_search():
-    from culture.server.history_store import HistoryStore
+    from culture.agentirc.history_store import HistoryStore
 
     with tempfile.TemporaryDirectory() as data_dir:
         store = HistoryStore(data_dir)
@@ -421,7 +421,7 @@ def test_history_store_search():
 def test_history_store_prune():
     import time
 
-    from culture.server.history_store import HistoryStore
+    from culture.agentirc.history_store import HistoryStore
 
     with tempfile.TemporaryDirectory() as data_dir:
         store = HistoryStore(data_dir)
@@ -441,7 +441,7 @@ def test_history_store_prune():
 
 
 def test_history_store_load_channels():
-    from culture.server.history_store import HistoryStore
+    from culture.agentirc.history_store import HistoryStore
 
     with tempfile.TemporaryDirectory() as data_dir:
         store = HistoryStore(data_dir)
@@ -464,8 +464,8 @@ def test_history_store_load_channels():
 @pytest.mark.asyncio
 async def test_history_persists_across_restart():
     """History should survive server restart when data_dir is configured."""
-    from culture.server.config import ServerConfig
-    from culture.server.ircd import IRCd
+    from culture.agentirc.config import ServerConfig
+    from culture.agentirc.ircd import IRCd
     from tests.conftest import IRCTestClient
 
     with tempfile.TemporaryDirectory() as data_dir:

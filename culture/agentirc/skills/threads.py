@@ -7,13 +7,13 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from culture.agentirc.skill import Event, EventType, Skill
 from culture.protocol import replies
 from culture.protocol.message import Message
-from culture.server.skill import Event, EventType, Skill
 
 if TYPE_CHECKING:
-    from culture.server.channel import Channel
-    from culture.server.client import Client
+    from culture.agentirc.channel import Channel
+    from culture.agentirc.client import Client
 
 # Thread name: alphanumeric + hyphens, 1-32 chars, must start/end with alnum
 _THREAD_NAME_RE = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,30}[a-zA-Z0-9])?$")
@@ -59,7 +59,7 @@ class ThreadsSkill(Skill):
         """Reload persisted threads from disk on startup."""
         if not self.server.config.data_dir:
             return
-        from culture.server.thread_store import ThreadStore
+        from culture.agentirc.thread_store import ThreadStore
 
         store = ThreadStore(self.server.config.data_dir)
         for data in store.load_all():
@@ -86,7 +86,7 @@ class ThreadsSkill(Skill):
         """Save a thread to disk if data_dir is configured."""
         if not self.server.config.data_dir:
             return
-        from culture.server.thread_store import ThreadStore
+        from culture.agentirc.thread_store import ThreadStore
 
         store = ThreadStore(self.server.config.data_dir)
         store.save(
@@ -306,7 +306,7 @@ class ThreadsSkill(Skill):
 
         Returns the prefixed text for use in event data.
         """
-        from culture.server.remote_client import RemoteClient
+        from culture.agentirc.remote_client import RemoteClient
 
         prefixed = self._format_thread_msg(thread_name, text)
         relay = Message(
@@ -330,7 +330,7 @@ class ThreadsSkill(Skill):
         text: str,
     ) -> None:
         """Find @mentions in text and send a NOTICE to each mentioned user in the channel."""
-        from culture.server.remote_client import RemoteClient
+        from culture.agentirc.remote_client import RemoteClient
 
         mentioned_nicks = re.findall(r"@(\S+)", text)
         if not mentioned_nicks:
@@ -411,7 +411,7 @@ class ThreadsSkill(Skill):
         summary: str | None,
     ) -> None:
         """Archive a thread, notify channel members, persist, and emit event."""
-        from culture.server.remote_client import RemoteClient
+        from culture.agentirc.remote_client import RemoteClient
 
         thread.archived = True
         thread.summary = summary
@@ -552,7 +552,7 @@ class ThreadsSkill(Skill):
         breakout_name: str,
     ) -> None:
         """Archive the promoted thread, notify channel, persist, and emit event."""
-        from culture.server.remote_client import RemoteClient
+        from culture.agentirc.remote_client import RemoteClient
 
         thread.archived = True
         thread.summary = f"Promoted to {breakout_name}"
@@ -659,7 +659,7 @@ class ThreadsSkill(Skill):
 
     async def _populate_breakout(self, thread: Thread, breakout, breakout_name: str) -> None:
         """Gather local participants from the thread, auto-join them, and send JOIN messages."""
-        from culture.server.remote_client import RemoteClient
+        from culture.agentirc.remote_client import RemoteClient
 
         participant_nicks = thread.participants
         participants = []
@@ -683,7 +683,7 @@ class ThreadsSkill(Skill):
 
     async def _replay_thread_history(self, thread: Thread, breakout_name: str) -> None:
         """Replay all thread messages as NOTICE to breakout channel members."""
-        from culture.server.remote_client import RemoteClient
+        from culture.agentirc.remote_client import RemoteClient
 
         breakout = self.server.channels.get(breakout_name)
         if breakout is None:

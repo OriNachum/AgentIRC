@@ -16,8 +16,8 @@
 
 | File | Responsibility |
 |------|---------------|
-| `culture/server/ircd.py` | **Modify** — add `_link_retry_state`, `_maybe_retry_link()`, `cancel_link_retry()`, update `_remove_link()` and `stop()` |
-| `culture/server/server_link.py` | **Modify** — add `_squit_received` flag, pass squit reason to `_remove_link`, cancel retry on handshake success |
+| `culture/agentirc/ircd.py` | **Modify** — add `_link_retry_state`, `_maybe_retry_link()`, `cancel_link_retry()`, update `_remove_link()` and `stop()` |
+| `culture/agentirc/server_link.py` | **Modify** — add `_squit_received` flag, pass squit reason to `_remove_link`, cancel retry on handshake success |
 | `culture/mesh_config.py` | **Create** — `MeshConfig` dataclasses + YAML load/save |
 | `culture/persistence.py` | **Create** — cross-platform service install/uninstall/list |
 | `culture/cli.py` | **Modify** — add `--foreground` flag, `setup` command, `update` command, Windows platform guards |
@@ -34,7 +34,7 @@
 
 **Files:**
 
-- Modify: `culture/server/ircd.py` (lines 19-106)
+- Modify: `culture/agentirc/ircd.py` (lines 19-106)
 - Test: `tests/test_link_reconnect.py`
 
 - [ ] **Step 1: Write failing test — link drop triggers retry**
@@ -48,8 +48,8 @@ Create `tests/test_link_reconnect.py`:
 import asyncio
 import pytest
 
-from culture.server.config import LinkConfig, ServerConfig
-from culture.server.ircd import IRCd
+from culture.agentirc.config import LinkConfig, ServerConfig
+from culture.agentirc.ircd import IRCd
 
 
 @pytest.mark.asyncio
@@ -114,7 +114,7 @@ Expected: FAIL — `IRCd` has no `_link_retry_state` attribute.
 
 - [ ] **Step 3: Add retry state and scheduling to IRCd**
 
-In `culture/server/ircd.py`, add to `__init__` after line 33:
+In `culture/agentirc/ircd.py`, add to `__init__` after line 33:
 
 ```python
         self._link_retry_state: dict[str, dict] = {}
@@ -230,7 +230,7 @@ Expected: PASS
 
 ```bash
 cd /home/spark/git/culture
-git add culture/server/ircd.py tests/test_link_reconnect.py
+git add culture/agentirc/ircd.py tests/test_link_reconnect.py
 git commit -m "feat: add S2S link retry state and scheduling to IRCd"
 ```
 
@@ -240,7 +240,7 @@ git commit -m "feat: add S2S link retry state and scheduling to IRCd"
 
 **Files:**
 
-- Modify: `culture/server/server_link.py` (lines 18-104, 135-170, 482-484)
+- Modify: `culture/agentirc/server_link.py` (lines 18-104, 135-170, 482-484)
 - Test: `tests/test_link_reconnect.py`
 
 - [ ] **Step 1: Write failing test — SQUIT does not trigger retry**
@@ -308,7 +308,7 @@ Expected: FAIL — `_remove_link` is called without `squit=True` because `Server
 
 - [ ] **Step 3: Add SQUIT flag to ServerLink**
 
-In `culture/server/server_link.py`:
+In `culture/agentirc/server_link.py`:
 
 Add `self._squit_received = False` to `__init__` after line 43 (`self.last_seen_seq: int = 0`):
 
@@ -347,7 +347,7 @@ Expected: PASS
 
 ```bash
 cd /home/spark/git/culture
-git add culture/server/server_link.py tests/test_link_reconnect.py
+git add culture/agentirc/server_link.py tests/test_link_reconnect.py
 git commit -m "feat: distinguish SQUIT from crash in S2S link drop"
 ```
 
@@ -357,7 +357,7 @@ git commit -m "feat: distinguish SQUIT from crash in S2S link drop"
 
 **Files:**
 
-- Modify: `culture/server/server_link.py` (line 170)
+- Modify: `culture/agentirc/server_link.py` (line 170)
 - Test: `tests/test_link_reconnect.py`
 
 - [ ] **Step 1: Write failing test — incoming connection cancels outbound retry**
@@ -436,7 +436,7 @@ Expected: FAIL — `cancel_link_retry` is not called during handshake.
 
 - [ ] **Step 3: Call cancel_link_retry on successful handshake**
 
-In `culture/server/server_link.py`, in `_try_complete_handshake`, add after line 170 (`self.server.links[self.peer_name] = self`):
+In `culture/agentirc/server_link.py`, in `_try_complete_handshake`, add after line 170 (`self.server.links[self.peer_name] = self`):
 
 ```python
         self.server.cancel_link_retry(self.peer_name)
@@ -452,7 +452,7 @@ Expected: PASS
 
 ```bash
 cd /home/spark/git/culture
-git add culture/server/server_link.py tests/test_link_reconnect.py
+git add culture/agentirc/server_link.py tests/test_link_reconnect.py
 git commit -m "feat: cancel S2S link retry on incoming peer connection"
 ```
 

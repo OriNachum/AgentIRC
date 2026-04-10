@@ -295,8 +295,8 @@ the retry cycle.
 |------|--------|
 | `culture/persistence.py` | **NEW** — platform auto-start generation |
 | `culture/mesh_config.py` | **NEW** — mesh.yaml dataclass + load/save |
-| `culture/server/ircd.py` | Add `_link_retry_state`, `_maybe_retry_link`, `cancel_link_retry`; modify `_remove_link` signature; modify `stop()` |
-| `culture/server/server_link.py` | Add `_squit_received` flag; pass `squit` to `_remove_link` in `handle()` finally; call `cancel_link_retry` in handshake |
+| `culture/agentirc/ircd.py` | Add `_link_retry_state`, `_maybe_retry_link`, `cancel_link_retry`; modify `_remove_link` signature; modify `stop()` |
+| `culture/agentirc/server_link.py` | Add `_squit_received` flag; pass `squit` to `_remove_link` in `handle()` finally; call `cancel_link_retry` in handshake |
 | `culture/cli.py` | Add `setup` and `update` subcommands; add `--foreground` to `server start` and `start`; guard `os.fork()`/`os.setsid()`/`SIGKILL` for Windows |
 
 ## Files to Create

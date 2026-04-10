@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING
 from culture.protocol.message import Message
 
 if TYPE_CHECKING:
-    from culture.server.channel import Channel
-    from culture.server.server_link import ServerLink
+    from culture.agentirc.channel import Channel
+    from culture.agentirc.server_link import ServerLink
 
 
 class RemoteClient:

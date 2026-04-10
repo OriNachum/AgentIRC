@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Union
 
 if TYPE_CHECKING:
-    from culture.server.client import Client
-    from culture.server.remote_client import RemoteClient
+    from culture.agentirc.client import Client
+    from culture.agentirc.remote_client import RemoteClient
 
     Member = Union[Client, RemoteClient]
 
@@ -41,15 +41,15 @@ class Channel:
 
     def _local_members(self) -> set[Client]:
         """Return only local (non-remote, non-virtual) members."""
+        from culture.agentirc.remote_client import RemoteClient
         from culture.bots.virtual_client import VirtualClient
-        from culture.server.remote_client import RemoteClient
 
         return {m for m in self.members if not isinstance(m, (RemoteClient, VirtualClient))}
 
     def add(self, client: Client) -> None:
         # Only grant op to the first LOCAL joiner
         if not self._local_members():
-            from culture.server.remote_client import RemoteClient
+            from culture.agentirc.remote_client import RemoteClient
 
             if not isinstance(client, RemoteClient):
                 self.operators.add(client)

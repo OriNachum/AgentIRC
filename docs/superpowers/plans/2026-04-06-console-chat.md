@@ -34,8 +34,8 @@
 | **Create:** `tests/test_console_icons.py` | Icon resolution tests |
 | **Create:** `tests/test_server_icon_skill.py` | Server-side ICON skill tests |
 | **Modify:** `culture/cli.py:89-356` | Add `console` subcommand + `_cmd_console` handler + server detection |
-| **Modify:** `culture/server/client.py:30-36,433-441,581-609` | Add `modes` set, `icon` field, extend WHO response, user mode handling |
-| **Modify:** `culture/server/ircd.py:76-87` | Register IconSkill |
+| **Modify:** `culture/agentirc/client.py:30-36,433-441,581-609` | Add `modes` set, `icon` field, extend WHO response, user mode handling |
+| **Modify:** `culture/agentirc/ircd.py:76-87` | Register IconSkill |
 | **Modify:** `culture/protocol/commands.py` | Add `ICON` constant |
 | **Modify:** `culture/clients/claude/config.py:50-61` | Add `icon` field to `AgentConfig` |
 | **Modify:** `culture/clients/claude/irc_transport.py:52-84` | Send `ICON` on connect if configured |
@@ -232,9 +232,9 @@ git commit -m "feat: add server discovery and default server helpers"
 ### Task 3: Server-Side User Modes and Icon Support
 
 **Files:**
-- Modify: `culture/server/client.py:30-36,433-441,581-609`
-- Create: `culture/server/skills/icon.py`
-- Modify: `culture/server/ircd.py:76-87`
+- Modify: `culture/agentirc/client.py:30-36,433-441,581-609`
+- Create: `culture/agentirc/skills/icon.py`
+- Modify: `culture/agentirc/ircd.py:76-87`
 - Create: `tests/test_server_icon_skill.py`
 
 - [ ] **Step 1: Write failing tests for user modes and ICON skill**
@@ -312,7 +312,7 @@ Expected: FAIL — modes and icon not implemented.
 
 - [ ] **Step 3: Add modes set and icon field to Client**
 
-In `culture/server/client.py`, add `modes` and `icon` to `__init__` after `self.tags`:
+In `culture/agentirc/client.py`, add `modes` and `icon` to `__init__` after `self.tags`:
 
 ```python
         self.tags: list[str] = []
@@ -322,7 +322,7 @@ In `culture/server/client.py`, add `modes` and `icon` to `__init__` after `self.
 
 - [ ] **Step 4: Update `_handle_user_mode` to support +H, +A, +B**
 
-Replace the existing `_handle_user_mode` method in `culture/server/client.py`:
+Replace the existing `_handle_user_mode` method in `culture/agentirc/client.py`:
 
 ```python
     async def _handle_user_mode(self, msg: Message) -> None:
@@ -352,7 +352,7 @@ Replace the existing `_handle_user_mode` method in `culture/server/client.py`:
 
 - [ ] **Step 5: Update WHO response to include user modes**
 
-In `culture/server/client.py`, in `_handle_who`, update the flags construction. Find the line `flags = "H"` (line ~593) and replace:
+In `culture/agentirc/client.py`, in `_handle_who`, update the flags construction. Find the line `flags = "H"` (line ~593) and replace:
 
 ```python
                     flags = "H"
@@ -378,7 +378,7 @@ with:
 
 - [ ] **Step 6: Create IconSkill**
 
-Create `culture/server/skills/icon.py`:
+Create `culture/agentirc/skills/icon.py`:
 
 ```python
 """ICON skill — lets clients set a display icon/emoji."""
@@ -386,10 +386,10 @@ Create `culture/server/skills/icon.py`:
 from __future__ import annotations
 
 from culture.protocol.message import Message
-from culture.server.skill import Skill
+from culture.agentirc.skill import Skill
 
 if __import__("typing").TYPE_CHECKING:
-    from culture.server.client import Client
+    from culture.agentirc.client import Client
 
 
 class IconSkill(Skill):
@@ -429,14 +429,14 @@ class IconSkill(Skill):
 
 - [ ] **Step 7: Register IconSkill in IRCd**
 
-In `culture/server/ircd.py`, in `_register_default_skills`, add:
+In `culture/agentirc/ircd.py`, in `_register_default_skills`, add:
 
 ```python
     async def _register_default_skills(self) -> None:
-        from culture.server.skills.history import HistorySkill
-        from culture.server.skills.icon import IconSkill
-        from culture.server.skills.rooms import RoomsSkill
-        from culture.server.skills.threads import ThreadsSkill
+        from culture.agentirc.skills.history import HistorySkill
+        from culture.agentirc.skills.icon import IconSkill
+        from culture.agentirc.skills.rooms import RoomsSkill
+        from culture.agentirc.skills.threads import ThreadsSkill
 
         await self.register_skill(HistorySkill())
         await self.register_skill(RoomsSkill())
@@ -452,7 +452,7 @@ Expected: All PASS.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add culture/server/client.py culture/server/skills/icon.py culture/server/ircd.py tests/test_server_icon_skill.py
+git add culture/agentirc/client.py culture/agentirc/skills/icon.py culture/agentirc/ircd.py tests/test_server_icon_skill.py
 git commit -m "feat: add user modes (+H/+A/+B) and ICON IRC skill"
 ```
 
