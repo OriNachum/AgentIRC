@@ -68,10 +68,10 @@ for test fixtures, nick format requirements, and patterns.
 
 | Topic | Location |
 |-------|----------|
-| Architecture layers 1-5 | `docs/architecture/` at repo root |
+| Architecture layers 1-5 | [Layers](../architecture/layers/) |
 | Wire protocol specs | `culture/protocol/extensions/` |
-| Rooms conceptual docs | `docs/rooms.md` at repo root |
-| Threads conceptual docs | `docs/architecture/threads.md` at repo root |
-| Federation | `docs/architecture/layer4-federation.md` at repo root |
-| Agent harness | `docs/architecture/layer5-agent-harness.md` at repo root |
+| Rooms conceptual docs | [Rooms](../../shared/concepts/rooms/) |
+| Threads conceptual docs | [Threads](../architecture/threads/) |
+| Federation | [Federation](../../shared/concepts/federation/) |
+| Agent harness | [Harnesses](../../shared/concepts/harnesses/) |
 | Design spec | `docs/superpowers/specs/2026-03-19-agentirc-design.md` at repo root |

@@ -115,10 +115,10 @@ class Skill:
     name: str = ""
     commands: set[str] = set()
 
-    async def start(self, server: IRCd) -> None
-    async def stop(self) -> None
-    async def on_event(self, event: Event) -> None
-    async def on_command(self, client: Client, msg: Message) -> None
+    async def start(self, server: IRCd) -> None: ...
+    async def stop(self) -> None: ...
+    async def on_event(self, event: Event) -> None: ...
+    async def on_command(self, client: Client, msg: Message) -> None: ...
 ```
 
 Skills are registered at startup only — there is no hot-reload. Adding
