@@ -218,3 +218,5 @@ safety-results.json
 
 # Generated docs (source of truth is culture/agentirc/docs/)
 docs/agentirc/
+_site_agentirc/
+_site_culture/
