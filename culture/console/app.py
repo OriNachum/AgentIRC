@@ -35,6 +35,7 @@ class ConsoleApp(App):
     BINDINGS = [
         Binding("ctrl+o", "show_overview", "Overview", show=True),
         Binding("ctrl+s", "show_status", "Status", show=True),
+        Binding("ctrl+h", "show_help", "Help", show=True),
         Binding("escape", "back_to_chat", "Chat", show=True),
         Binding("ctrl+q", "quit_app", "Quit", show=True),
         Binding("tab", "next_channel", "Next channel", show=False),
@@ -87,6 +88,7 @@ class ConsoleApp(App):
             CommandType.INVITE: self._handle_invite,
             CommandType.SERVER: self._handle_server,
             CommandType.QUIT: self._handle_quit,
+            CommandType.HELP: self._handle_help,
         }
 
     # ------------------------------------------------------------------
@@ -380,6 +382,50 @@ class ConsoleApp(App):
 
     async def _handle_quit(self, cmd) -> None:  # noqa: ANN001
         await self.action_quit_app()
+
+    def _handle_help(self, cmd) -> None:  # noqa: ANN001
+        self.action_show_help()
+
+    def action_show_help(self) -> None:
+        """Show help content with all commands and keybindings."""
+        chat: ChatPanel = self.query_one(ChatPanel)
+        lines = [
+            "[bold $warning]COMMANDS[/]",
+            "",
+            "  [bold]/help[/]                  Show this help",
+            "  [bold]/join[/] #channel         Join a channel",
+            "  [bold]/part[/] [#channel]       Leave a channel",
+            "  [bold]/read[/] [#ch] [-n N]     Read channel history (default 50)",
+            "  [bold]/who[/] [target]          List channel members",
+            "  [bold]/send[/] <target> <text>  Send a direct message",
+            "  [bold]/channels[/]              List server channels",
+            "  [bold]/agents[/]                List visible agents",
+            "  [bold]/status[/] [agent]        Show status info",
+            "  [bold]/overview[/]              Show mesh overview",
+            "  [bold]/icon[/] <emoji>          Set your icon",
+            "  [bold]/topic[/] #ch <text>      Set channel topic",
+            "  [bold]/kick[/] #ch <nick>       Kick a user",
+            "  [bold]/invite[/] <nick> #ch     Invite a user",
+            "  [bold]/server[/] [name]         Switch server (restarts console)",
+            "  [bold]/quit[/]                  Exit console",
+            "",
+            "[bold $warning]KEYBINDINGS[/]",
+            "",
+            "  [bold]Tab / Shift+Tab[/]        Cycle channels",
+            "  [bold]Ctrl+O[/]                 Overview",
+            "  [bold]Ctrl+S[/]                 Status",
+            "  [bold]Ctrl+H[/]                 Help",
+            "  [bold]Escape[/]                 Back to chat",
+            "  [bold]Ctrl+Q[/]                 Quit",
+        ]
+        chat.set_content("Help", lines)
+
+        # Hide input — not meaningful in help view
+        try:
+            input_widget = self.query_one(self._CHAT_INPUT_ID)
+            input_widget.display = False
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # View actions
