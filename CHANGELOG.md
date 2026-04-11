@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [6.2.0] - 2026-04-12
+
+
+### Added
+
+- Agent status indicators in console sidebar (#218) — shows working/idle/paused/circuit-open for each agent
+- Auto-read channel history on switch (#219) — loads last 20 messages when switching channels via Tab, sidebar click, or /join
+- Help menu — /help command and Ctrl+H keybinding showing all commands and keybindings
+
+
+### Fixed
+
+- Joined message no longer wiped by channel switch clear_log
+
 ## [6.1.1] - 2026-04-11
 
 

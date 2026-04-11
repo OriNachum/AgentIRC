@@ -26,6 +26,7 @@ class CommandType(Enum):
     INVITE = auto()
     SERVER = auto()
     QUIT = auto()
+    HELP = auto()
     UNKNOWN = auto()
 
 
@@ -60,6 +61,7 @@ _COMMANDS: dict[str, CommandType] = {
     "invite": CommandType.INVITE,
     "server": CommandType.SERVER,
     "quit": CommandType.QUIT,
+    "help": CommandType.HELP,
 }
 
 

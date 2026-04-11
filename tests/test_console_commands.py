@@ -125,3 +125,9 @@ def test_parse_unknown_command():
     result = parse_command("/unknown foo bar")
     assert result.type == CommandType.UNKNOWN
     assert result.text == "/unknown foo bar"
+
+
+def test_parse_help():
+    result = parse_command("/help")
+    assert result.type == CommandType.HELP
+    assert result.args == []

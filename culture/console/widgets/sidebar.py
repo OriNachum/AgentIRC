@@ -32,6 +32,7 @@ class EntityItem:
     entity_type: str = "agent"  # "agent" | "admin" | "human" | "bot"
     online: bool = True
     icon: str = ""
+    activity: str = ""  # "working" | "idle" | "paused" | "circuit-open" | ""
 
 
 # ---------------------------------------------------------------------------
@@ -44,6 +45,14 @@ _TYPE_ICON: dict[str, str] = {
     "admin": "👑",
     "human": "👤",
     "bot": "⚙",
+}
+
+# Activity indicators for agent status
+_ACTIVITY_INDICATOR: dict[str, str] = {
+    "working": "[green]●[/]",
+    "idle": "[dim]○[/]",
+    "paused": "[yellow]⏸[/]",
+    "circuit-open": "[red]⚠[/]",
 }
 
 # Group order for entity types
@@ -105,7 +114,12 @@ class _EntityRow(Static):
     """
 
     def __init__(self, entity: EntityItem) -> None:
-        dot = "[green]●[/]" if entity.online else "[dim]○[/]"
+        if entity.activity and entity.activity in _ACTIVITY_INDICATOR:
+            dot = _ACTIVITY_INDICATOR[entity.activity]
+        elif entity.online:
+            dot = "●"
+        else:
+            dot = "[dim]○[/]"
         icon = entity.icon or _TYPE_ICON.get(entity.entity_type, "")
         markup = f"{dot} {icon} {entity.nick}"
         super().__init__(markup, markup=True)
