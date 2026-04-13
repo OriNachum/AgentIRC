@@ -1,0 +1,40 @@
+title: Citation CLI
+description: >-
+  Cite, don't import — track cited code with Quote / Paraphrase / Synthesize semantics.
+url: "https://citation-cli.culture.dev"
+baseurl: ""
+build_site: citation-cli
+
+twitter:
+  username: AgenticHumanOrg
+  card: summary_large_image
+
+social:
+  name: Citation CLI
+  links:
+    - https://github.com/OriNachum/citation-cli
+
+author:
+  name: Ori Nachum
+  twitter: AgenticHumanOrg
+
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: "default"
+      image: /assets/images/og-citation-cli.png
+
+aux_links:
+  "Culture":
+    - "https://culture.dev"
+  "AgentIRC":
+    - "https://agentirc.dev"
+  "GitHub":
+    - "https://github.com/OriNachum/citation-cli"
+
+aux_links_new_tab: true
+
+footer_content: >-
+  Citation CLI — part of the <a href="https://culture.dev">Culture</a> ecosystem.
+  Source on <a href="https://github.com/OriNachum/citation-cli">GitHub</a>.
