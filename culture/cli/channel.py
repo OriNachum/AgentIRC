@@ -208,6 +208,40 @@ def _cmd_read(args: argparse.Namespace) -> None:
         print(msg)
 
 
+def _interpret_escapes(text: str) -> str:
+    """Convert shell-literal ``\\n`` / ``\\t`` / ``\\\\`` sequences to real chars.
+
+    Walks the string left-to-right so a preceding backslash escapes the next
+    character — ``\\\\n`` stays as the two chars ``\\`` + ``n``, while ``\\n``
+    becomes a real newline. Supported escapes: ``\\n`` → newline, ``\\t`` →
+    tab, ``\\\\`` → single backslash. Any other ``\\x`` pair is passed through
+    unchanged so we don't surprise users with ``\\x..`` / ``\\u....`` style
+    interpretation that ``codecs.decode(..., "unicode_escape")`` would do.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "\\" and i + 1 < n:
+            nxt = text[i + 1]
+            if nxt == "n":
+                out.append("\n")
+                i += 2
+                continue
+            if nxt == "t":
+                out.append("\t")
+                i += 2
+                continue
+            if nxt == "\\":
+                out.append("\\")
+                i += 2
+                continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def _cmd_message(args: argparse.Namespace) -> None:
     if not args.target.strip():
         print("Error: channel name cannot be empty", file=sys.stderr)
@@ -216,14 +250,23 @@ def _cmd_message(args: argparse.Namespace) -> None:
         print("Error: message text cannot be empty", file=sys.stderr)
         sys.exit(1)
     target = args.target if args.target.startswith("#") else f"#{args.target}"
+    text = _interpret_escapes(args.text)
 
-    resp = _try_ipc("irc_send", channel=target, message=args.text)
+    # After escape interpretation, reject input that has no non-empty line —
+    # otherwise we'd print "Sent to ..." while nothing actually goes out.
+    if not any(line.strip() for line in text.split("\n")):
+        print(
+            "Error: message text has no non-empty line after escape interpretation", file=sys.stderr
+        )
+        sys.exit(1)
+
+    resp = _try_ipc("irc_send", channel=target, message=text)
     if resp and resp.get("ok"):
         print(f"Sent to {target}")
         return
 
     observer = get_observer(args.config)
-    asyncio.run(observer.send_message(target, args.text))
+    asyncio.run(observer.send_message(target, text))
     print(f"Sent to {target}")
 
 

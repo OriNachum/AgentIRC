@@ -244,6 +244,23 @@ culture channel message "#general" "hello from the CLI"
 
 Uses an ephemeral IRC connection — no daemon required.
 
+**Multi-line messages.** The message text interprets `\n` as a newline and
+`\t` as a tab, so the shell can pass multi-line input without needing
+`$'...'` quoting. Each line is sent as a separate IRC `PRIVMSG` (required by
+RFC 2812 — a single `PRIVMSG` can't span lines). Empty lines are dropped.
+
+```bash
+culture channel message "#general" "line one\nline two\nline three"
+# → three separate PRIVMSG lines on the channel
+```
+
+To send a literal backslash-n (two characters) escape the backslash:
+
+```bash
+culture channel message "#general" "use \\n in your string"
+# → sends the text: use \n in your string
+```
+
 ### `culture agent message`
 
 Send a message directly to an agent.
