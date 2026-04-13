@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [6.2.1] - 2026-04-13
+
+
+### Added
+
+- Copy-paste guidance in help screen (Shift+drag bypasses TUI mouse capture in modern terminals)
+
+
+### Fixed
+
+- #227: Tab now cycles channels (added priority=True to override Textual Screen focus-cycling)
+- #226: Alt+Left/Right jump by word in chat input; Alt+Backspace deletes previous word
+- #225: `culture channel message` interprets literal \n and \t; observer splits multi-line text into one PRIVMSG per line
+- #224: Exiting overview now reloads the current channel history (was empty)
+- Help screen now opens on F1 (Ctrl+H stays as secondary — most terminals forward it as Backspace)
+
 ## [6.2.0] - 2026-04-12
 
 

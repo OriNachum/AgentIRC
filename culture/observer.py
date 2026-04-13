@@ -205,11 +205,17 @@ class IRCObserver:
     async def send_message(self, target: str, text: str) -> None:
         """Send a PRIVMSG to a channel or nick, then disconnect.
 
+        Multi-line ``text`` (real ``\\n`` bytes) is split into one PRIVMSG per
+        line, since IRC PRIVMSG must be single-line per RFC 2812.
+
         Uses the same ephemeral connection pattern as the read commands.
         """
-        # Sanitize CR/LF to prevent IRC command injection
+        # Sanitize CR in target to prevent IRC command injection
         target = target.replace("\r", "").replace("\n", "")
-        text = text.replace("\r", "").replace("\n", " ")
+        # Split on real newlines; drop empty lines and strip CRs
+        lines = [ln for ln in text.replace("\r", "").split("\n") if ln]
+        if not lines:
+            return
 
         reader, writer, nick = await self._connect_and_register()
         try:
@@ -220,7 +226,8 @@ class IRCObserver:
                 # Drain join responses
                 await self._recv_lines(reader, timeout=1.0)
 
-            writer.write(f"PRIVMSG {target} :{text}\r\n".encode())
+            for line in lines:
+                writer.write(f"PRIVMSG {target} :{line}\r\n".encode())
             await writer.drain()
         finally:
             await self._disconnect(writer)

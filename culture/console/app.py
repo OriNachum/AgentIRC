@@ -35,11 +35,15 @@ class ConsoleApp(App):
     BINDINGS = [
         Binding("ctrl+o", "show_overview", "Overview", show=True),
         Binding("ctrl+s", "show_status", "Status", show=True),
-        Binding("ctrl+h", "show_help", "Help", show=True),
+        Binding("f1", "show_help", "Help", show=True),
+        # Most terminals send 0x08 (backspace) for Ctrl+H, so this secondary
+        # bind only fires under terminals with modifyOtherKeys enabled.
+        Binding("ctrl+h", "show_help", "Help", show=False),
         Binding("escape", "back_to_chat", "Chat", show=True),
         Binding("ctrl+q", "quit_app", "Quit", show=True),
-        Binding("tab", "next_channel", "Next channel", show=False),
-        Binding("shift+tab", "prev_channel", "Prev channel", show=False),
+        # priority=True so Tab wins against Screen's default focus-cycling.
+        Binding("tab", "next_channel", "Next channel", show=False, priority=True),
+        Binding("shift+tab", "prev_channel", "Prev channel", show=False, priority=True),
     ]
 
     DEFAULT_CSS = """
@@ -413,11 +417,19 @@ class ConsoleApp(App):
             "[bold $warning]KEYBINDINGS[/]",
             "",
             "  [bold]Tab / Shift+Tab[/]        Cycle channels",
+            "  [bold]Alt+←/→[/]                Jump by word in input",
+            "  [bold]Alt+Backspace[/]          Delete previous word",
             "  [bold]Ctrl+O[/]                 Overview",
             "  [bold]Ctrl+S[/]                 Status",
-            "  [bold]Ctrl+H[/]                 Help",
+            "  [bold]F1[/]                     Help (Ctrl+H on terminals that forward it)",
             "  [bold]Escape[/]                 Back to chat",
             "  [bold]Ctrl+Q[/]                 Quit",
+            "",
+            "[bold $warning]COPY-PASTE[/]",
+            "",
+            "  Hold [bold]Shift[/] while dragging with the mouse to select text for copy-paste.",
+            "  Most modern terminals (iTerm2, Kitty, Alacritty, WezTerm, GNOME Terminal,",
+            "  Windows Terminal) let Shift bypass the TUI's mouse capture.",
         ]
         chat.set_content("Help", lines)
 
@@ -567,15 +579,17 @@ class ConsoleApp(App):
         ]
         sidebar.entities = entity_items
 
-    def action_back_to_chat(self) -> None:
-        """Return to the normal chat view."""
+    async def action_back_to_chat(self) -> None:
+        """Return to the normal chat view, reloading current channel history."""
         if self._current_view == "chat":
             return
+        if self._current_channel:
+            # Delegate: resets view, shows input, and reloads recent history —
+            # equivalent to running /read on the current channel.
+            await self._switch_to_channel(self._current_channel)
+            return
+        # No channel yet — just restore chat view and show the input.
         self._current_view = "chat"
-        chat: ChatPanel = self.query_one(ChatPanel)
-        chat.set_channel(self._current_channel)
-
-        # Re-show input
         try:
             input_widget = self.query_one(self._CHAT_INPUT_ID)
             input_widget.display = True

@@ -5,10 +5,33 @@ from __future__ import annotations
 from datetime import datetime
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Vertical
 from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Input, RichLog, Static
+
+
+class ChatInput(Input):
+    """Input with Alt+Arrow word-jump and Alt+Backspace word-delete."""
+
+    BINDINGS = [
+        Binding("alt+left", "cursor_left_word", "Word left", show=False),
+        Binding("alt+right", "cursor_right_word", "Word right", show=False),
+        Binding(
+            "alt+shift+left",
+            "cursor_left_word(True)",
+            "Select word left",
+            show=False,
+        ),
+        Binding(
+            "alt+shift+right",
+            "cursor_right_word(True)",
+            "Select word right",
+            show=False,
+        ),
+        Binding("alt+backspace", "delete_left_word", "Delete word", show=False),
+    ]
 
 
 class ChatPanel(Widget):
@@ -75,7 +98,7 @@ class ChatPanel(Widget):
         yield Static("", id="chat-header")
         with Vertical():
             yield RichLog(id="chat-log", markup=True, wrap=True, highlight=False)
-        yield Input(placeholder="Type a message or /command…", id="chat-input")
+        yield ChatInput(placeholder="Type a message or /command…", id="chat-input")
 
     def on_mount(self) -> None:
         self._channel = ""

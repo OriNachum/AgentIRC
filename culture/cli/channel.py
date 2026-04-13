@@ -208,6 +208,16 @@ def _cmd_read(args: argparse.Namespace) -> None:
         print(msg)
 
 
+def _interpret_escapes(text: str) -> str:
+    """Convert shell-literal ``\\n`` / ``\\t`` sequences to real newlines / tabs.
+
+    Narrow scope — we do not use ``codecs.decode(..., "unicode_escape")``
+    because that would also change ``\\\\``, ``\\x..``, ``\\u....``, which
+    creates surprising behaviour for casual CLI users.
+    """
+    return text.replace(r"\n", "\n").replace(r"\t", "\t")
+
+
 def _cmd_message(args: argparse.Namespace) -> None:
     if not args.target.strip():
         print("Error: channel name cannot be empty", file=sys.stderr)
@@ -216,14 +226,15 @@ def _cmd_message(args: argparse.Namespace) -> None:
         print("Error: message text cannot be empty", file=sys.stderr)
         sys.exit(1)
     target = args.target if args.target.startswith("#") else f"#{args.target}"
+    text = _interpret_escapes(args.text)
 
-    resp = _try_ipc("irc_send", channel=target, message=args.text)
+    resp = _try_ipc("irc_send", channel=target, message=text)
     if resp and resp.get("ok"):
         print(f"Sent to {target}")
         return
 
     observer = get_observer(args.config)
-    asyncio.run(observer.send_message(target, args.text))
+    asyncio.run(observer.send_message(target, text))
     print(f"Sent to {target}")
 
 
