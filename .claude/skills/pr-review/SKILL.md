@@ -171,7 +171,15 @@ bash ~/.claude/skills/pr-review/scripts/pr-reply.sh --resolve <PR_NUMBER> <COMME
 - Always use `--resolve` to resolve the thread after replying
 - Every comment must get a reply — no silent fixes
 
-## Step 9 — Wait for merge
+## Step 9 — Check SonarCloud before declaring ready
+
+After CI is green and all inline threads are resolved, query SonarCloud
+for the branch via the `/sonarclaude` skill. SonarCloud findings do not
+always arrive as inline PR comments — a fully-resolved thread list plus an
+all-green `gh pr checks` is **not** sufficient evidence that the PR is
+clean. If `/sonarclaude` surfaces new findings, loop back to Step 7.
+
+## Step 10 — Wait for merge
 
 **Never merge the PR yourself.** The PR is merged manually on the GitHub site.
 
