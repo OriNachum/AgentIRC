@@ -35,6 +35,7 @@ class Client:
         self.channels: set[Channel] = set()
         self._registered = False
         self.tags: list[str] = []
+        self.caps: set[str] = set()
         self.modes: set[str] = set()
         self.icon: str | None = None
 
@@ -48,6 +49,25 @@ class Client:
             await self.writer.drain()
         except OSError:
             pass  # Client disconnected; cleanup happens in ircd._handle_connection
+
+    async def send_raw(self, line: str) -> None:
+        """Write a pre-formatted IRC line to the client socket."""
+        try:
+            self.writer.write(line.encode("utf-8"))
+            await self.writer.drain()
+        except OSError:
+            pass  # Client disconnected; cleanup happens in ircd._handle_connection
+
+    async def send_tagged(self, msg: Message) -> None:
+        """Send a Message, stripping tags for clients that haven't negotiated message-tags."""
+        if msg.tags and "message-tags" not in self.caps:
+            msg = Message(
+                tags={},
+                prefix=msg.prefix,
+                command=msg.command,
+                params=list(msg.params),
+            )
+        await self.send(msg)
 
     async def send_numeric(self, code: str, *params: str) -> None:
         target = self.nick or "*"
@@ -113,6 +133,29 @@ class Client:
 
     def _handle_pong(self, msg: Message) -> None:
         pass  # Client responding to our ping
+
+    async def _handle_cap(self, msg: Message) -> None:
+        sub = msg.params[0].upper() if msg.params else ""
+        if sub == "LS":
+            await self.send_raw(
+                f":{self.server.config.name} CAP {self.nick or '*'} LS :message-tags\r\n"
+            )
+        elif sub == "REQ":
+            requested = msg.params[1].split() if len(msg.params) >= 2 else []
+            supported = {"message-tags"}
+            if all(cap in supported for cap in requested):
+                self.caps.update(requested)
+                await self.send_raw(
+                    f":{self.server.config.name} CAP {self.nick or '*'}"
+                    f" ACK :{' '.join(requested)}\r\n"
+                )
+            else:
+                await self.send_raw(
+                    f":{self.server.config.name} CAP {self.nick or '*'}"
+                    f" NAK :{' '.join(requested)}\r\n"
+                )
+        elif sub == "END":
+            pass  # no registration-gating in v1
 
     async def _handle_nick(self, msg: Message) -> None:
         if not msg.params:
