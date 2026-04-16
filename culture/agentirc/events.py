@@ -13,9 +13,25 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
+from culture.agentirc.skill import EventType
 from culture.constants import EVENT_TYPE_RE
 
 logger = logging.getLogger(__name__)
+
+# Event types whose content is already delivered to clients via the normal
+# IRC path (PRIVMSG, NOTICE, TOPIC) or has dedicated storage (threads).
+# Used by both IRCd._surface_event_privmsg (to avoid double-delivery) and
+# HistorySkill (to avoid double-storage).  Keep this as the single source
+# of truth — do not duplicate.
+NO_SURFACE_EVENT_TYPES: frozenset[str] = frozenset(
+    {
+        EventType.MESSAGE.value,
+        EventType.THREAD_CREATE.value,
+        EventType.THREAD_MESSAGE.value,
+        EventType.THREAD_CLOSE.value,
+        EventType.TOPIC.value,
+    }
+)
 
 RenderFn = Callable[[dict[str, Any], str | None], str]
 

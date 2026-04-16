@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 from culture.agentirc.channel import Channel
 from culture.agentirc.config import ServerConfig
-from culture.agentirc.events import render_event
+from culture.agentirc.events import NO_SURFACE_EVENT_TYPES, render_event
 from culture.agentirc.skill import Event, EventType, Skill
 from culture.bots.virtual_client import VirtualClient
 from culture.constants import (
@@ -189,18 +189,7 @@ class IRCd:
         # 4) Surface as tagged PRIVMSG from system-<server>.
         await self._surface_event_privmsg(event)
 
-    # Event types whose content is already delivered to clients via the normal
-    # IRC path (PRIVMSG, NOTICE, TOPIC).  Surfacing these as additional system
-    # PRIVMSGs would double-deliver them and break echo-suppression tests.
-    _NO_SURFACE_TYPES = frozenset(
-        {
-            EventType.MESSAGE.value,
-            EventType.THREAD_CREATE.value,
-            EventType.THREAD_MESSAGE.value,
-            EventType.THREAD_CLOSE.value,
-            EventType.TOPIC.value,
-        }
-    )
+    _NO_SURFACE_TYPES = NO_SURFACE_EVENT_TYPES
 
     @staticmethod
     def _build_event_payload(event: Event) -> dict:

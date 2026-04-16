@@ -6,7 +6,9 @@ from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from culture.agentirc.events import NO_SURFACE_EVENT_TYPES, render_event
 from culture.agentirc.skill import Event, EventType, Skill
+from culture.constants import SYSTEM_CHANNEL, SYSTEM_USER_PREFIX
 from culture.protocol import replies
 from culture.protocol.message import Message
 
@@ -26,6 +28,8 @@ class HistoryEntry:
 class HistorySkill(Skill):
     name = "history"
     commands = {"HISTORY"}
+
+    _NO_STORE_TYPES = NO_SURFACE_EVENT_TYPES
 
     def __init__(self, maxlen: int = 10000, retention_days: int = 30):
         self.maxlen = maxlen
@@ -85,6 +89,30 @@ class HistorySkill(Skill):
             )
             if self._store is not None:
                 self._store.append(event.channel, event.nick, event.data["text"], event.timestamp)
+            return
+
+        # Skip event types that are delivered via their own IRC verbs
+        # (THREAD_*, TOPIC) — they have dedicated storage. MESSAGE was
+        # already handled above.
+        type_wire = event.type.value if hasattr(event.type, "value") else str(event.type)
+        if type_wire in self._NO_STORE_TYPES:
+            return
+
+        # Store lifecycle events (agent.connect, server.wake, etc.)
+        target = event.channel or SYSTEM_CHANNEL
+        origin = event.data.get("_origin") or self.server.config.name
+        nick = f"{SYSTEM_USER_PREFIX}{origin}"
+        payload = {k: v for k, v in event.data.items() if not k.startswith("_")}
+        if event.nick:
+            payload.setdefault("nick", event.nick)
+        if event.channel:
+            payload.setdefault("channel", event.channel)
+        body = event.data.get("_render") or render_event(type_wire, payload, event.channel)
+
+        buf = self._channels.setdefault(target, deque(maxlen=self.maxlen))
+        buf.append(HistoryEntry(nick=nick, text=body, timestamp=event.timestamp))
+        if self._store is not None:
+            self._store.append(target, nick, body, event.timestamp)
 
     def get_recent(self, channel: str, count: int) -> list[HistoryEntry]:
         if count <= 0:

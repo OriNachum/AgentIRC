@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [6.7.0] - 2026-04-17
+
+
+### Added
+
+- HistorySkill stores lifecycle events — HISTORY RECENT now replays agent.connect, server.wake, room.create, etc.
+
 ## [6.6.0] - 2026-04-17
 
 
