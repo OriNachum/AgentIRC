@@ -534,6 +534,32 @@ class Client:
             return None
         return self._USER_MODE_EDGE_EVENTS.get((ch, adding))
 
+    def _parse_mode_edges(self, modestring: str) -> list[EventType]:
+        """Apply each char of ``modestring`` and collect the emitted edge events."""
+        pending: list[EventType] = []
+        adding = True
+        for ch in modestring:
+            if ch == "+":
+                adding = True
+            elif ch == "-":
+                adding = False
+            else:
+                event = self._apply_user_mode_char(ch, adding)
+                if event is not None:
+                    pending.append(event)
+        return pending
+
+    async def _emit_user_mode_events(self, pending: list[EventType]) -> None:
+        for event_type in pending:
+            await self.server.emit_event(
+                Event(
+                    type=event_type,
+                    channel=None,
+                    nick=self.nick,
+                    data={"nick": self.nick},
+                )
+            )
+
     async def _handle_user_mode(self, msg: Message) -> None:
         # Reject pre-registration so an unregistered socket cannot inject
         # agent.connect / console.open into #system by sending MODE after NICK
@@ -548,28 +574,9 @@ class Client:
             )
             return
 
-        pending_events: list[EventType] = []
-        if len(msg.params) > 1:
-            adding = True
-            for ch in msg.params[1]:
-                if ch == "+":
-                    adding = True
-                elif ch == "-":
-                    adding = False
-                else:
-                    event = self._apply_user_mode_char(ch, adding)
-                    if event is not None:
-                        pending_events.append(event)
-
-        for event_type in pending_events:
-            await self.server.emit_event(
-                Event(
-                    type=event_type,
-                    channel=None,
-                    nick=self.nick,
-                    data={"nick": self.nick},
-                )
-            )
+        modestring = msg.params[1] if len(msg.params) > 1 else ""
+        pending = self._parse_mode_edges(modestring)
+        await self._emit_user_mode_events(pending)
 
         mode_str = "+" + "".join(sorted(self.modes)) if self.modes else "+"
         await self.send_numeric(replies.RPL_UMODEIS, mode_str)
