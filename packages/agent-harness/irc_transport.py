@@ -239,6 +239,17 @@ class IRCTransport:
         sender = msg.prefix.split("!")[0] if msg.prefix else "unknown"
         if sender == self.nick:
             return
+        # Filter out server-emitted event notifications from system-<server>.
+        # These are surfaced PRIVMSGs that announce mesh events (user.join,
+        # agent.connect, server.link, etc.) — they are not conversation and
+        # should not enter the agent's message buffer or trigger the poll loop.
+        # NOTE: Literal "system-" is inlined here rather than imported from
+        # culture.constants because this is a reference implementation in
+        # packages/agent-harness/ that is copied (not installed) into target
+        # projects via the assimilai pattern — culture.constants is not
+        # reliably importable from a copied reference implementation.
+        if sender.startswith("system-"):
+            return
         if target.startswith("#"):
             self.buffer.add(target, sender, text)
         else:
@@ -265,6 +276,10 @@ class IRCTransport:
         target = msg.params[0]
         text = msg.params[1]
         sender = msg.prefix.split("!")[0] if msg.prefix else "server"
+        # Filter event NOTICEs from system-<server> for the same reason as PRIVMSG.
+        # Literal "system-" inlined; see _on_privmsg comment above.
+        if sender.startswith("system-"):
+            return
         if target.startswith("#"):
             self.buffer.add(target, sender, text)
 

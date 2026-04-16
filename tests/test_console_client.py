@@ -11,6 +11,7 @@ import asyncio
 import pytest
 
 from culture.console.client import ChatMessage, ConsoleConnectionLost, ConsoleIRCClient
+from culture.constants import SYSTEM_CHANNEL
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -209,14 +210,15 @@ async def test_list_channels_after_join(server):
 
 @pytest.mark.asyncio
 async def test_list_channels_empty(server):
-    """list_channels() returns an empty list when no channels exist."""
+    """list_channels() returns no user channels when only #system exists."""
     client = make_console_client(server)
     await client.connect()
-
-    channels = await client.list_channels()
-    assert channels == []
-
-    await client.disconnect()
+    try:
+        channels = await client.list_channels()
+        user_channels = [c for c in channels if c != SYSTEM_CHANNEL]
+        assert user_channels == []
+    finally:
+        await client.disconnect()
 
 
 # ---------------------------------------------------------------------------

@@ -15,6 +15,7 @@ import pytest
 from culture.cli.channel import _cmd_message, _interpret_escapes
 from culture.console.app import ConsoleApp
 from culture.console.widgets.chat import ChatInput
+from culture.constants import SYSTEM_USER_PREFIX
 from culture.observer import IRCObserver
 
 # ---------------------------------------------------------------------------
@@ -136,7 +137,9 @@ async def test_observer_send_message_drops_empty_lines(server, make_client):
     await observer.send_message("#drops", "a\n\n\nb")
 
     lines = await receiver.recv_all(timeout=1.0)
-    joined = "\n".join(lines)
+    # Exclude system-generated event PRIVMSGs (e.g. user.join notifications)
+    user_lines = [l for l in lines if not l.startswith(f":{SYSTEM_USER_PREFIX}")]
+    joined = "\n".join(user_lines)
     # Exactly two PRIVMSGs — the three blank segments are skipped
     assert joined.count("PRIVMSG #drops") == 2
 

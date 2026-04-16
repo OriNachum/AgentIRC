@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from culture.agentirc.channel import Channel
 from culture.agentirc.skill import Event, EventType
 from culture.aio import maybe_await
+from culture.constants import SYSTEM_USER_PREFIX
 from culture.protocol import replies
 from culture.protocol.message import Message
 
@@ -35,6 +36,7 @@ class Client:
         self.channels: set[Channel] = set()
         self._registered = False
         self.tags: list[str] = []
+        self.caps: set[str] = set()
         self.modes: set[str] = set()
         self.icon: str | None = None
 
@@ -48,6 +50,28 @@ class Client:
             await self.writer.drain()
         except OSError:
             pass  # Client disconnected; cleanup happens in ircd._handle_connection
+
+    async def send_raw(self, line: str) -> None:
+        """Write a pre-formatted IRC line to the client socket.
+
+        Appends CRLF internally, matching ServerLink.send_raw convention.
+        """
+        try:
+            self.writer.write(f"{line}\r\n".encode("utf-8"))
+            await self.writer.drain()
+        except OSError:
+            pass  # Client disconnected; cleanup happens in ircd._handle_connection
+
+    async def send_tagged(self, msg: Message) -> None:
+        """Send a Message, stripping tags for clients that haven't negotiated message-tags."""
+        if msg.tags and "message-tags" not in self.caps:
+            msg = Message(
+                tags={},
+                prefix=msg.prefix,
+                command=msg.command,
+                params=list(msg.params),
+            )
+        await self.send(msg)
 
     async def send_numeric(self, code: str, *params: str) -> None:
         target = self.nick or "*"
@@ -114,12 +138,44 @@ class Client:
     def _handle_pong(self, msg: Message) -> None:
         pass  # Client responding to our ping
 
+    async def _handle_cap(self, msg: Message) -> None:
+        sub = msg.params[0].upper() if msg.params else ""
+        if sub == "LS":
+            await self.send_raw(
+                f":{self.server.config.name} CAP {self.nick or '*'} LS :message-tags"
+            )
+        elif sub == "REQ":
+            requested = msg.params[1].split() if len(msg.params) >= 2 else []
+            supported = {"message-tags"}
+            if all(cap in supported for cap in requested):
+                self.caps.update(requested)
+                await self.send_raw(
+                    f":{self.server.config.name} CAP {self.nick or '*'}"
+                    f" ACK :{' '.join(requested)}"
+                )
+            else:
+                await self.send_raw(
+                    f":{self.server.config.name} CAP {self.nick or '*'}"
+                    f" NAK :{' '.join(requested)}"
+                )
+        elif sub == "END":
+            pass  # no registration-gating in v1
+
     async def _handle_nick(self, msg: Message) -> None:
         if not msg.params:
             await self.send_numeric(replies.ERR_NONICKNAMEGIVEN, "No nickname given")
             return
 
         nick = msg.params[0]
+
+        # Reject reserved system-* nick prefix
+        if nick.startswith(SYSTEM_USER_PREFIX):
+            await self.send_numeric(
+                replies.ERR_ERRONEUSNICKNAME,
+                nick,
+                "Nickname prefix 'system-' is reserved",
+            )
+            return
 
         # Enforce server name prefix
         expected_prefix = f"{self.server.config.name}-"
@@ -227,16 +283,18 @@ class Client:
         for member in list(channel.members):
             await member.send(join_msg)
 
-        await self.server.emit_event(
-            Event(type=EventType.JOIN, channel=channel_name, nick=self.nick)
-        )
-
         # Send topic if set
         if channel.topic:
             await self.send_numeric(replies.RPL_TOPIC, channel_name, channel.topic)
 
         # Send names list
         await self._send_names(channel)
+
+        # Emit event AFTER delivering all join-related numerics (topic, NAMES)
+        # so that the event PRIVMSG doesn't interleave with 353/366 in client buffers.
+        await self.server.emit_event(
+            Event(type=EventType.JOIN, channel=channel_name, nick=self.nick)
+        )
 
     async def _handle_part(self, msg: Message) -> None:
         if not msg.params:

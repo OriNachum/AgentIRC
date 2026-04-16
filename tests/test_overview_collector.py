@@ -5,13 +5,19 @@ from unittest.mock import patch
 
 import pytest
 
+from culture.constants import SYSTEM_CHANNEL, SYSTEM_USER_PREFIX
 from culture.overview.collector import _collect_bots, collect_mesh_state
 from culture.overview.model import MeshState
 
 
 @pytest.mark.asyncio
 async def test_collect_empty_server(server):
-    """Collecting from an empty server returns an empty mesh."""
+    """Collecting from an empty server returns no user rooms or agents.
+
+    #system is always present (auto-created at IRCd startup) but is a
+    server-internal channel — it is filtered out of the user-visible
+    room/agent lists here.
+    """
     mesh = await collect_mesh_state(
         host="127.0.0.1",
         port=server.config.port,
@@ -20,13 +26,15 @@ async def test_collect_empty_server(server):
     )
     assert isinstance(mesh, MeshState)
     assert mesh.server_name == server.config.name
-    assert mesh.rooms == []
-    assert mesh.agents == []
+    user_rooms = [r for r in mesh.rooms if r.name != SYSTEM_CHANNEL]
+    user_agents = [a for a in mesh.agents if not a.nick.startswith(SYSTEM_USER_PREFIX)]
+    assert user_rooms == []
+    assert user_agents == []
 
 
 @pytest.mark.asyncio
 async def test_collect_with_agent_in_channel(server, make_client):
-    """Collecting sees agents and channels."""
+    """Collecting sees agents and channels (excluding the server-internal #system room)."""
     client = await make_client(nick="testserv-agent1", user="agent1")
     await client.send("JOIN #testing")
     await client.recv_all(timeout=0.5)
@@ -37,10 +45,12 @@ async def test_collect_with_agent_in_channel(server, make_client):
         server_name=server.config.name,
         message_limit=4,
     )
-    assert len(mesh.rooms) == 1
-    assert mesh.rooms[0].name == "#testing"
-    assert len(mesh.rooms[0].members) >= 1
-    found = any(a.nick == "testserv-agent1" for a in mesh.rooms[0].members)
+    user_rooms = [r for r in mesh.rooms if r.name != SYSTEM_CHANNEL]
+    assert len(user_rooms) == 1
+    testing_room = user_rooms[0]
+    assert testing_room.name == "#testing"
+    assert len(testing_room.members) >= 1
+    found = any(a.nick == "testserv-agent1" for a in testing_room.members)
     assert found
 
 
@@ -59,7 +69,8 @@ async def test_collect_sees_topic(server, make_client):
         server_name=server.config.name,
         message_limit=4,
     )
-    assert mesh.rooms[0].topic == "Hello world topic"
+    testing_room = next(r for r in mesh.rooms if r.name == "#testing")
+    assert testing_room.topic == "Hello world topic"
 
 
 @pytest.mark.asyncio
@@ -78,9 +89,10 @@ async def test_collect_sees_messages(server, make_client):
         server_name=server.config.name,
         message_limit=4,
     )
-    assert len(mesh.rooms[0].messages) == 2
-    assert mesh.rooms[0].messages[0].text == "test message one"
-    assert mesh.rooms[0].messages[1].text == "test message two"
+    testing_room = next(r for r in mesh.rooms if r.name == "#testing")
+    assert len(testing_room.messages) == 2
+    assert testing_room.messages[0].text == "test message one"
+    assert testing_room.messages[1].text == "test message two"
 
 
 @pytest.mark.asyncio

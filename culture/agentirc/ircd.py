@@ -2,13 +2,24 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
 import logging
 from collections import deque
 from typing import TYPE_CHECKING
 
 from culture.agentirc.channel import Channel
 from culture.agentirc.config import ServerConfig
-from culture.agentirc.skill import Event, Skill
+from culture.agentirc.events import render_event
+from culture.agentirc.skill import Event, EventType, Skill
+from culture.bots.virtual_client import VirtualClient
+from culture.constants import (
+    EVENT_TAG_DATA,
+    EVENT_TAG_TYPE,
+    SYSTEM_CHANNEL,
+    SYSTEM_USER_PREFIX,
+)
+from culture.protocol.message import Message
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +27,6 @@ if TYPE_CHECKING:
     from culture.agentirc.client import Client
     from culture.agentirc.remote_client import RemoteClient
     from culture.agentirc.server_link import ServerLink
-    from culture.bots.virtual_client import VirtualClient
 
 
 class IRCd:
@@ -24,7 +34,7 @@ class IRCd:
 
     def __init__(self, config: ServerConfig):
         self.config = config
-        self.clients: dict[str, Client] = {}  # nick -> Client
+        self.clients: dict[str, Client | VirtualClient] = {}  # nick -> Client
         self.channels: dict[str, Channel] = {}  # name -> Channel
         self.skills: list[Skill] = []
         self._server: asyncio.Server | None = None
@@ -41,6 +51,7 @@ class IRCd:
         self._background_tasks: set[asyncio.Task] = set()
         # Bots
         self.bot_manager = None  # set in start() if webhook_port configured
+        self.system_client: VirtualClient | None = None
 
     async def start(self) -> None:
         logger.info("Registering default skills...")
@@ -48,6 +59,9 @@ class IRCd:
 
         logger.info("Restoring persistent rooms...")
         self._restore_persistent_rooms()
+
+        logger.info("Bootstrapping system identity...")
+        self._bootstrap_system_identity()
 
         # Initialize bot manager and webhook HTTP listener
         from culture.bots.bot_manager import BotManager
@@ -90,6 +104,37 @@ class IRCd:
 
         logger.info("Server ready")
 
+    def _bootstrap_system_identity(self) -> None:
+        """Create the system pseudo-user and #system channel at server start.
+
+        Called AFTER _restore_persistent_rooms so any legacy persisted room
+        named #system can't overwrite the bootstrap. We force-correct the
+        channel's invariants (persistent=True, archived=False) in case it
+        was loaded from disk.
+        """
+        from culture.constants import SYSTEM_CHANNEL, SYSTEM_USER_PREFIX, SYSTEM_USER_REALNAME
+
+        system_nick = f"{SYSTEM_USER_PREFIX}{self.config.name}"
+        system_client = VirtualClient(system_nick, "system", self)
+        system_client.realname = SYSTEM_USER_REALNAME
+        system_client.host = self.config.name
+        system_client.tags = []
+        self.clients[system_nick] = system_client
+        self.system_client = system_client
+
+        channel = self.get_or_create_channel(SYSTEM_CHANNEL)
+        channel.persistent = True
+        # Force-correct in case #system was persisted as a regular room
+        if hasattr(channel, "archived"):
+            channel.archived = False
+        channel.add(system_client)
+        system_client.channels.add(channel)
+        # Defensive: VirtualClients are excluded from auto-op by Channel._local_members(),
+        # but channel.add() may still grant op when the channel is empty on first join.
+        channel.operators.discard(system_client)
+
+        logger.info("System identity %s joined %s", system_nick, SYSTEM_CHANNEL)
+
     async def _register_default_skills(self) -> None:
         from culture.agentirc.skills.history import HistorySkill
         from culture.agentirc.skills.icon import IconSkill
@@ -110,17 +155,18 @@ class IRCd:
         return self._seq
 
     async def emit_event(self, event: Event) -> None:
-        # Log event with sequence number
+        # 1) Sequence + log.
         seq = self.next_seq()
         self._event_log.append((seq, event))
 
+        # 2) Run skill hooks.
         for skill in self.skills:
             try:
                 await skill.on_event(event)
             except Exception:
                 logger.exception("Skill %s failed on event %s", skill.name, event.type)
 
-        # Relay to linked peers — only relay locally-originated events
+        # 3) Relay to linked peers — only relay locally-originated events
         # (no mesh routing; scope is direct peers only)
         if not event.data.get("_origin"):
             for peer_name, link in list(self.links.items()):
@@ -128,6 +174,113 @@ class IRCd:
                     await link.relay_event(event)
                 except Exception:
                     logger.exception("Failed to relay event to %s", peer_name)
+
+        # 4) Surface as tagged PRIVMSG from system-<server>.
+        await self._surface_event_privmsg(event)
+
+    # Event types whose content is already delivered to clients via the normal
+    # IRC path (PRIVMSG, NOTICE, TOPIC).  Surfacing these as additional system
+    # PRIVMSGs would double-deliver them and break echo-suppression tests.
+    _NO_SURFACE_TYPES = frozenset(
+        {
+            EventType.MESSAGE.value,
+            EventType.THREAD_CREATE.value,
+            EventType.THREAD_MESSAGE.value,
+            EventType.THREAD_CLOSE.value,
+            EventType.TOPIC.value,
+        }
+    )
+
+    @staticmethod
+    def _build_event_payload(event: Event) -> dict:
+        """Build the public event payload, enriched with canonical actor/channel."""
+        payload = {k: v for k, v in event.data.items() if not k.startswith("_")}
+        # Emitters that only set Event.nick (not data['nick']) still get a
+        # correct render + payload thanks to setdefault.
+        if event.nick:
+            payload.setdefault("nick", event.nick)
+        if event.channel:
+            payload.setdefault("channel", event.channel)
+        return payload
+
+    @staticmethod
+    def _encode_event_data(payload: dict, type_wire: str) -> str:
+        """Base64-encode the payload as JSON; fall back to '{}' on TypeError."""
+        try:
+            return base64.b64encode(
+                json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+            ).decode("ascii")
+        except (TypeError, ValueError) as exc:
+            logger.warning(
+                "Event %s payload not JSON-serializable, surfacing with empty payload: %s",
+                type_wire,
+                exc,
+            )
+            return base64.b64encode(b"{}").decode("ascii")
+
+    async def _deliver_to_members(self, channel, msg: Message, type_wire: str) -> None:
+        """Send the surfaced PRIVMSG to channel members (skipping VirtualClients)."""
+        for member in channel.members:
+            # VirtualClients (system user, bots) receive events via subscription,
+            # not by re-broadcasting the PRIVMSG.
+            if isinstance(member, VirtualClient):
+                continue
+            # RemoteClients lack send_tagged; federation will deliver via SEVENT
+            # (Task 12) instead. Skip silently here.
+            if not hasattr(member, "send_tagged"):
+                continue
+            try:
+                await member.send_tagged(msg)
+            except Exception:
+                logger.exception(
+                    "Failed to surface %s to %s", type_wire, getattr(member, "nick", "?")
+                )
+
+    async def _surface_event_privmsg(self, event: Event) -> None:
+        """Render the event as a tagged PRIVMSG into the appropriate channel.
+
+        Channel-scoped events (event.channel set) go to that channel; global
+        events go to #system. The PRIVMSG carries the structured payload as
+        IRCv3 message tags @event=<type>;@event-data=<base64-json>.
+
+        For federated events, the prefix uses the origin server's system user
+        so consumers can identify which mesh server emitted the event. The
+        federated-prefix branch only fires once Task 12 (SEVENT federation
+        relay) lands and SEVENT is producing _origin-tagged events on the
+        receive side. Today, all events surface with this server's prefix.
+
+        Events whose content is already delivered via the normal IRC path
+        (see _NO_SURFACE_TYPES) are skipped to avoid double-delivery.
+
+        HISTORY/surface invariant (consumed by Task 13): an event surfaces
+        here if and only if it lands in channel history. Events in
+        _NO_SURFACE_TYPES are delivered via their own IRC verbs and not
+        re-surfaced; HistorySkill should follow the same rule.
+        """
+        type_wire = event.type.value if hasattr(event.type, "value") else str(event.type)
+        if type_wire in self._NO_SURFACE_TYPES:
+            return
+
+        target = event.channel or SYSTEM_CHANNEL
+        channel = self.channels.get(target)
+        if channel is None:
+            return
+
+        origin_server = event.data.get("_origin") or self.config.name
+        system_nick = f"{SYSTEM_USER_PREFIX}{origin_server}"
+
+        payload = self._build_event_payload(event)
+        encoded = self._encode_event_data(payload, type_wire)
+        body = event.data.get("_render") or render_event(type_wire, payload, event.channel)
+
+        msg = Message(
+            tags={EVENT_TAG_TYPE: type_wire, EVENT_TAG_DATA: encoded},
+            prefix=f"{system_nick}!system@{origin_server}",
+            command="PRIVMSG",
+            params=[target, body],
+        )
+
+        await self._deliver_to_members(channel, msg, type_wire)
 
     def get_skill_for_command(self, command: str) -> Skill | None:
         for skill in self.skills:

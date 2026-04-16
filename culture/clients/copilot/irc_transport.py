@@ -7,6 +7,7 @@ from typing import Callable
 
 from culture.aio import maybe_await
 from culture.clients.copilot.message_buffer import MessageBuffer
+from culture.constants import SYSTEM_USER_PREFIX
 from culture.protocol.message import Message
 
 logger = logging.getLogger(__name__)
@@ -216,6 +217,12 @@ class IRCTransport:
         sender = msg.prefix.split("!")[0] if msg.prefix else "unknown"
         if sender == self.nick:
             return
+        # Filter out server-emitted event notifications from system-<server>.
+        # These are surfaced PRIVMSGs that announce mesh events (user.join,
+        # agent.connect, server.link, etc.) — they are not conversation and
+        # should not enter the agent's message buffer or trigger the poll loop.
+        if sender.startswith(SYSTEM_USER_PREFIX):
+            return
         self._route_to_buffer(target, sender, text)
         self._detect_and_fire_mention(target, sender, text)
 
@@ -268,6 +275,9 @@ class IRCTransport:
         target = msg.params[0]
         text = msg.params[1]
         sender = msg.prefix.split("!")[0] if msg.prefix else "server"
+        # Filter event NOTICEs from system-<server> for the same reason as PRIVMSG.
+        if sender.startswith(SYSTEM_USER_PREFIX):
+            return
         if target.startswith("#"):
             self.buffer.add(target, sender, text)
 

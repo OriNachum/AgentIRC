@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 from culture.agentirc.remote_client import RemoteClient
 from culture.agentirc.skill import Event, EventType
 from culture.aio import maybe_await
+from culture.bots.virtual_client import VirtualClient
+from culture.constants import SYSTEM_USER_PREFIX
 from culture.protocol.message import Message
 
 if TYPE_CHECKING:
@@ -232,8 +234,10 @@ class ServerLink:
 
     async def send_burst(self) -> None:
         """Send our local state to the peer."""
-        # Send all local clients
+        # Send all local clients (skip pseudo-users — they are server-local)
         for client in self.server.clients.values():
+            if isinstance(client, VirtualClient):
+                continue
             await self.send_raw(
                 f"SNICK {client.nick} {client.user} {client.host} :{client.realname}"
             )
@@ -259,6 +263,11 @@ class ServerLink:
             return
         nick, user, host = msg.params[0], msg.params[1], msg.params[2]
         realname = msg.params[3]
+
+        # Reject reserved nick prefix
+        if nick.startswith(SYSTEM_USER_PREFIX):
+            logger.warning("Rejecting reserved nick %r from peer %s", nick, self.peer_name)
+            return
 
         # Validate nick conforms to <peer_name>-<agent> format
         expected_prefix = f"{self.peer_name}-"
