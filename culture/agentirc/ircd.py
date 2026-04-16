@@ -46,6 +46,9 @@ class IRCd:
         logger.info("Registering default skills...")
         await self._register_default_skills()
 
+        logger.info("Bootstrapping system identity...")
+        await self._bootstrap_system_identity()
+
         logger.info("Restoring persistent rooms...")
         self._restore_persistent_rooms()
 
@@ -89,6 +92,25 @@ class IRCd:
             )
 
         logger.info("Server ready")
+
+    async def _bootstrap_system_identity(self) -> None:
+        """Create the system pseudo-user and #system channel at server start."""
+        from culture.bots.virtual_client import VirtualClient
+        from culture.constants import SYSTEM_CHANNEL, SYSTEM_USER_PREFIX
+
+        system_nick = f"{SYSTEM_USER_PREFIX}{self.config.name}"
+        system_client = VirtualClient(system_nick, "system", self)
+        system_client.realname = "IRC Server System"
+        self.clients[system_nick] = system_client  # type: ignore[assignment]
+
+        channel = self.get_or_create_channel(SYSTEM_CHANNEL)
+        channel.persistent = True
+        channel.members.add(system_client)
+        system_client.channels.add(channel)
+        # System user is never an operator
+        channel.operators.discard(system_client)
+
+        logger.info("System identity %s joined %s", system_nick, SYSTEM_CHANNEL)
 
     async def _register_default_skills(self) -> None:
         from culture.agentirc.skills.history import HistorySkill

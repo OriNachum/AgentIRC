@@ -43,3 +43,26 @@ async def test_reserved_nick_rejected_after_registration(server, make_client):
     line = await c.recv()
     assert "432" in line
     assert "system-testserv" in line
+
+
+@pytest.mark.asyncio
+async def test_system_user_exists(server, make_client):
+    """A `system-<servername>` virtual user is registered on server start."""
+    c = await make_client("testserv-alice")
+    await c.send("WHOIS system-testserv\r\n")
+    reply = await c.recv_until("318")  # RPL_ENDOFWHOIS
+    assert "system-testserv" in reply
+    assert "311" in reply  # RPL_WHOISUSER — user exists
+
+
+@pytest.mark.asyncio
+async def test_system_channel_exists(server, make_client):
+    """`#system` exists and system-<server> is a member."""
+    c = await make_client("testserv-alice")
+    await c.send("LIST #system\r\n")
+    reply = await c.recv_until("323")
+    assert "#system" in reply
+
+    await c.send("NAMES #system\r\n")
+    names = await c.recv_until("366")
+    assert "system-testserv" in names
