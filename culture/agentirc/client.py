@@ -283,16 +283,18 @@ class Client:
         for member in list(channel.members):
             await member.send(join_msg)
 
-        await self.server.emit_event(
-            Event(type=EventType.JOIN, channel=channel_name, nick=self.nick)
-        )
-
         # Send topic if set
         if channel.topic:
             await self.send_numeric(replies.RPL_TOPIC, channel_name, channel.topic)
 
         # Send names list
         await self._send_names(channel)
+
+        # Emit event AFTER delivering all join-related numerics (topic, NAMES)
+        # so that the event PRIVMSG doesn't interleave with 353/366 in client buffers.
+        await self.server.emit_event(
+            Event(type=EventType.JOIN, channel=channel_name, nick=self.nick)
+        )
 
     async def _handle_part(self, msg: Message) -> None:
         if not msg.params:

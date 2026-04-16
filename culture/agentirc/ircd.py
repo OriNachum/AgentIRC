@@ -2,14 +2,24 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
 import logging
 from collections import deque
 from typing import TYPE_CHECKING
 
 from culture.agentirc.channel import Channel
 from culture.agentirc.config import ServerConfig
+from culture.agentirc.events import render_event
 from culture.agentirc.skill import Event, Skill
 from culture.bots.virtual_client import VirtualClient
+from culture.constants import (
+    EVENT_TAG_DATA,
+    EVENT_TAG_TYPE,
+    SYSTEM_CHANNEL,
+    SYSTEM_USER_PREFIX,
+)
+from culture.protocol.message import Message
 
 logger = logging.getLogger(__name__)
 
@@ -134,17 +144,18 @@ class IRCd:
         return self._seq
 
     async def emit_event(self, event: Event) -> None:
-        # Log event with sequence number
+        # 1) Sequence + log.
         seq = self.next_seq()
         self._event_log.append((seq, event))
 
+        # 2) Run skill hooks.
         for skill in self.skills:
             try:
                 await skill.on_event(event)
             except Exception:
                 logger.exception("Skill %s failed on event %s", skill.name, event.type)
 
-        # Relay to linked peers — only relay locally-originated events
+        # 3) Relay to linked peers — only relay locally-originated events
         # (no mesh routing; scope is direct peers only)
         if not event.data.get("_origin"):
             for peer_name, link in list(self.links.items()):
@@ -152,6 +163,80 @@ class IRCd:
                     await link.relay_event(event)
                 except Exception:
                     logger.exception("Failed to relay event to %s", peer_name)
+
+        # 4) Surface as tagged PRIVMSG from system-<server>.
+        await self._surface_event_privmsg(event)
+
+    # Event types whose content is already delivered to clients via the normal
+    # IRC path (PRIVMSG, NOTICE, TOPIC).  Surfacing these as additional system
+    # PRIVMSGs would double-deliver them and break echo-suppression tests.
+    _NO_SURFACE_TYPES = frozenset(
+        {
+            "message",  # EventType.MESSAGE — already routed as PRIVMSG
+            "thread.create",  # ThreadsSkill delivers prefixed PRIVMSG
+            "thread.message",  # same
+            "thread.close",  # ThreadsSkill delivers NOTICE
+            "topic",  # TOPIC command already propagated
+        }
+    )
+
+    async def _surface_event_privmsg(self, event: Event) -> None:
+        """Render the event as a tagged PRIVMSG into the appropriate channel.
+
+        Channel-scoped events (event.channel set) go to that channel; global
+        events go to #system. The PRIVMSG carries the structured payload as
+        IRCv3 message tags @event=<type>;@event-data=<base64-json>.
+
+        For federated events, the prefix uses the origin server's system user
+        so consumers can identify which mesh server emitted the event.
+
+        Events whose content is already delivered via the normal IRC path
+        (see _NO_SURFACE_TYPES) are skipped to avoid double-delivery.
+        """
+        type_wire = event.type.value if hasattr(event.type, "value") else str(event.type)
+
+        if type_wire in self._NO_SURFACE_TYPES:
+            return
+
+        target = event.channel or SYSTEM_CHANNEL
+
+        origin_server = event.data.get("_origin") or self.config.name
+        system_nick = f"{SYSTEM_USER_PREFIX}{origin_server}"
+
+        # Encode payload (exclude internal _-prefixed keys).
+        payload = {k: v for k, v in event.data.items() if not k.startswith("_")}
+        encoded = base64.b64encode(
+            json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        ).decode("ascii")
+
+        body = event.data.get("_render") or render_event(type_wire, payload, event.channel)
+
+        msg = Message(
+            tags={EVENT_TAG_TYPE: type_wire, EVENT_TAG_DATA: encoded},
+            prefix=f"{system_nick}!system@{origin_server}",
+            command="PRIVMSG",
+            params=[target, body],
+        )
+
+        channel = self.channels.get(target)
+        if channel is None:
+            return
+
+        for member in list(channel.members):
+            # Skip VirtualClients (system user, bots) — they receive events via
+            # subscription, not by re-broadcasting the PRIVMSG.
+            if isinstance(member, VirtualClient):
+                continue
+            # Use the tag-aware send_tagged path so non-cap clients see plain bodies.
+            try:
+                if hasattr(member, "send_tagged"):
+                    await member.send_tagged(msg)
+                else:
+                    # RemoteClient or anything without send_tagged: skip
+                    # (federation will deliver via the SEVENT path in Task 12).
+                    continue
+            except Exception:
+                logger.exception("Failed to surface event to %s", getattr(member, "nick", "?"))
 
     def get_skill_for_command(self, command: str) -> Skill | None:
         for skill in self.skills:

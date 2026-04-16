@@ -32,10 +32,11 @@ async def test_non_tag_client_receives_plain_privmsg(server, make_client):
 
     # Join a channel first
     await c.send("JOIN #testchan")
-    # Drain all JOIN responses (JOIN confirmation, NAMES list, END OF NAMES)
-    await c.recv()
-    await c.recv()
-    await c.recv()
+    # Drain all JOIN responses: JOIN confirmation, NAMES list, END OF NAMES,
+    # and the user.join system PRIVMSG emitted after NAMES (new in Task 7).
+    await c.recv_until("366")  # end of NAMES
+    # Drain the user.join system PRIVMSG that fires after join numerics.
+    await c.recv_all(timeout=0.2)
 
     # Directly exercise send_tagged on the server-side client object
     server_client = server.clients.get("testserv-alice")
