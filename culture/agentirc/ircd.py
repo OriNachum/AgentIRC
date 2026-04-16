@@ -513,20 +513,48 @@ class IRCd:
         except (ConnectionError, asyncio.IncompleteReadError):
             pass
         finally:
-            self._remove_client(client)
+            await self._remove_client(client)
             writer.close()
             try:
                 await writer.wait_closed()
             except ConnectionError:
                 pass
 
-    def _remove_client(self, client: Client) -> None:
+    async def _remove_client(self, client: Client) -> None:
         if client.nick and client.nick in self.clients:
             del self.clients[client.nick]
         for channel in list(client.channels):
             channel.remove(client)
             if not channel.members and not channel.persistent:
                 del self.channels[channel.name]
+
+        # Emit lifecycle disconnect events based on user modes set at disconnect time.
+        # Wrapped individually in try/except so emission failure cannot block cleanup.
+        nick = client.nick or "<unknown>"
+        if "A" in getattr(client, "modes", set()):
+            try:
+                await self.emit_event(
+                    Event(
+                        type=EventType.AGENT_DISCONNECT,
+                        channel=None,
+                        nick=nick,
+                        data={"nick": nick},
+                    )
+                )
+            except Exception:
+                logger.exception("Failed to emit agent.disconnect for %s", nick)
+        if "C" in getattr(client, "modes", set()):
+            try:
+                await self.emit_event(
+                    Event(
+                        type=EventType.CONSOLE_CLOSE,
+                        channel=None,
+                        nick=nick,
+                        data={"nick": nick},
+                    )
+                )
+            except Exception:
+                logger.exception("Failed to emit console.close for %s", nick)
 
     def _notify_local_quit(self, rc, quit_msg, notified: set) -> None:
         """Notify local members of a remote client quit and clean up channels."""

@@ -208,6 +208,7 @@ class IRCTransport:
             await self._send_raw(f"TAGS {self.nick} {tags_str}")
         if self.icon:
             await self._send_raw(f"ICON {self.icon}")
+        await self._send_raw(f"MODE {self.nick} +A")
 
     def _on_privmsg(self, msg: Message) -> None:
         if len(msg.params) < 2:

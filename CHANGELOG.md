@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [6.4.0] - 2026-04-16
+
+
+### Added
+
+- events: emit agent.connect/agent.disconnect on MODE +A/-A transitions and client disconnect; emit console.open/console.close on MODE +C/-C transitions and client disconnect. Separate user modes keep ICON as free-form display marker.
+- console: default mode is now +HC (human + console) so a human using the console is still flagged as human, and console.open fires on connect.
+- clients: all four agent backends (claude, codex, copilot, acp) plus packages/agent-harness reference now send MODE <nick> +A after welcome.
+
 ## [6.3.0] - 2026-04-16
 
 

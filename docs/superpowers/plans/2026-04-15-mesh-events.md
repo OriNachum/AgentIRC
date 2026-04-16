@@ -1192,42 +1192,47 @@ git commit -m "feat(events): emit server.wake and server.sleep"
 
 ### Task 9: `agent.connect` / `agent.disconnect`
 
+**Design decision (Option B — LOCKED):** Events are triggered by user mode `+A` (agent),
+not `ICON agent`. `ICON` retains its display-only role. Mode `+A` transitions OFF→ON emit
+`agent.connect`; transitions ON→OFF or disconnect emit `agent.disconnect`.
+All five agent-backend transports send `MODE <nick> +A` after welcome.
+
 **Files:**
 
-- Modify: `culture/agentirc/client.py`
+- Modify: `culture/agentirc/client.py` (extend `_handle_user_mode`, add `"C"` to accepted modes)
+- Modify: `culture/agentirc/ircd.py` (`_remove_client` made async, emits on disconnect)
+- Modify: `culture/clients/claude/irc_transport.py` (add `MODE +A` after welcome)
+- Modify: `culture/clients/codex/irc_transport.py` (add `MODE +A` after welcome)
+- Modify: `culture/clients/copilot/irc_transport.py` (add `MODE +A` after welcome)
+- Modify: `culture/clients/acp/irc_transport.py` (add `MODE +A` after welcome)
+- Modify: `packages/agent-harness/irc_transport.py` (add `MODE +A` after welcome)
+- New: `tests/test_events_lifecycle.py`
 
-- [ ] **Step 1: Write test**
+- [x] **Step 1: Write tests**
 
-Append to `tests/test_events_basic.py`:
+Create `tests/test_events_lifecycle.py` with 10 integration tests (8 emitted from this task, plus `+HC` combined and pre-registration-gate tests added during review-and-fix). Key cases:
 
 ```python
 @pytest.mark.asyncio
-async def test_agent_connect_emitted(server, make_client):
-    """An agent client (ICON agent / +A) triggers agent.connect."""
-    alice = await make_client("testserv-alice")
-    await alice.send("CAP REQ :message-tags\r\n")
-    await alice.recv_until("CAP")
-    await alice.send("JOIN #system\r\n")
-    await alice.recv_until("JOIN")
+async def test_agent_connect_on_mode_a(server, make_client):
+    """MODE +A causes agent.connect to be delivered to #system subscribers."""
+    alice = await _setup_observer(make_client)
+    bob = await make_client("testserv-bob", "bob")
 
-    # New agent connects.
-    bob = await make_client("testserv-bob")
-    await bob.send("ICON agent\r\n")
+    await bob.send("MODE testserv-bob +A")
 
     line = await alice.recv_until("event=agent.connect")
+    assert "event=agent.connect" in line
     assert "testserv-bob connected" in line
 
 
 @pytest.mark.asyncio
-async def test_agent_disconnect_emitted(server, make_client):
-    alice = await make_client("testserv-alice")
-    await alice.send("CAP REQ :message-tags\r\n")
-    await alice.recv_until("CAP")
-    await alice.send("JOIN #system\r\n")
-    await alice.recv_until("JOIN")
+async def test_agent_disconnect_on_close(server, make_client):
+    """A client with +A that closes the TCP connection triggers agent.disconnect."""
+    alice = await _setup_observer(make_client)
+    bob = await make_client("testserv-bob", "bob")
 
-    bob = await make_client("testserv-bob")
-    await bob.send("ICON agent\r\n")
+    await bob.send("MODE testserv-bob +A")
     await alice.recv_until("event=agent.connect")
 
     await bob.close()
@@ -1235,150 +1240,164 @@ async def test_agent_disconnect_emitted(server, make_client):
     assert "testserv-bob disconnected" in line
 ```
 
-- [ ] **Step 2: Run test to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 ```bash
-uv run pytest tests/test_events_basic.py::test_agent_connect_emitted tests/test_events_basic.py::test_agent_disconnect_emitted -v
+uv run pytest tests/test_events_lifecycle.py -v
 ```
 
-Expected: fail.
+Expected: 8 fail (events not emitted), 1 pass (H/B no-op test). (Two further tests — `+HC` combined and pre-registration gate — are added during the review-and-fix cycle.)
 
-- [ ] **Step 3: Emit `agent.connect` and `agent.disconnect`**
+- [x] **Step 3: Emit `agent.connect` and `agent.disconnect`**
 
-In `culture/agentirc/client.py`, locate the place where the ICON command sets the client's icon type (in `IconSkill` or directly in the client). Add a hook: when `ICON agent` is received, emit `agent.connect`. When the client disconnects (in the disconnect cleanup — search for where `del self.clients[self.nick]` or similar happens), emit `agent.disconnect` if the client was an agent.
+In `culture/agentirc/client.py`, extend `_handle_user_mode`:
 
-Minimal addition at the ICON-handling site:
+- Accepted mode chars extended from `("H", "A", "B")` to `("H", "A", "B", "C")`.
+- Before mutating `self.modes`, capture `had = ch in self.modes`; after mutation
+  capture `now = ch in self.modes`; emit on OFF→ON or ON→OFF edge for `A` and `C`.
+- Emissions happen AFTER `self.modes` mutation, BEFORE RPL_UMODEIS reply.
 
 ```python
-# After icon is set:
-if icon == "agent":
-    await self.server.emit_event(Event(
-        type=EventType.AGENT_CONNECT,
-        channel=None,
-        nick=self.nick,
-        data={"nick": self.nick},
-    ))
+elif ch in ("H", "A", "B", "C"):
+    had = ch in self.modes
+    if adding:
+        self.modes.add(ch)
+    else:
+        self.modes.discard(ch)
+    now = ch in self.modes
+    if ch == "A" and not had and now:
+        pending_events.append(EventType.AGENT_CONNECT)
+    elif ch == "A" and had and not now:
+        pending_events.append(EventType.AGENT_DISCONNECT)
 ```
 
-At the client disconnect path (grep for `async def disconnect` or `async def _on_disconnect`):
+In `culture/agentirc/ircd.py`, convert `_remove_client` from `def` to `async def`
+and emit lifecycle events based on modes set at disconnect time:
 
 ```python
-if getattr(self, "icon", None) == "agent":
-    try:
-        await self.server.emit_event(Event(
-            type=EventType.AGENT_DISCONNECT,
-            channel=None,
-            nick=self.nick,
-            data={"nick": self.nick},
-        ))
-    except Exception:
-        logger.exception("failed to emit agent.disconnect")
+async def _remove_client(self, client: Client) -> None:
+    # ... existing channel cleanup ...
+    if "A" in getattr(client, "modes", set()):
+        try:
+            await self.emit_event(Event(type=EventType.AGENT_DISCONNECT, ...))
+        except Exception:
+            logger.exception("Failed to emit agent.disconnect for %s", nick)
 ```
 
-Track `self.icon` on the client (add `self.icon: str | None = None` in `__init__` if not present, and set it in the ICON handler before emitting).
+Update the single caller (`_accept_c2s_connection`) to `await self._remove_client(client)`.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: All-backends transport update**
+
+In `_on_welcome` of all five transport files, add after the ICON block:
+
+```python
+await self._send_raw(f"MODE {self.nick} +A")
+```
+
+- [x] **Step 5: Run tests**
 
 ```bash
-uv run pytest tests/test_events_basic.py -v
+uv run pytest tests/test_events_lifecycle.py -v
 ```
 
-Expected: all pass.
+Expected: all 10 pass (Task 9's 8 emission tests + `+HC` combined + pre-registration gate).
 
-- [ ] **Step 5: Commit**
-
-```bash
-git add culture/agentirc/client.py tests/test_events_basic.py
-git commit -m "feat(events): emit agent.connect / agent.disconnect on ICON agent clients"
-```
+- [x] **Step 6: Commit** (combined with Task 10 — see end of Task 10)
 
 ---
 
-### Task 10: `console.open` / `console.close` via `ICON console`
+### Task 10: `console.open` / `console.close` via user mode `+C`
+
+**Design decision (Option B — LOCKED):** Events are triggered by user mode `+C` (console),
+not `ICON console`. `ICON` retains its display-only role. Mode `+C` transitions OFF→ON emit
+`console.open`; transitions ON→OFF or disconnect emit `console.close`.
+The console client sends `MODE +C` automatically after registration.
 
 **Files:**
 
-- Modify: `culture/agentirc/skills/icons.py` (add `console` value)
-- Modify: `culture/agentirc/client.py` (emit console.open/close)
+- Modify: `culture/agentirc/client.py` (mode `+C` edge detection — done in Task 9's change)
+- Modify: `culture/agentirc/ircd.py` (disconnect emit for `"C"` — done in Task 9's change)
+- Modify: `culture/console/client.py` (default `mode` changed from `"H"` to `"HC"`)
+- Modify: `culture/cli/mesh.py` (instantiation changed from `mode="H"` to `mode="HC"`)
 
-- [ ] **Step 1: Write test**
+The combined `+HC` value preserves the human-identity flag alongside the new
+console role. The server processes multi-char modestrings per character, so
+`MODE <nick> +HC` sets both flags in one round trip and emits `console.open`
+exactly once (only the `+C` edge triggers an event; `+H` has none).
 
-Append to `tests/test_events_basic.py`:
+- [x] **Step 1: Write tests**
+
+In `tests/test_events_lifecycle.py` (same file as Task 9), add:
 
 ```python
 @pytest.mark.asyncio
-async def test_console_open_emitted(server, make_client):
-    alice = await make_client("testserv-alice")
-    await alice.send("CAP REQ :message-tags\r\n")
-    await alice.recv_until("CAP")
-    await alice.send("JOIN #system\r\n")
-    await alice.recv_until("JOIN")
+async def test_console_open_on_mode_c(server, make_client):
+    """MODE +C causes console.open to be delivered to #system subscribers."""
+    alice = await _setup_observer(make_client)
+    bob = await make_client("testserv-bob", "bob")
 
-    con = await make_client("testserv-ori")
-    await con.send("ICON console\r\n")
+    await bob.send("MODE testserv-bob +C")
 
     line = await alice.recv_until("event=console.open")
-    assert "testserv-ori opened a console" in line
+    assert "event=console.open" in line
+    assert "testserv-bob opened a console" in line
 
 
 @pytest.mark.asyncio
-async def test_console_close_emitted(server, make_client):
-    alice = await make_client("testserv-alice")
-    await alice.send("CAP REQ :message-tags\r\n")
-    await alice.recv_until("CAP")
-    await alice.send("JOIN #system\r\n")
-    await alice.recv_until("JOIN")
+async def test_console_close_on_disconnect(server, make_client):
+    """A client with +C that closes the TCP connection triggers console.close."""
+    alice = await _setup_observer(make_client)
+    bob = await make_client("testserv-bob", "bob")
 
-    con = await make_client("testserv-ori")
-    await con.send("ICON console\r\n")
+    await bob.send("MODE testserv-bob +C")
     await alice.recv_until("event=console.open")
 
-    await con.close()
+    await bob.close()
     line = await alice.recv_until("event=console.close")
-    assert "testserv-ori closed their console" in line
+    assert "testserv-bob closed their console" in line
 ```
 
-- [ ] **Step 2: Run test to verify failure**
+- [x] **Step 2: Emit console.open/close in `_handle_user_mode`**
 
-```bash
-uv run pytest tests/test_events_basic.py -v
-```
+The `+C` edge detection was added alongside `+A` in Task 9's `_handle_user_mode` change.
+No additional server-side changes needed.
 
-Expected: new tests fail — `ICON console` is not a valid value.
+- [x] **Step 3: Update `culture console` client to send `MODE +C` at startup**
 
-- [ ] **Step 3: Allow `console` in IconSkill**
-
-In `culture/agentirc/skills/icons.py`, find the set of valid icon values (grep for `{"human", "agent", "bot"}` or similar) and add `"console"`:
+`culture/console/client.py` already sends `MODE {nick} +{mode}` after RPL_WELCOME
+via its `mode` constructor parameter. Change the default from `"H"` to `"C"`:
 
 ```python
-VALID_ICONS = {"human", "agent", "bot", "admin", "console"}
+def __init__(self, ..., mode: str = "C", ...) -> None:
 ```
 
-- [ ] **Step 4: Emit console.open/close in client**
-
-Extend the ICON handler and disconnect cleanup analogous to agent, using `EventType.CONSOLE_OPEN` and `EventType.CONSOLE_CLOSE`.
-
-- [ ] **Step 5: Update the `culture console` client to send `ICON console` at startup**
-
-Find `culture/console/client.py`'s connection sequence (grep for `JOIN` or `USER` in that file). After registration completes, send:
+Update `culture/cli/mesh.py` (the production instantiation):
 
 ```python
-await self.send_raw("ICON console\r\n")
+client = ConsoleIRCClient(host=host, port=port, nick=nick, mode="C")
 ```
 
-- [ ] **Step 6: Run tests to verify passes**
+- [x] **Step 4: Run tests**
 
 ```bash
-uv run pytest tests/test_events_basic.py -v
+uv run pytest tests/test_events_lifecycle.py -v
 ```
 
-Expected: all pass.
+Expected: all 10 pass (Task 9's 8 emission tests + `+HC` combined + pre-registration gate).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
-git add culture/agentirc/skills/icons.py culture/agentirc/client.py culture/console/client.py tests/test_events_basic.py
-git commit -m "feat(events): emit console.open / console.close via ICON console"
+git add culture/agentirc/client.py culture/agentirc/ircd.py \
+        culture/clients/claude/irc_transport.py \
+        culture/clients/codex/irc_transport.py \
+        culture/clients/copilot/irc_transport.py \
+        culture/clients/acp/irc_transport.py \
+        packages/agent-harness/irc_transport.py \
+        culture/console/client.py culture/cli/mesh.py \
+        tests/test_events_lifecycle.py \
+        docs/superpowers/plans/2026-04-15-mesh-events.md
+git commit -m "feat(events): emit agent.connect/disconnect and console.open/close via user modes +A and +C"
 ```
 
 ---
