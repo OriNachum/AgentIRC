@@ -182,8 +182,10 @@ def dispatch(args: argparse.Namespace) -> None:
         "unarchive": _server_unarchive,
     }
     handler = handlers.get(args.server_command)
-    if handler:
-        handler(args)
+    if handler is None:
+        print(f"Unknown server command: {args.server_command}", file=sys.stderr)
+        sys.exit(1)
+    handler(args)
 
 
 # -----------------------------------------------------------------------
