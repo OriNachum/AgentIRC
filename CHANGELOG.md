@@ -568,14 +568,14 @@ new subsystem, new bot trigger type).
 
 ### Changed
 
-- Extract helper methods from socket_server_handle_client (all backends)
-- Convert irc_transport_handle to dispatch table (all backends)
-- Extract _auto_approve and _flush_accumulated_text in codex/acp agent_runner
-- Extract _handle_session_update and_extract_response_text in acp/copilot agent_runner
-- Decompose _handle_roommeta into query/update methods in rooms.py
-- Extract _merge_room_metadata in server_link.py
-- Extract _attempt_single_reconnect in ircd.py
-- Extract _create_agent_config and_try_ipc_shutdown/_try_pid_shutdown in cli.py
+- Extract helper methods from `socket_server._handle_client` (all backends)
+- Convert `irc_transport._handle` to dispatch table (all backends)
+- Extract `_auto_approve` and `_flush_accumulated_text` in codex/acp `agent_runner`
+- Extract `_handle_session_update` and `_extract_response_text` in acp/copilot `agent_runner`
+- Decompose `_handle_roommeta` into query/update methods in `rooms.py`
+- Extract `_merge_room_metadata` in `server_link.py`
+- Extract `_attempt_single_reconnect` in `ircd.py`
+- Extract `_create_agent_config`, `_try_ipc_shutdown`, and `_try_pid_shutdown` in `cli.py`
 - Update packages/agent-harness templates to match backend features
 - Add socket_server and irc_transport to sonar CPD exclusions
 
