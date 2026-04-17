@@ -520,7 +520,7 @@ class ServerLink:
                     notified.add(member)
             channel.members.discard(rc)
             if not channel.members:
-                del self.server.channels[channel.name]
+                self.server.channels.pop(channel.name, None)
         rc.channels.clear()
 
     async def _handle_squituser(self, msg: Message) -> None:
@@ -725,7 +725,7 @@ class ServerLink:
         """Decode and validate a base64-JSON SEVENT payload."""
         try:
             data = json.loads(base64.b64decode(b64))
-        except ValueError as exc:
+        except (ValueError, TypeError) as exc:
             logger.warning("SEVENT bad payload from %s: %s", peer_name, exc)
             return None
         if not isinstance(data, dict):
