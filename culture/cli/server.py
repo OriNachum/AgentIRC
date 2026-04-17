@@ -371,9 +371,14 @@ def _daemonize_server(args: argparse.Namespace, pid_name: str, links: list) -> N
     os.dup2(devnull, 0)
     os.close(devnull)
 
+    # Use an explicit FileHandler: logging.StreamHandler on sys.stderr
+    # inherits stderr's buffering from interpreter startup. After dup2'ing
+    # fd 2 to a log file, those writes can buffer indefinitely and make
+    # the daemon's runtime log appear frozen.
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
+        handlers=[logging.FileHandler(log_path)],
         force=True,
     )
 

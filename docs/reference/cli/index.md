@@ -363,6 +363,11 @@ culture mesh update --config /path/mesh.yaml
 | `--skip-upgrade` | off | Skip the package upgrade step; just restart services |
 | `--config PATH` | `~/.culture/mesh.yaml` | Path to `mesh.yaml` |
 
+Subprocess steps are bounded so a hung service unit cannot freeze the CLI: the
+package upgrade aborts after 120s, each service-restart command after 30s, and
+the fallback `culture server start` step after 30s. Timeouts are reported on
+stderr and the next step proceeds.
+
 ## Bots
 
 ### `culture bot archive`

@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [7.1.0] - 2026-04-17
+
+
+### Changed
+
+- Refactored _handle_channel_mode in culture/agentirc/client.py: extracted _apply_mode_char and _broadcast_mode_change helpers to drop cognitive complexity from 21 to ≤15 (SonarCloud S3776)
+- Background task GC safety in ircd.py _notify_local_quit: asyncio.ensure_future replaced with a tracked asyncio.create_task using the existing self._background_tasks set + add_done_callback(discard) pattern
+
+
+### Fixed
+
+- culture mesh update no longer hangs on broken/unresponsive systemd units — all subprocess calls in persistence.py and cli/mesh.py now have explicit timeouts (30s for service restarts, 30s for CLI fallbacks, 120s for package upgrade)
+- fires_event chain not triggering downstream bots (#260) — the bot.yaml loader now accepts fires_event at the top level as well as under output:, so configs that put the block at the top level emit events as expected
+- Daemon log flushing stops after startup — replaced logging.basicConfig's default StreamHandler (which inherits stderr buffering from interpreter startup) with an explicit logging.FileHandler so runtime log records flush per-record
+
 ## [7.0.4] - 2026-04-17
 
 

@@ -432,10 +432,24 @@ def _find_upgrade_tool() -> tuple[str, list[str]] | None:
     return None
 
 
+_UPGRADE_TIMEOUT_SECONDS = 120
+_FALLBACK_START_TIMEOUT_SECONDS = 30
+
+
 def _run_upgrade(tool_name: str, cmd: list[str]) -> None:
-    """Run the upgrade subprocess and exit on failure."""
+    """Run the upgrade subprocess and exit on failure or timeout."""
     print(f"Upgrading via {tool_name}...")
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=_UPGRADE_TIMEOUT_SECONDS
+        )
+    except subprocess.TimeoutExpired:
+        print(
+            f"{tool_name} upgrade timed out after {_UPGRADE_TIMEOUT_SECONDS}s — "
+            "rerun with --skip-upgrade to proceed without upgrading",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     if tool_name == "uv":
         print(result.stdout.strip() if result.stdout else "")
     if result.returncode != 0:
@@ -523,7 +537,14 @@ def _restart_single_service(svc_name: str, fallback_cmd: list[str], restart_serv
         )
     else:
         print("  No service file found, starting via CLI...")
-    subprocess.run(fallback_cmd, check=False)
+    try:
+        subprocess.run(fallback_cmd, check=False, timeout=_FALLBACK_START_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        print(
+            f"  Warning: startup command for {svc_name} timed out after "
+            f"{_FALLBACK_START_TIMEOUT_SECONDS}s — continuing",
+            file=sys.stderr,
+        )
 
 
 def _restart_mesh_services(

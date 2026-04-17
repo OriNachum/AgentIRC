@@ -106,6 +106,13 @@ output:
 The emitted event flows through the same pipeline as any other event — skills,
 federation relay, history storage, and further bot triggers.
 
+> **Location tolerance.** The canonical location for `fires_event` is under
+> `output:` as shown above. A top-level `fires_event:` block is also accepted
+> (the loader falls back to it if `output.fires_event` is missing) so configs
+> authored against the intuitive top-level shape still work. When the top-level
+> form is used, the server logs an INFO message pointing to the canonical
+> location; `save_bot_config` always writes the canonical form.
+
 ## System Bots
 
 System bots are package-bundled bots that ship with AgentIRC. They live at

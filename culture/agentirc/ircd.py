@@ -562,7 +562,9 @@ class IRCd:
         for channel in list(rc.channels):
             for member in list(channel.members):
                 if not isinstance(member, RemoteClient) and member not in notified:
-                    asyncio.ensure_future(member.send(quit_msg))
+                    task = asyncio.create_task(member.send(quit_msg))
+                    self._background_tasks.add(task)
+                    task.add_done_callback(self._background_tasks.discard)
                     notified.add(member)
             channel.members.discard(rc)
             if not channel.members:

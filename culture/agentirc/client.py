@@ -444,6 +444,56 @@ class Client:
         applied_modes.append(("+" if adding else "-") + ch)
         applied_params.append(target_nick)
 
+    _PARAM_MODES = frozenset({"o", "v", "S"})
+
+    async def _apply_mode_char(
+        self,
+        channel,
+        channel_name: str,
+        ch: str,
+        adding: bool,
+        param_queue: list[str],
+        applied_modes: list[str],
+        applied_params: list[str],
+    ) -> None:
+        """Apply a single mode character. Consumes one param from param_queue when needed."""
+        if ch == "R":
+            self._apply_mode_r(channel, adding, applied_modes)
+            return
+        if ch not in self._PARAM_MODES or not param_queue:
+            return
+        param_value = param_queue.pop(0)
+        if ch == "S":
+            self._apply_mode_s(channel, adding, param_value, applied_modes, applied_params)
+        else:
+            await self._apply_mode_membership(
+                channel,
+                channel_name,
+                ch,
+                adding,
+                param_value,
+                applied_modes,
+                applied_params,
+            )
+
+    async def _broadcast_mode_change(
+        self,
+        channel,
+        channel_name: str,
+        applied_modes: list[str],
+        applied_params: list[str],
+    ) -> None:
+        """Send the aggregated MODE message to all channel members."""
+        if not applied_modes:
+            return
+        mode_msg = Message(
+            prefix=self.prefix,
+            command="MODE",
+            params=[channel_name, "".join(applied_modes)] + applied_params,
+        )
+        for member in list(channel.members):
+            await member.send(mode_msg)
+
     async def _handle_channel_mode(self, msg: Message) -> None:
         channel_name = msg.params[0]
         channel = self.server.channels.get(channel_name)
@@ -457,7 +507,6 @@ class Client:
             await self.send_numeric(replies.RPL_CHANNELMODEIS, channel_name, "+")
             return
 
-        modestring = msg.params[1]
         if not channel.is_operator(self):
             await self.send_numeric(
                 replies.ERR_CHANOPRIVSNEEDED,
@@ -466,48 +515,32 @@ class Client:
             )
             return
 
+        modestring = msg.params[1]
         param_queue = list(msg.params[2:])
-        param_modes = {"o", "v", "S"}
-
         adding = True
-        applied_modes = []
+        applied_modes: list[str] = []
         applied_params: list[str] = []
         for ch in modestring:
             if ch == "+":
                 adding = True
             elif ch == "-":
                 adding = False
-            elif ch == "R":
-                self._apply_mode_r(channel, adding, applied_modes)
-            elif ch in param_modes:
-                if not param_queue:
-                    continue
-                param_value = param_queue.pop(0)
-                if ch == "S":
-                    self._apply_mode_s(channel, adding, param_value, applied_modes, applied_params)
-                else:
-                    await self._apply_mode_membership(
-                        channel,
-                        channel_name,
-                        ch,
-                        adding,
-                        param_value,
-                        applied_modes,
-                        applied_params,
-                    )
+            else:
+                await self._apply_mode_char(
+                    channel,
+                    channel_name,
+                    ch,
+                    adding,
+                    param_queue,
+                    applied_modes,
+                    applied_params,
+                )
 
         # Auto-promote if no operators remain
         if not channel.operators and channel.members:
             channel.operators.add(min(channel.members, key=lambda m: m.nick))
 
-        if applied_modes:
-            mode_msg = Message(
-                prefix=self.prefix,
-                command="MODE",
-                params=[channel_name, "".join(applied_modes)] + applied_params,
-            )
-            for member in list(channel.members):
-                await member.send(mode_msg)
+        await self._broadcast_mode_change(channel, channel_name, applied_modes, applied_params)
 
     _VALID_USER_MODE_CHARS = frozenset("HABC")
     _USER_MODE_EDGE_EVENTS: dict[tuple[str, bool], EventType] = {

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import shlex
 import subprocess
@@ -10,6 +11,10 @@ from pathlib import Path
 from xml.sax.saxutils import escape as xml_escape
 
 LOG_DIR = os.path.expanduser("~/.culture/logs")
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_CMD_TIMEOUT = 30.0
 
 
 def get_platform() -> str:
@@ -33,9 +38,19 @@ def _windows_service_dir() -> Path:
     return Path(os.path.expandvars(r"%USERPROFILE%\.culture\services"))
 
 
-def _run_cmd(args: list[str]) -> None:
-    """Run a command, suppressing output."""
-    subprocess.run(args, check=False, capture_output=True)
+def _run_cmd(args: list[str], timeout: float = DEFAULT_CMD_TIMEOUT) -> bool:
+    """Run a command, suppressing output.
+
+    Returns True if the command completed (regardless of exit code), False
+    if it timed out. A hung systemd unit can make ``systemctl restart``
+    block indefinitely, so every caller needs a bounded wait.
+    """
+    try:
+        subprocess.run(args, check=False, capture_output=True, timeout=timeout)
+        return True
+    except subprocess.TimeoutExpired:
+        logger.warning("Command %r timed out after %.0fs", args[0], timeout)
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -248,8 +263,7 @@ def _restart_linux_service(name: str) -> bool:
     path = _systemd_user_dir() / f"{name}.service"
     if not path.exists():
         return False
-    _run_cmd(["systemctl", "--user", "restart", name])
-    return True
+    return _run_cmd(["systemctl", "--user", "restart", name])
 
 
 def _restart_macos_service(name: str) -> bool:
@@ -257,21 +271,25 @@ def _restart_macos_service(name: str) -> bool:
     path = _launchd_dir() / f"{plist_name}.plist"
     if not path.exists():
         return False
-    _run_cmd(["launchctl", "unload", str(path)])
-    _run_cmd(["launchctl", "load", str(path)])
-    return True
+    if not _run_cmd(["launchctl", "unload", str(path)]):
+        return False
+    return _run_cmd(["launchctl", "load", str(path)])
 
 
 def _restart_windows_service(name: str) -> bool:
-    probe = subprocess.run(
-        ["schtasks", "/Query", "/TN", f"culture\\{name}"],
-        capture_output=True,
-        text=True,
-    )
+    try:
+        probe = subprocess.run(
+            ["schtasks", "/Query", "/TN", f"culture\\{name}"],
+            capture_output=True,
+            text=True,
+            timeout=DEFAULT_CMD_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        logger.warning("schtasks query for %s timed out", name)
+        return False
     if probe.returncode != 0:
         return False
-    _run_cmd(["schtasks", "/Run", "/TN", f"culture\\{name}"])
-    return True
+    return _run_cmd(["schtasks", "/Run", "/TN", f"culture\\{name}"])
 
 
 _PLATFORM_RESTARTERS = {

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 from dataclasses import dataclass, field
@@ -9,6 +10,8 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 BOTS_DIR = Path(os.path.expanduser("~/.culture/bots"))
 BOT_CONFIG_FILE = "bot.yaml"
@@ -58,8 +61,16 @@ def load_bot_config(path: Path) -> BotConfig:
     trigger_section = raw.get("trigger", {})
     output_section = raw.get("output", {})
 
-    # Parse optional fires_event block
+    # Parse optional fires_event block. Canonical location is under `output:`;
+    # top-level `fires_event:` is also accepted so configs authored against the
+    # intuitive YAML shape still work (see issue #260).
     fires_event_raw = output_section.get("fires_event")
+    fires_event_from_top = False
+    if not isinstance(fires_event_raw, dict):
+        top_level = raw.get("fires_event")
+        if isinstance(top_level, dict):
+            fires_event_raw = top_level
+            fires_event_from_top = True
     fires_event: EmitEventSpec | None = None
     if isinstance(fires_event_raw, dict):
         fe_type = fires_event_raw.get("type", "")
@@ -69,6 +80,12 @@ def load_bot_config(path: Path) -> BotConfig:
         if not isinstance(fe_data, dict):
             fe_data = {}
         fires_event = EmitEventSpec(type=fe_type, data=fe_data)
+        if fires_event_from_top:
+            logger.info(
+                "Bot %s: top-level 'fires_event' accepted; "
+                "canonical location is under 'output:'",
+                bot_section.get("name", "<unknown>"),
+            )
 
     return BotConfig(
         name=bot_section.get("name", ""),
