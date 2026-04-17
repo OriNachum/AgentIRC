@@ -580,7 +580,7 @@ class AgentDaemon:
 
     async def _ipc_status(self, req_id: str, msg: dict) -> dict:
         # ADAPT: replace with your runner's is_running() check
-        running = False  # e.g., self._agent_runner.is_running()
+        running = hasattr(self, "_agent_runner") and self._agent_runner is not None
         query = msg.get("query", False)
         description = self._describe_activity(live_query=query)
 

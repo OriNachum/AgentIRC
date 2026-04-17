@@ -128,36 +128,39 @@ class AgentRunner:
             msg_dict = self._assistant_to_dict(msg)
             await self.on_message(msg_dict)
 
+    async def _process_turn(self, prompt: str) -> bool:
+        """Run a single conversation turn. Returns False if a fatal error occurred."""
+        try:
+            async for message in query(
+                prompt=prompt,
+                options=self._make_options(),
+            ):
+                if isinstance(message, ResultMessage):
+                    self._handle_result_message(message)
+                elif isinstance(message, AssistantMessage):
+                    await self._handle_assistant_message(message)
+        except Exception:
+            logger.exception("SDK session turn error")
+            if not self._stopping and self.on_exit:
+                await self.on_exit(1)
+            return False
+        return True
+
     async def _run_loop(self) -> None:
         """Main session loop: run turns, process prompt queue between turns."""
         try:
             while not self._stopping:
-                # Wait for next prompt
                 prompt = await self._prompt_queue.get()
                 if self._stopping:
                     break
                 if not prompt:
                     continue
-
-                try:
-                    async for message in query(
-                        prompt=prompt,
-                        options=self._make_options(),
-                    ):
-                        if isinstance(message, ResultMessage):
-                            self._handle_result_message(message)
-                        elif isinstance(message, AssistantMessage):
-                            await self._handle_assistant_message(message)
-                except Exception:
-                    logger.exception("SDK session turn error")
-                    if not self._stopping and self.on_exit:
-                        await self.on_exit(1)
+                if not await self._process_turn(prompt):
                     return
 
         except asyncio.CancelledError:
             raise
 
-        # Loop exited normally (stopping flag set)
         if self.on_exit:
             await self.on_exit(0)
 

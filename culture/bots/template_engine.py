@@ -26,7 +26,7 @@ def _resolve_path(data: dict, path: str) -> str | None:
     return str(current)
 
 
-def render_template(template: str, payload: dict) -> str | None:
+def render_template(template: str, payload: dict | str) -> str | None:
     """Render a template string with ``{key.field.subfield}`` tokens.
 
     Payload keys are available directly (e.g. ``{event.nick}``) and
