@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [7.0.3] - 2026-04-17
+
+
+### Fixed
+
+- Duplicate _ERR_CHANNEL_PREFIX string in all 5 daemon files (S1192)
+- Cognitive complexity in claude/daemon.py _poll_loop (CC 22, S3776)
+- Cognitive complexity in agent-harness/daemon.py _poll_loop (CC 22, S3776)
+- Cognitive complexity in codex/daemon.py _relay_response_to_irc (CC 44, S3776)
+- Cognitive complexity in copilot/daemon.py _relay_response_to_irc (CC 23, S3776)
+- Cognitive complexity in acp/daemon.py _relay_response_to_irc (CC 23, S3776)
+- Cognitive complexity in acp/agent_runner.py start() (CC 17, S3776)
+
 ## [7.0.2] - 2026-04-17
 
 

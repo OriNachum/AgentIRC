@@ -66,6 +66,57 @@ class ACPAgentRunner:
     def session_id(self) -> str | None:
         return self._session_id
 
+    async def _initialize_acp_session(self, cmd_label: str) -> None:
+        """Run ACP protocol negotiation: initialize, log auth methods, create session."""
+        # Initialize with ACP protocol
+        resp = await self._send_request(
+            "initialize",
+            {
+                "protocolVersion": 1,
+                "clientCapabilities": {
+                    "fs": {"readTextFile": True, "writeTextFile": True},
+                    "terminal": True,
+                },
+                "clientInfo": {"name": "culture-acp", "version": "0.1.0"},
+            },
+        )
+        logger.info("ACP initialized (%s): %s", cmd_label, resp)
+
+        # Log available auth methods as a hint
+        init_result = resp.get("result", {})
+        auth_methods = init_result.get("authMethods", [])
+        descriptions: list[str] = []
+        if auth_methods:
+            descriptions = [m.get("description", m.get("id", "unknown")) for m in auth_methods]
+            logger.warning(
+                "ACP agent (%s) reports auth methods: %s. "
+                "If prompts fail, configure auth tokens.",
+                cmd_label,
+                ", ".join(descriptions),
+            )
+
+        # Create a session with model selection
+        session_params: dict = {
+            "cwd": self.directory,
+            "mcpServers": [],
+        }
+        if self.model:
+            session_params["model"] = self.model
+        resp = await self._send_request("session/new", session_params)
+
+        logger.info("ACP session/new raw response: %s", json.dumps(resp)[:500])
+        result = resp.get("result", {})
+        self._session_id = result.get("sessionId")
+        if not self._session_id:
+            # Session creation failed — likely auth or model issue
+            error = resp.get("error", {})
+            error_msg = error.get("message", "unknown error")
+            if descriptions:
+                error_msg += f". Auth may be required: {', '.join(descriptions)}"
+            raise RuntimeError(f"ACP agent ({cmd_label}) session creation failed: {error_msg}")
+        self._running = True
+        logger.info("ACP session started (%s): %s", cmd_label, self._session_id)
+
     async def start(self, initial_prompt: str = "") -> None:
         """Start the ACP agent as a subprocess and initialize a session."""
         self._stopping = False
@@ -95,53 +146,7 @@ class ACPAgentRunner:
             self._reader_task = asyncio.create_task(self._read_loop())
             self._stderr_task = asyncio.create_task(self._stderr_loop())
 
-            # Initialize with ACP protocol
-            resp = await self._send_request(
-                "initialize",
-                {
-                    "protocolVersion": 1,
-                    "clientCapabilities": {
-                        "fs": {"readTextFile": True, "writeTextFile": True},
-                        "terminal": True,
-                    },
-                    "clientInfo": {"name": "culture-acp", "version": "0.1.0"},
-                },
-            )
-            logger.info("ACP initialized (%s): %s", cmd_label, resp)
-
-            # Log available auth methods as a hint
-            init_result = resp.get("result", {})
-            auth_methods = init_result.get("authMethods", [])
-            if auth_methods:
-                descriptions = [m.get("description", m.get("id", "unknown")) for m in auth_methods]
-                logger.warning(
-                    "ACP agent (%s) reports auth methods: %s. "
-                    "If prompts fail, configure auth tokens.",
-                    cmd_label,
-                    ", ".join(descriptions),
-                )
-
-            # Create a session with model selection
-            session_params = {
-                "cwd": self.directory,
-                "mcpServers": [],
-            }
-            if self.model:
-                session_params["model"] = self.model
-            resp = await self._send_request("session/new", session_params)
-
-            logger.info("ACP session/new raw response: %s", json.dumps(resp)[:500])
-            result = resp.get("result", {})
-            self._session_id = result.get("sessionId")
-            if not self._session_id:
-                # Session creation failed — likely auth or model issue
-                error = resp.get("error", {})
-                error_msg = error.get("message", "unknown error")
-                if auth_methods:
-                    error_msg += f". Auth may be required: {', '.join(descriptions)}"
-                raise RuntimeError(f"ACP agent ({cmd_label}) session creation failed: {error_msg}")
-            self._running = True
-            logger.info("ACP session started (%s): %s", cmd_label, self._session_id)
+            await self._initialize_acp_session(cmd_label)
 
             # Start the prompt processing loop
             self._task = asyncio.create_task(self._prompt_loop())

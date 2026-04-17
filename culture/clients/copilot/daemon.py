@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 _ERR_MISSING_CHANNEL = "Missing 'channel'"
 _ERR_MISSING_CHANNEL_THREAD = "Missing 'channel' or 'thread'"
 _ERR_MISSING_CHANNEL_THREAD_MSG = "Missing 'channel', 'thread', or 'message'"
+_ERR_CHANNEL_PREFIX = "Channel name must start with '#'"
 
 # Regex to extract @mentioned nicks from messages
 _MENTION_RE = re.compile(r"@([\w-]+)")
@@ -462,19 +463,23 @@ class CopilotDaemon:
             channel,
         )
 
+    async def _send_relay_lines(self, relay_target: str, content: list) -> None:
+        """Send each text content item line-by-line to the relay target."""
+        for item in content:
+            if item.get("type") == "text":
+                text = item["text"].strip()
+                if text:
+                    for line in text.split("\n"):
+                        line = line.strip()
+                        if line:
+                            await self._transport.send_privmsg(relay_target, line)
+
     async def _relay_response_to_irc(self, msg: dict) -> None:
         """Dequeue the next relay target and send agent text lines to IRC."""
         relay_target = self._mention_targets.popleft() if self._mention_targets else None
         if self._transport and relay_target:
             content = msg.get("content", [])
-            for item in content:
-                if item.get("type") == "text":
-                    text = item["text"].strip()
-                    if text:
-                        for line in text.split("\n"):
-                            line = line.strip()
-                            if line:
-                                await self._transport.send_privmsg(relay_target, line)
+            await self._send_relay_lines(relay_target, content)
 
     def _capture_agent_status(self, msg: dict) -> None:
         """Capture the last assistant text for status reporting and fulfill any pending query."""
@@ -771,7 +776,7 @@ class CopilotDaemon:
         if not channel:
             return make_response(req_id, ok=False, error=_ERR_MISSING_CHANNEL)
         if not channel.startswith("#"):
-            return make_response(req_id, ok=False, error="Channel name must start with '#'")
+            return make_response(req_id, ok=False, error=_ERR_CHANNEL_PREFIX)
         assert self._transport is not None
         await self._transport.join_channel(channel)
         return make_response(req_id, ok=True)
@@ -781,7 +786,7 @@ class CopilotDaemon:
         if not channel:
             return make_response(req_id, ok=False, error=_ERR_MISSING_CHANNEL)
         if not channel.startswith("#"):
-            return make_response(req_id, ok=False, error="Channel name must start with '#'")
+            return make_response(req_id, ok=False, error=_ERR_CHANNEL_PREFIX)
         assert self._transport is not None
         await self._transport.part_channel(channel)
         return make_response(req_id, ok=True)
@@ -860,7 +865,7 @@ class CopilotDaemon:
         if not channel:
             return make_response(req_id, ok=False, error=_ERR_MISSING_CHANNEL)
         if not channel.startswith("#"):
-            return make_response(req_id, ok=False, error="Channel name must start with '#'")
+            return make_response(req_id, ok=False, error=_ERR_CHANNEL_PREFIX)
         assert self._transport is not None
         topic = msg.get("topic")  # None means query, string means set
         await self._transport.send_topic(channel, topic)

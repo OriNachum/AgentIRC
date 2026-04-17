@@ -35,6 +35,7 @@ MAX_CONSECUTIVE_TURN_FAILURES = 3
 _ERR_MISSING_CHANNEL = "Missing 'channel'"
 _ERR_MISSING_CHANNEL_THREAD = "Missing 'channel' or 'thread'"
 _ERR_MISSING_CHANNEL_THREAD_MSG = "Missing 'channel', 'thread', or 'message'"
+_ERR_CHANNEL_PREFIX = "Channel name must start with '#'"
 
 # Regex to extract @mentioned nicks from messages
 _MENTION_RE = re.compile(r"@([\w-]+)")
@@ -255,37 +256,43 @@ class AgentDaemon:
         while True:
             try:
                 await asyncio.sleep(interval)
-                if self._paused or not self._agent_runner or not self._agent_runner.is_running():
-                    continue
-                for channel in self.agent.channels:
-                    msgs = self._buffer.read(channel)
-                    if not msgs:
-                        continue
-                    # Filter out @mention messages (already handled by _on_mention)
-                    nick = self.agent.nick
-                    short = nick.split("-", 1)[1] if "-" in nick else None
-                    msgs = [
-                        m
-                        for m in msgs
-                        if not re.search(rf"@{re.escape(nick)}\b", m.text)
-                        and not (short and re.search(rf"@{re.escape(short)}\b", m.text))
-                    ]
-                    if not msgs:
-                        continue
-                    lines = "\n".join(f"  <{m.nick}> {m.text}" for m in msgs)
-                    prompt = (
-                        f"[IRC Channel Poll: {channel}] Recent unread messages:\n"
-                        f"{lines}\n\n"
-                        "Respond naturally if any messages need your attention."
-                    )
-                    self._mention_targets.append(channel)
-                    task = asyncio.create_task(self._agent_runner.send_prompt(prompt))
-                    self._background_tasks.add(task)
-                    task.add_done_callback(self._background_tasks.discard)
+                self._process_poll_cycle()
             except asyncio.CancelledError:
                 raise
             except Exception:
                 logger.exception("Poll loop error")
+
+    def _process_poll_cycle(self) -> None:
+        if self._paused or not self._agent_runner or not self._agent_runner.is_running():
+            return
+        for channel in self.agent.channels:
+            self._send_channel_poll(channel)
+
+    def _send_channel_poll(self, channel: str) -> None:
+        msgs = self._buffer.read(channel)
+        if not msgs:
+            return
+        # Filter out @mention messages (already handled by _on_mention)
+        nick = self.agent.nick
+        short = nick.split("-", 1)[1] if "-" in nick else None
+        msgs = [
+            m
+            for m in msgs
+            if not re.search(rf"@{re.escape(nick)}\b", m.text)
+            and not (short and re.search(rf"@{re.escape(short)}\b", m.text))
+        ]
+        if not msgs:
+            return
+        lines = "\n".join(f"  <{m.nick}> {m.text}" for m in msgs)
+        prompt = (
+            f"[IRC Channel Poll: {channel}] Recent unread messages:\n"
+            f"{lines}\n\n"
+            "Respond naturally if any messages need your attention."
+        )
+        self._mention_targets.append(channel)
+        task = asyncio.create_task(self._agent_runner.send_prompt(prompt))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     async def _on_turn_error(self) -> None:
         """Send error feedback to IRC and clean up stale relay target.
@@ -437,7 +444,7 @@ class AgentDaemon:
         if not channel:
             return make_response(req_id, ok=False, error=_ERR_MISSING_CHANNEL)
         if not channel.startswith("#"):
-            return make_response(req_id, ok=False, error="Channel name must start with '#'")
+            return make_response(req_id, ok=False, error=_ERR_CHANNEL_PREFIX)
         if self._transport:
             await self._transport.join_channel(channel)
         return make_response(req_id, ok=True)
@@ -447,7 +454,7 @@ class AgentDaemon:
         if not channel:
             return make_response(req_id, ok=False, error=_ERR_MISSING_CHANNEL)
         if not channel.startswith("#"):
-            return make_response(req_id, ok=False, error="Channel name must start with '#'")
+            return make_response(req_id, ok=False, error=_ERR_CHANNEL_PREFIX)
         if self._transport:
             await self._transport.part_channel(channel)
         return make_response(req_id, ok=True)
@@ -463,7 +470,7 @@ class AgentDaemon:
         if not channel:
             return make_response(req_id, ok=False, error=_ERR_MISSING_CHANNEL)
         if not channel.startswith("#"):
-            return make_response(req_id, ok=False, error="Channel name must start with '#'")
+            return make_response(req_id, ok=False, error=_ERR_CHANNEL_PREFIX)
         if self._transport:
             topic = msg.get("topic")  # None means query, string means set
             await self._transport.send_topic(channel, topic)
