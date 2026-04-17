@@ -62,10 +62,13 @@ def load_bot_config(path: Path) -> BotConfig:
     fires_event_raw = output_section.get("fires_event")
     fires_event: EmitEventSpec | None = None
     if isinstance(fires_event_raw, dict):
-        fires_event = EmitEventSpec(
-            type=fires_event_raw.get("type", ""),
-            data=fires_event_raw.get("data", {}),
-        )
+        fe_type = fires_event_raw.get("type", "")
+        if not isinstance(fe_type, str):
+            fe_type = str(fe_type)
+        fe_data = fires_event_raw.get("data")
+        if not isinstance(fe_data, dict):
+            fe_data = {}
+        fires_event = EmitEventSpec(type=fe_type, data=fe_data)
 
     return BotConfig(
         name=bot_section.get("name", ""),

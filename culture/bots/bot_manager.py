@@ -15,6 +15,8 @@ from culture.bots.config import (
 )
 from culture.bots.filter_dsl import FilterParseError, compile_filter, evaluate
 
+_FILTER_ERRORS = (FilterParseError, TypeError)
+
 if TYPE_CHECKING:
     from culture.agentirc.ircd import IRCd
 
@@ -46,7 +48,7 @@ class BotManager:
                 if config.trigger_type == "event" and config.event_filter:
                     try:
                         config._compiled_filter = compile_filter(config.event_filter)
-                    except FilterParseError as exc:
+                    except _FILTER_ERRORS as exc:
                         logger.error("Bot %s has invalid filter, skipping: %s", config.name, exc)
                         continue
                 bot = Bot(config, self.server)
@@ -61,14 +63,31 @@ class BotManager:
         if config.trigger_type == "event" and config.event_filter:
             try:
                 config._compiled_filter = compile_filter(config.event_filter)
-            except FilterParseError as exc:
+            except _FILTER_ERRORS as exc:
                 raise ValueError(f"bot {config.name} has invalid filter: {exc}") from exc
         bot = Bot(config, self.server)
         self.bots[config.name] = bot
         return bot
 
+    async def _try_start_bot(self, bot: Bot) -> bool:
+        """Lazily start a bot on first matching event. Returns True if ready."""
+        if bot.active:
+            return True
+        if getattr(bot, "_starting", False):
+            return False
+        bot._starting = True  # type: ignore[attr-defined]
+        try:
+            await bot.start()
+            return True
+        except Exception:
+            logger.exception("Bot %s failed to start", bot.config.name)
+            return False
+        finally:
+            bot._starting = False  # type: ignore[attr-defined]
+
     async def on_event(self, event) -> None:
         """Evaluate event-triggered bots against an event and dispatch matches."""
+        # list() is required: handle() may call emit_event() which re-enters on_event().
         for bot in list(self.bots.values()):
             cfg = bot.config
             if cfg.trigger_type != "event":
@@ -88,20 +107,8 @@ class BotManager:
             except Exception:
                 logger.exception("Filter evaluation failed for bot %s", cfg.name)
                 continue
-            # Start the bot lazily if register_bot() was called without start().
-            # Guard against reentrant start() calls (e.g. the bot joining a channel
-            # emitting another event before start() completes).
-            if not bot.active:
-                if getattr(bot, "_starting", False):
-                    continue
-                bot._starting = True  # type: ignore[attr-defined]
-                try:
-                    await bot.start()
-                except Exception:
-                    logger.exception("Bot %s failed to start on first event", cfg.name)
-                    bot._starting = False  # type: ignore[attr-defined]
-                    continue
-                bot._starting = False  # type: ignore[attr-defined]
+            if not await self._try_start_bot(bot):
+                continue
             try:
                 await bot.handle({"event": ctx})
             except Exception:

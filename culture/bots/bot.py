@@ -53,13 +53,14 @@ def _check_rate(bot_name: str) -> bool:
 
 def _render_data_values(data: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
     """Render Jinja2 template strings inside an EmitEventSpec data dict."""
-    from jinja2 import Template
+    from jinja2.sandbox import SandboxedEnvironment
 
+    env = SandboxedEnvironment()
     result = {}
     for key, val in data.items():
         if isinstance(val, str):
             try:
-                result[key] = Template(val).render(ctx)
+                result[key] = env.from_string(val).render(ctx)
             except Exception:
                 result[key] = val
         else:

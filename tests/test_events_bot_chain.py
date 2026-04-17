@@ -16,7 +16,7 @@ async def test_bot_chain_fires_event(server_with_bots, make_client):
     )
 
     # Bot B: triggered by custom.alert, posts to #alerts channel
-    server, cfgs = server_with_bots(
+    server, _ = server_with_bots(
         [
             {
                 "bot_name": "testserv-bot-a",

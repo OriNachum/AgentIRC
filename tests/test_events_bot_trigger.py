@@ -3,8 +3,6 @@
 import pytest
 
 from culture.agentirc.skill import Event, EventType
-from culture.bots.bot_manager import BotManager
-from culture.bots.config import BotConfig
 
 # ---------------------------------------------------------------------------
 # test_event_triggered_bot_runs
@@ -14,7 +12,7 @@ from culture.bots.config import BotConfig
 @pytest.mark.asyncio
 async def test_event_triggered_bot_runs(server_with_bot, make_client):
     """A bot with trigger_type=event fires on a matching event and posts to channels."""
-    server, cfg = server_with_bot(
+    server, _ = server_with_bot(
         bot_name="testserv-evt-bot",
         trigger_type="event",
         event_filter="type == 'user.join'",
@@ -51,7 +49,7 @@ async def test_event_triggered_bot_runs(server_with_bot, make_client):
 @pytest.mark.asyncio
 async def test_filter_mismatch_does_not_fire(server_with_bot, make_client):
     """When the filter doesn't match, the bot must not post anything."""
-    server, cfg = server_with_bot(
+    server, _ = server_with_bot(
         bot_name="testserv-silent-bot",
         trigger_type="event",
         event_filter="channel == '#restricted'",
