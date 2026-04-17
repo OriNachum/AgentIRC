@@ -49,7 +49,8 @@ def _run_cmd(args: list[str], timeout: float = DEFAULT_CMD_TIMEOUT) -> bool:
         subprocess.run(args, check=False, capture_output=True, timeout=timeout)
         return True
     except subprocess.TimeoutExpired:
-        logger.warning("Command %r timed out after %.0fs", args[0], timeout)
+        command = shlex.join(args) if args else "<empty command>"
+        logger.warning("Command %s timed out after %.0fs", command, timeout)
         return False
 
 

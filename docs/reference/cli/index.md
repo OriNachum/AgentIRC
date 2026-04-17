@@ -364,9 +364,10 @@ culture mesh update --config /path/mesh.yaml
 | `--config PATH` | `~/.culture/mesh.yaml` | Path to `mesh.yaml` |
 
 Subprocess steps are bounded so a hung service unit cannot freeze the CLI: the
-package upgrade aborts after 120s, each service-restart command after 30s, and
-the fallback `culture server start` step after 30s. Timeouts are reported on
-stderr and the next step proceeds.
+package upgrade times out after 120s and aborts the command, while each
+service-restart command times out after 30s and the fallback
+`culture server start` step times out after 30s. Restart and fallback
+timeouts are reported on stderr, and the next step proceeds where applicable.
 
 ## Bots
 
