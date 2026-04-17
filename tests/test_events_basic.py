@@ -20,7 +20,7 @@ async def test_event_nick_from_event_field_populates_payload(server, make_client
     c = await make_client("testserv-alice", "alice")
     await c.send("CAP REQ :message-tags")
     await c.recv_until("CAP")
-    await c.send("JOIN #general")
+    await c.send("JOIN #system")
     await c.recv_until("366")
     await asyncio.sleep(0.05)
     await c.recv_all(timeout=0.2)
@@ -110,12 +110,12 @@ async def test_event_surfaces_as_tagged_privmsg(server, make_client):
 
 
 @pytest.mark.asyncio
-async def test_channel_scoped_event_goes_to_channel(server, make_client):
-    """A channel-scoped event is posted to its channel, not #system."""
+async def test_channel_scoped_event_goes_to_system(server, make_client):
+    """All events — including channel-scoped ones — route to #system."""
     c = await make_client("testserv-alice", "alice")
     await c.send("CAP REQ :message-tags")
     await c.recv_until("ACK")
-    await c.send("JOIN #general")
+    await c.send("JOIN #system")
     # Drain all JOIN responses including the immediate join-event PRIVMSG.
     await c.recv_until("366")  # end of NAMES
     await asyncio.sleep(0.05)
@@ -130,7 +130,7 @@ async def test_channel_scoped_event_goes_to_channel(server, make_client):
     await server.emit_event(ev)
 
     line = await c.recv_until("event=user.join")
-    assert " PRIVMSG #general :" in line
+    assert " PRIVMSG #system :" in line
     # EventType.JOIN.value is "user.join"
     assert "event=user.join" in line
 

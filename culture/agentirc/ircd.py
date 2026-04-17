@@ -269,7 +269,7 @@ class IRCd:
         if type_wire in self._NO_SURFACE_TYPES:
             return
 
-        target = event.channel or SYSTEM_CHANNEL
+        target = SYSTEM_CHANNEL
         channel = self.channels.get(target)
         if channel is None:
             return

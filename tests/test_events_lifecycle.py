@@ -292,9 +292,13 @@ async def test_room_create_emitted_on_roomcreate(server, make_client):
     creator = await make_client("testserv-creator", "creator")
     await creator.send("CAP REQ :message-tags")
     await creator.recv_until("ACK")
+    # Events now route to #system, so join it to observe them.
+    await creator.send("JOIN #system")
+    await creator.recv_until("366")
+    await asyncio.sleep(0.05)
+    await creator.recv_all(timeout=0.2)
 
-    # Create a managed room. The channel-scoped room.create surfaces on the
-    # new channel itself — creator is auto-joined, so they receive it.
+    # Create a managed room. Events surface in #system, not the new channel.
     await creator.send("ROOMCREATE #research :purpose=AI research;tags=ai;persistent=true")
 
     line = await creator.recv_until("event=room.create")
@@ -321,6 +325,11 @@ async def test_room_create_precedes_room_meta(server, make_client):
     creator = await make_client("testserv-creator", "creator")
     await creator.send("CAP REQ :message-tags")
     await creator.recv_until("ACK")
+    # Events now route to #system, so join it to observe them.
+    await creator.send("JOIN #system")
+    await creator.recv_until("366")
+    await asyncio.sleep(0.05)
+    await creator.recv_all(timeout=0.2)
 
     await creator.send("ROOMCREATE #ordering :purpose=Test;persistent=true")
     collected = await creator.recv_until("event=room.meta")

@@ -87,7 +87,8 @@ async def test_transport_receives_tagged_events(server, make_client):
     await agent.send("CAP REQ :message-tags")
     await agent.send("CAP END")
     await agent.recv_all(timeout=0.5)
-    await agent.send("JOIN #test-tags")
+    # All events now route to #system, so join it to observe them.
+    await agent.send("JOIN #system")
     await agent.recv_all(timeout=0.5)
 
     # Emit an event that surfaces as tagged PRIVMSG
