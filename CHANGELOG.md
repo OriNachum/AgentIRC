@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [7.0.4] - 2026-04-17
+
+
+### Fixed
+
+- Reduce cognitive complexity and fix code quality issues across CLI modules (SonarCloud S3776, S1192, S5886, S108)
+
 ## [7.0.3] - 2026-04-17
 
 

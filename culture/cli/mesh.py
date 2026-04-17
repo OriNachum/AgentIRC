@@ -13,7 +13,7 @@ import time
 
 from culture.config import ServerConfig, load_config, load_config_or_default
 
-from .shared.constants import AGENTS_YAML, CULTURE_DIR, DEFAULT_CONFIG
+from .shared.constants import _CONFIG_HELP, AGENTS_YAML, CULTURE_DIR, DEFAULT_CONFIG
 from .shared.mesh import build_server_start_cmd, generate_mesh_from_agents
 from .shared.process import server_stop_by_name, stop_agent
 
@@ -92,7 +92,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     console_parser.add_argument(
         "--config",
         default=DEFAULT_CONFIG,
-        help="Config file path",
+        help=_CONFIG_HELP,
     )
 
 
@@ -653,8 +653,39 @@ def _resolve_mesh_for_server(server_name: str, config_path: str):
     return None
 
 
-def _cmd_update(args: argparse.Namespace) -> None:
+def _restart_running_servers(running, args, culture_bin):
+    """Restart all running servers, returning names of any that failed."""
+    failed = []
+    for srv in running:
+        mesh = _resolve_mesh_for_server(srv["name"], args.config)
+        if mesh is None:
+            print(
+                f"  Warning: no config found for server '{srv['name']}', skipping",
+                file=sys.stderr,
+            )
+            continue
+        if not _restart_mesh_services(mesh, srv["name"], culture_bin, args.config, args.dry_run):
+            failed.append(srv["name"])
+    return failed
+
+
+def _restart_from_config(args, culture_bin):
+    """Start services from config when none are running, returning names of any that failed."""
     from culture.mesh_config import load_mesh_config
+
+    try:
+        mesh = load_mesh_config(args.config)
+    except FileNotFoundError:
+        mesh = generate_mesh_from_agents(args.config)
+        if mesh is None:
+            sys.exit(1)
+    failed = []
+    if not _restart_mesh_services(mesh, mesh.server.name, culture_bin, args.config, args.dry_run):
+        failed.append(mesh.server.name)
+    return failed
+
+
+def _cmd_update(args: argparse.Namespace) -> None:
     from culture.pidfile import list_servers
 
     if not _upgrade_culture_package(args):
@@ -663,32 +694,11 @@ def _cmd_update(args: argparse.Namespace) -> None:
     culture_bin = shutil.which("culture") or "culture"
 
     running = list_servers()
-    failed = []
-
-    if running:
-        for srv in running:
-            mesh = _resolve_mesh_for_server(srv["name"], args.config)
-            if mesh is None:
-                print(
-                    f"  Warning: no config found for server '{srv['name']}', skipping",
-                    file=sys.stderr,
-                )
-                continue
-            if not _restart_mesh_services(
-                mesh, srv["name"], culture_bin, args.config, args.dry_run
-            ):
-                failed.append(srv["name"])
-    else:
-        try:
-            mesh = load_mesh_config(args.config)
-        except FileNotFoundError:
-            mesh = generate_mesh_from_agents(args.config)
-            if mesh is None:
-                sys.exit(1)
-        if not _restart_mesh_services(
-            mesh, mesh.server.name, culture_bin, args.config, args.dry_run
-        ):
-            failed.append(mesh.server.name)
+    failed = (
+        _restart_running_servers(running, args, culture_bin)
+        if running
+        else _restart_from_config(args, culture_bin)
+    )
 
     if failed:
         print(

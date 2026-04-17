@@ -121,6 +121,45 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     )
 
 
+def _cmd_default(args: argparse.Namespace) -> None:
+    """Set the default server name."""
+    from pathlib import Path
+
+    from culture.config import load_config_or_default
+    from culture.pidfile import PID_DIR, list_servers, write_default_server
+
+    from .shared.constants import DEFAULT_CONFIG
+
+    # Accept the name if: it matches a running server, has a PID file,
+    # or matches the configured server name.
+    known_running = {s["name"] for s in list_servers()}
+    pid_dir = Path(PID_DIR)
+    known_pids = set()
+    if pid_dir.exists():
+        prefix = "server-"
+        for p in pid_dir.glob(f"{prefix}*.pid"):
+            known_pids.add(p.stem[len(prefix) :])
+    known_names = known_running | known_pids
+
+    # Also accept the configured server name
+    try:
+        config = load_config_or_default(DEFAULT_CONFIG)
+        known_names.add(config.server.name)
+    except Exception:
+        pass
+
+    if args.name not in known_names:
+        print(f"Server '{args.name}' not found.", file=sys.stderr)
+        if known_names:
+            print(
+                f"Known servers: {', '.join(sorted(known_names))}",
+                file=sys.stderr,
+            )
+        sys.exit(1)
+    write_default_server(args.name)
+    print(f"Default server set to '{args.name}'")
+
+
 def dispatch(args: argparse.Namespace) -> None:
     if not args.server_command:
         print(
@@ -133,55 +172,18 @@ def dispatch(args: argparse.Namespace) -> None:
     if args.server_command not in ("default", "rename") and hasattr(args, "name"):
         args.name = _resolve_server_name(args)
 
-    if args.server_command == "start":
-        _server_start(args)
-    elif args.server_command == "stop":
-        _server_stop(args)
-    elif args.server_command == "status":
-        _server_status(args)
-    elif args.server_command == "default":
-        from pathlib import Path
-
-        from culture.pidfile import PID_DIR, list_servers, write_default_server
-
-        from .shared.constants import DEFAULT_CONFIG
-
-        # Accept the name if: it matches a running server, has a PID file,
-        # or matches the configured server name.
-        known_running = {s["name"] for s in list_servers()}
-        pid_dir = Path(PID_DIR)
-        known_pids = set()
-        if pid_dir.exists():
-            prefix = "server-"
-            for p in pid_dir.glob(f"{prefix}*.pid"):
-                known_pids.add(p.stem[len(prefix) :])
-        known_names = known_running | known_pids
-
-        # Also accept the configured server name
-        try:
-            from culture.config import load_config_or_default
-
-            config = load_config_or_default(DEFAULT_CONFIG)
-            known_names.add(config.server.name)
-        except Exception:
-            pass
-
-        if args.name not in known_names:
-            print(f"Server '{args.name}' not found.", file=sys.stderr)
-            if known_names:
-                print(
-                    f"Known servers: {', '.join(sorted(known_names))}",
-                    file=sys.stderr,
-                )
-            sys.exit(1)
-        write_default_server(args.name)
-        print(f"Default server set to '{args.name}'")
-    elif args.server_command == "rename":
-        _server_rename(args)
-    elif args.server_command == "archive":
-        _server_archive(args)
-    elif args.server_command == "unarchive":
-        _server_unarchive(args)
+    handlers = {
+        "start": _server_start,
+        "stop": _server_stop,
+        "status": _server_status,
+        "default": _cmd_default,
+        "rename": _server_rename,
+        "archive": _server_archive,
+        "unarchive": _server_unarchive,
+    }
+    handler = handlers.get(args.server_command)
+    if handler:
+        handler(args)
 
 
 # -----------------------------------------------------------------------

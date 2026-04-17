@@ -15,6 +15,7 @@ NAME = "channel"
 
 _ALL_CMDS = "list|read|message|who|join|part|ask|topic|compact|clear"
 _CHANNEL_HELP = "Channel (e.g. #general)"
+_ERR_EMPTY_CHANNEL = "Error: channel name cannot be empty"
 
 
 def _valid_nick(nick: str) -> bool:
@@ -110,6 +111,13 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     channel_sub.add_parser("clear", help="Clear the agent's context window")
 
 
+def _is_connection_error(msg: str) -> bool:
+    """Return True if the exception message indicates a connection failure."""
+    return (
+        "Timed out" in msg or "Connection refused" in msg or "Connect call failed" in msg or not msg
+    )
+
+
 def dispatch(args: argparse.Namespace) -> None:
     if not args.channel_command:
         print(f"Usage: culture channel {{{_ALL_CMDS}}}", file=sys.stderr)
@@ -134,13 +142,7 @@ def dispatch(args: argparse.Namespace) -> None:
     try:
         handler(args)
     except (TimeoutError, OSError) as exc:
-        msg = str(exc)
-        if (
-            "Timed out" in msg
-            or "Connection refused" in msg
-            or "Connect call failed" in msg
-            or not msg  # TimeoutError from asyncio often has empty message
-        ):
+        if _is_connection_error(str(exc)):
             print(
                 "Error: cannot connect to IRC server. Is the server running?\n"
                 "  Start it with: culture server start",
@@ -181,7 +183,7 @@ def _cmd_list(args: argparse.Namespace) -> None:
 
 def _cmd_read(args: argparse.Namespace) -> None:
     if not args.target.strip():
-        print("Error: channel name cannot be empty", file=sys.stderr)
+        print(_ERR_EMPTY_CHANNEL, file=sys.stderr)
         sys.exit(1)
     channel = args.target if args.target.startswith("#") else f"#{args.target}"
 
@@ -244,7 +246,7 @@ def _interpret_escapes(text: str) -> str:
 
 def _cmd_message(args: argparse.Namespace) -> None:
     if not args.target.strip():
-        print("Error: channel name cannot be empty", file=sys.stderr)
+        print(_ERR_EMPTY_CHANNEL, file=sys.stderr)
         sys.exit(1)
     if not args.text.strip():
         print("Error: message text cannot be empty", file=sys.stderr)
@@ -272,7 +274,7 @@ def _cmd_message(args: argparse.Namespace) -> None:
 
 def _cmd_who(args: argparse.Namespace) -> None:
     if not args.target.strip():
-        print("Error: channel name cannot be empty", file=sys.stderr)
+        print(_ERR_EMPTY_CHANNEL, file=sys.stderr)
         sys.exit(1)
     target = args.target
 
@@ -313,7 +315,7 @@ def _cmd_part(args: argparse.Namespace) -> None:
 
 def _cmd_ask(args: argparse.Namespace) -> None:
     if not args.target.strip():
-        print("Error: channel name cannot be empty", file=sys.stderr)
+        print(_ERR_EMPTY_CHANNEL, file=sys.stderr)
         sys.exit(1)
     if not args.text.strip():
         print("Error: question text cannot be empty", file=sys.stderr)
@@ -329,7 +331,7 @@ def _cmd_ask(args: argparse.Namespace) -> None:
 
 def _cmd_topic(args: argparse.Namespace) -> None:
     if not args.target.strip():
-        print("Error: channel name cannot be empty", file=sys.stderr)
+        print(_ERR_EMPTY_CHANNEL, file=sys.stderr)
         sys.exit(1)
     target = args.target if args.target.startswith("#") else f"#{args.target}"
 

@@ -9,8 +9,14 @@ import os
 import signal
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import yaml
+
+if TYPE_CHECKING:
+    from culture.clients.acp.config import AgentConfig as ACPAgentConfig
+    from culture.clients.codex.config import AgentConfig as CodexAgentConfig
+    from culture.clients.copilot.config import AgentConfig as CopilotAgentConfig
 
 from culture.config import (
     AgentConfig,
@@ -239,7 +245,7 @@ def dispatch(args: argparse.Namespace) -> None:
 # -----------------------------------------------------------------------
 
 
-def _create_codex_config(full_nick: str) -> AgentConfig:
+def _create_codex_config(full_nick: str) -> CodexAgentConfig:
     """Build a CodexAgentConfig."""
     from culture.clients.codex.config import AgentConfig as CodexAgentConfig
 
@@ -251,7 +257,7 @@ def _create_codex_config(full_nick: str) -> AgentConfig:
     )
 
 
-def _create_copilot_config(full_nick: str) -> AgentConfig:
+def _create_copilot_config(full_nick: str) -> CopilotAgentConfig:
     """Build a CopilotAgentConfig."""
     from culture.clients.copilot.config import AgentConfig as CopilotAgentConfig
 
@@ -279,7 +285,7 @@ def _parse_acp_command(raw_command: str | None) -> list[str]:
     return acp_cmd
 
 
-def _create_acp_config(full_nick: str, args: argparse.Namespace) -> AgentConfig:
+def _create_acp_config(full_nick: str, args: argparse.Namespace) -> ACPAgentConfig:
     """Build an ACPAgentConfig."""
     from culture.clients.acp.config import AgentConfig as ACPAgentConfig
 
@@ -469,8 +475,8 @@ def _probe_server_connection(host: str, port: int, server_name: str) -> None:
     import socket as _socket
 
     try:
-        with _socket.create_connection((host, port), timeout=2):
-            pass
+        conn = _socket.create_connection((host, port), timeout=2)
+        conn.close()
     except OSError:
         hint = ""
         server_pid = read_pid(f"server-{server_name}")
