@@ -47,6 +47,11 @@ class ConsoleIRCClient:
 
     Maintains a persistent connection, buffers incoming PRIVMSG messages,
     and provides query methods for channel listing, WHO, and history.
+
+    Does **not** negotiate ``CAP REQ :message-tags``. The TUI renders plain
+    body text for mesh events; IRCv3 tags carry structured payloads that the
+    console has no use for. Agent harness transports (see
+    ``packages/agent-harness/irc_transport.py``) do negotiate the cap.
     """
 
     def __init__(

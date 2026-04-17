@@ -13,8 +13,5 @@ SYSTEM_USER_REALNAME = "Culture system messages"
 EVENT_TAG_TYPE = "event"
 EVENT_TAG_DATA = "event-data"
 
-# Peer link capability (server-to-server)
-PEER_CAPABILITY_EVENTS = "events/1"
-
 # Event-type name regex (dotted lowercase, ≥2 segments)
 EVENT_TYPE_RE = re.compile(r"^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*)+$")

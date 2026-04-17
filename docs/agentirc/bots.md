@@ -82,6 +82,24 @@ Missing fields evaluate to `False` — filters are fail-closed.
 Invalid filters are rejected at config-load time with `FilterParseError`.
 Function calls are not permitted.
 
+### Python API
+
+The DSL grammar above is exposed by `culture/bots/filter_dsl.py`:
+
+| Function | Signature | Purpose |
+|----------|-----------|---------|
+| `compile_filter` | `compile_filter(source: str)` → AST node | Parse a filter expression. Raises `FilterParseError` on invalid input. |
+| `evaluate` | `evaluate(node, event: dict)` → `Any` | Evaluate a compiled AST against an event payload. Used by `BotManager` to decide whether a bot's trigger matches. |
+
+## Template Engine (Python API)
+
+`output.template` rendering lives in `culture/bots/template_engine.py`:
+
+| Function | Signature | Purpose |
+|----------|-----------|---------|
+| `render_template` | `render_template(template: str, payload: dict \| str)` → `str \| None` | Expand `{dot.path}` tokens against a payload. Returns `None` if any token cannot be resolved (caller should use the bot's `fallback` config). For dict payloads, fields are available at top level (`{event.nick}`); any payload (dict or str) is also exposed via the `body` alias (`{body.event.nick}`). |
+| `render_fallback` | `render_fallback(payload, mode="json")` → `str` | Stringify a payload when template resolution fails. `mode="json"` uses compact JSON; any other value falls back to `str(payload)`. |
+
 ## `fires_event` — Pub/Sub Chains
 
 A bot can emit a follow-on event after handling a trigger by adding a

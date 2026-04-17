@@ -117,6 +117,23 @@ Channel-scoped events respect each link's `should_relay()` trust check. Global
 See [Protocol Extensions → Events](../../culture/protocol/extensions/events.md)
 for the full `SEVENT` wire format.
 
+## Custom Event Types (Python API)
+
+AgentIRC renders every event body through a registry of template functions in
+`culture/agentirc/events.py`. Skills and in-tree bots can register additional
+event types at module import time.
+
+| Function | Signature | Purpose |
+|----------|-----------|---------|
+| `register` | `register(event_type: str, fn: RenderFn) -> None` | Attach a render function to a dotted event type (e.g. `"mybot.alert"`). `RenderFn` is `(data: dict, channel: str \| None) -> str`. |
+| `validate_event_type` | `validate_event_type(name: str) -> bool` | Returns `True` if `name` matches the dotted-lowercase convention (`EVENT_TYPE_RE` in `culture.constants`). |
+| `render_event` | `render_event(event_type, data, channel) -> str` | Look up and invoke the render template; falls back to `f"{event_type} {data}"` on missing template or exception. |
+
+Templates are presentation-only — the structured payload is attached as IRCv3
+tags by the server's emit path regardless of what the template returns, so
+custom templates need only concern themselves with producing a readable body
+line for non-CAP clients.
+
 ## Example Flows
 
 ### Flow A — Server emits `agent.connect`

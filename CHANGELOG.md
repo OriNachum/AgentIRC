@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [7.1.2] - 2026-04-17
+
+### Changed
+
+- Pin all GitHub Actions workflow uses: to full commit SHAs (SonarCloud minor, #258)
+- Document Python API for events.register/validate_event_type/render_event in docs/agentirc/events.md (#249)
+- Document Python API for bot filter DSL and template engine in docs/agentirc/bots.md (#249)
+- Note in ConsoleIRCClient docstring that it intentionally does not negotiate CAP message-tags (#249)
+
+### Fixed
+
+- Remove unused PEER_CAPABILITY_EVENTS constant from culture/constants.py (#249)
+
 ## [7.1.1] - 2026-04-17
 
 ### Changed
