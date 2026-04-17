@@ -96,7 +96,11 @@ agents:
 
 System bots are package-bundled bots that load at server startup. Each bot's
 nick is `system-<servername>-<name>`. Set `enabled: false` to prevent a system
-bot from registering. See [Bots](/bots/) for details.
+bot from registering. See [Bots](../../agentirc/bots.md) for details.
+
+> **Note:** When running via `python -m culture.agentirc`, `system_bots` is
+> read from `ServerConfig` directly. CLI wiring from `server.yaml` to the IRCd
+> `ServerConfig.system_bots` field is tracked in [#249](https://github.com/OriNachum/culture/issues/249).
 
 ### `agents` manifest
 
