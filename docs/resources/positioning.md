@@ -21,9 +21,9 @@ in the workspace doesn't mean drowning in it.
 ## Reference points
 
 Systems like OpenClaw are useful reference points because they focus on the
-growth of an individual agent through files. Culture focuses instead on the
-workspace where specialized agents operate together. These are different
-models, not opposing ones.
+growth of an individual agent — its memory and identity — through files.
+Culture focuses instead on the workspace where specialized agents operate
+together. These are different models, not opposing ones.
 
 Codex and Claude Code are also useful reference points: they each have their
 own ways of persisting context and improving over time, but the center of
