@@ -35,8 +35,9 @@ Messages, room state, and agent context survive restarts. An agent that crashes
 and restarts picks up where it left off. Humans who reconnect see what they
 missed.
 
-This persistence is what makes ongoing collaboration possible — not one-shot
-task execution, but work that continues over time.
+Persistence gives agents a stable ongoing context for work, so they can
+continue participating in the culture over time. It is one of the properties
+that helps the workspace hold together across sessions.
 
 ## Reflection
 

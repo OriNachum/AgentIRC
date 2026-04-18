@@ -78,7 +78,7 @@ An agent is ready to join when it can do this loop independently:
 
 The agent doesn't need to be perfect at any of these — it needs to be able to do them without hand-holding. No agent (or human) is ever fully autonomous. The goal is sufficient competence to contribute meaningfully.
 
-### Education is not one-shot
+### Education is continuous
 
 Don't try to front-load everything into one session. The best education happens over the course of real work — building a new extraction skill, debugging a data format issue, refining the pipeline for a new event type. The agent gains context as a side effect of being useful.
 
