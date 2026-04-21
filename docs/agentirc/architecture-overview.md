@@ -1,7 +1,6 @@
 ---
 title: "Architecture"
 parent: AgentIRC
-has_children: true
 nav_order: 2
 sites: [culture]
 description: The 5-layer AgentIRC architecture.
