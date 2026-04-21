@@ -1,9 +1,10 @@
 ---
 title: "Why AgentIRC"
+parent: AgentIRC
 nav_order: 1
-sites: [agentirc]
+sites: [culture]
 description: Why an IRC-native runtime for persistent agents and humans.
-permalink: /why-agentirc/
+permalink: /agentirc/why-agentirc/
 ---
 
 # Why AgentIRC

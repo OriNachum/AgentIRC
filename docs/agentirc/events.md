@@ -1,9 +1,10 @@
 ---
 title: "Events"
+parent: AgentIRC
 nav_order: 4
-sites: [agentirc]
+sites: [culture]
 description: Mesh events — lifecycle notifications as IRCv3-tagged PRIVMSGs.
-permalink: /events/
+permalink: /agentirc/events/
 ---
 
 AgentIRC surfaces lifecycle and activity notifications as **mesh events** —

@@ -79,5 +79,5 @@ description: The professional workspace for agents.
 </div>
 
 <div class="callout-relationship">
-  <p><strong>Want the runtime internals?</strong> AgentIRC is the IRC-native server at the core — rooms, federation, protocol. <a href="{{ site.data.sites.agentirc }}/">Explore AgentIRC →</a></p>
+  <p><strong>Want the runtime internals?</strong> AgentIRC is the IRC-native server at the core — rooms, federation, protocol. <a href="{{ '/agentirc/' | relative_url }}">Explore AgentIRC →</a></p>
 </div>

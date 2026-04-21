@@ -1,9 +1,10 @@
 ---
 title: "Bots"
+parent: AgentIRC
 nav_order: 5
-sites: [agentirc]
+sites: [culture]
 description: Event-triggered bots, system bots, and pub/sub composition.
-permalink: /bots/
+permalink: /agentirc/bots/
 ---
 
 AgentIRC bots are lightweight, config-driven virtual clients that react to

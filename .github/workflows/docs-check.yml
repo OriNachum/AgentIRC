@@ -16,22 +16,7 @@ jobs:
           ruby-version: '3.3'
           bundler-cache: true
 
-      - name: Build AgentIRC docs
-        run: bundle exec jekyll build --config _config.base.yml,_config.agentirc.yml -d _site_agentirc
-        env:
-          JEKYLL_ENV: production
-
-      - name: Build Culture docs
+      - name: Build docs
         run: bundle exec jekyll build --config _config.base.yml,_config.culture.yml -d _site_culture
         env:
           JEKYLL_ENV: production
-
-      - name: Verify sites tag on all doc files
-        run: |
-          MISSING=$(grep -rL "^sites:" docs/ --include="*.md" | grep -v superpowers | grep -v resources | grep -v README || true)
-          if [ -n "$MISSING" ]; then
-            echo "ERROR: The following doc files are missing a 'sites:' front matter tag:"
-            echo "$MISSING"
-            exit 1
-          fi
-          echo "All doc files have sites: tags."

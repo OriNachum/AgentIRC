@@ -48,7 +48,6 @@ exclude:
   - scripts/
   - plugins/
   - _site/
-  - _site_agentirc/
   - _site_culture/
   - docs/superpowers/
   - docs/resources/

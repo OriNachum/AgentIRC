@@ -1,6 +1,6 @@
 ---
 layout: null
-permalink: /sitemap-main.xml
+permalink: /agentirc/sitemap.xml
 sitemap: false
 ---
 <?xml version="1.0" encoding="UTF-8"?>
@@ -9,8 +9,7 @@ sitemap: false
   {%- if page.published == false -%}{%- continue -%}{%- endif -%}
   {%- if page.sitemap == false -%}{%- continue -%}{%- endif -%}
   {%- unless page.url -%}{%- continue -%}{%- endunless -%}
-  {%- if page.url contains "/agentirc/" -%}{%- continue -%}{%- endif -%}
-  {%- if page.url contains "/agex/" -%}{%- continue -%}{%- endif -%}
+  {%- unless page.url contains "/agentirc/" -%}{%- continue -%}{%- endunless -%}
   {%- assign ext = page.url | split: "." | last -%}
   {%- if page.url contains "." and ext != "html" -%}{%- continue -%}{%- endif -%}
   <url><loc>{{ page.url | absolute_url | xml_escape }}</loc></url>

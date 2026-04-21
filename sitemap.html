@@ -1,15 +1,11 @@
 ---
 layout: null
 permalink: /sitemap.xml
-sites: [culture, agentirc]
 sitemap: false
 ---
 <?xml version="1.0" encoding="UTF-8"?>
 <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-{%- if site.build_site == "culture" %}
   <sitemap><loc>{{ '/sitemap-main.xml' | absolute_url }}</loc></sitemap>
+  <sitemap><loc>{{ '/agentirc/sitemap.xml' | absolute_url }}</loc></sitemap>
   <sitemap><loc>{{ '/agex/sitemap.xml' | absolute_url }}</loc></sitemap>
-{%- elsif site.build_site == "agentirc" %}
-  <sitemap><loc>{{ '/sitemap-main.xml' | absolute_url }}</loc></sitemap>
-{%- endif %}
 </sitemapindex>
