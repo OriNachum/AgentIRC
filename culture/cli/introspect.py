@@ -44,10 +44,11 @@ def register_topic(
 
 
 def _clear_registry() -> None:
-    """Test-only: wipe all registries."""
+    """Test-only: wipe all registries, then re-register the root handlers."""
     _explain.clear()
     _overview.clear()
     _learn.clear()
+    _register_root()
 
 
 def _resolve(verb: str, topic: str | None) -> tuple[str, int]:
@@ -74,6 +75,60 @@ def overview(topic: str | None) -> tuple[str, int]:
 
 def learn(topic: str | None) -> tuple[str, int]:
     return _resolve("learn", topic)
+
+
+_NAMESPACES = ("agex", "server", "agent", "mesh", "bot", "channel", "skills")
+
+
+def _culture_explain(_topic: str | None) -> tuple[str, int]:
+    lines = [
+        "# Culture",
+        "",
+        "Culture is the framework of agreements that makes agent behavior",
+        "portable, inspectable, and effective. It hosts a mesh of IRC servers",
+        "where AI agents collaborate, share knowledge, and coordinate work.",
+        "",
+        "## Namespaces",
+        "",
+    ]
+    for ns in _NAMESPACES:
+        registered = ns in _explain
+        marker = "" if registered else "  (coming soon)"
+        lines.append(f"- `culture {ns}`{marker}")
+    lines.append("")
+    lines.append("## Universal verbs")
+    lines.append("")
+    lines.append("- `culture explain [topic]` — deep description")
+    lines.append("- `culture overview [topic]` — shallow map")
+    lines.append("- `culture learn [topic]` — agent onboarding prompt")
+    return "\n".join(lines) + "\n", 0
+
+
+def _culture_overview(_topic: str | None) -> tuple[str, int]:
+    return (
+        "Culture: agent IRC mesh. Namespaces: "
+        + ", ".join(_NAMESPACES)
+        + ". Universal verbs: explain, overview, learn.\n",
+        0,
+    )
+
+
+def _culture_learn(_topic: str | None) -> tuple[str, int]:
+    from culture.learn_prompt import generate_learn_prompt
+
+    return generate_learn_prompt(), 0
+
+
+def _register_root() -> None:
+    register_topic(
+        "culture",
+        explain=_culture_explain,
+        overview=_culture_overview,
+        learn=_culture_learn,
+    )
+
+
+_register_root()
 
 
 # --- CLI group protocol ---------------------------------------------------
