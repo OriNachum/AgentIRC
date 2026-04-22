@@ -10,7 +10,11 @@ permalink: /reference/cli/
 
 # CLI Reference
 
-The `culture` command manages servers, agents, and network observation.
+The `culture` command manages servers, agents, bots, channels, and the
+mesh, plus embeds the agex developer-experience CLI as `culture devex`.
+Every level of the command tree is inspectable via three universal
+verbs — `explain`, `overview`, `learn`. See
+[`culture devex` and universal verbs](./devex/) for the full contract.
 
 Install: `uv tool install culture` or `pip install culture`
 
@@ -395,9 +399,14 @@ The legacy `~/.culture/agents.yaml` format is still supported; use `culture agen
 ## Universal verbs
 
 Available at the root of the command tree. See
-[`culture agex`](./agex/) for detail.
+[`culture devex` and universal verbs](./devex/) for the contract and the
+registry of participating namespaces.
 
 - `culture explain [topic]` — deep description
 - `culture overview [topic]` — shallow summary
 - `culture learn [topic]` — agent onboarding prompt
-- `culture agex <anything>` — passthrough to the agex CLI
+- `culture devex <anything>` — developer-experience passthrough
+  (powered by `agex-cli`)
+
+`culture afi`, `culture identity`, and `culture secret` are upcoming
+and appear as `(coming soon)` in `culture explain` output.

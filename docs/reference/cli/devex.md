@@ -1,32 +1,41 @@
 ---
-title: "culture agex"
+title: "culture devex"
 parent: "CLI"
 grand_parent: "Reference"
 nav_order: 10
 sites: [agentirc, culture]
-description: "Agex passthrough and universal introspection verbs."
-permalink: /reference/cli/agex/
+description: "Developer-experience passthrough and universal introspection verbs."
+permalink: /reference/cli/devex/
 ---
 
-# `culture agex` and universal verbs
+# `culture devex` and universal verbs
 
-Culture ships [agex](https://agex.culture.dev) as a first-class
-citizen. Two affordances:
+Culture ships a developer-experience namespace as a first-class citizen.
+`culture devex` is powered by the standalone
+[`agex-cli`](https://agex.culture.dev) library (`agent_experience` Python
+package). The command name differs for familiarity with the
+developer-experience vocabulary; the underlying tool is the same. Two
+affordances:
 
-## `culture agex <anything>`
+## `culture devex <anything>`
 
-A full passthrough to the standalone [`agex`](https://agex.culture.dev) CLI.
-Everything after `culture agex` is forwarded verbatim to agex's typer app.
-Exit codes propagate.
+A full passthrough to the standalone `agex` CLI. Everything after
+`culture devex` is forwarded verbatim to the typer app. Exit codes
+propagate.
 
 ```bash
-culture agex --version
-culture agex explain agex
-culture agex overview --agent claude-code
-culture agex learn --agent claude-code
+culture devex --version
+culture devex explain agex
+culture devex overview --agent claude-code
+culture devex learn --agent claude-code
 ```
 
-`culture agex --help` shows agex's help, not culture's.
+`culture devex --help` shows the underlying CLI's help, not culture's.
+
+The passthrough forwards the argument vector verbatim, so the library's
+own topic names (for example `agex` as an explain topic) are what you
+pass on the devex subcommand. When you reach for culture's universal
+verbs, use the culture-facing names (`devex`, not `agex`).
 
 ## Universal verbs: `explain` / `overview` / `learn`
 
@@ -41,24 +50,40 @@ optional `topic`; when omitted, the topic defaults to `culture`.
 
 ```bash
 culture explain           # describes culture + its namespaces
-culture explain agex      # routes to agex explain
+culture explain devex     # routes to devex's explain handler
 culture overview          # culture map
 culture learn             # agent onboarding prompt for culture
-culture learn agex        # agent onboarding for agex
+culture learn devex       # agent onboarding for devex
 ```
 
 `learn` produces an agent-facing self-teaching prompt so an agent doesn't
-have to re-explore a tool every time. This matches agex's `agex learn`
-verb semantically.
+have to re-explore a tool every time. This matches the underlying
+`agex learn` verb semantically.
 
 ## Each namespace owns its own
 
 Culture is pure plumbing: a tiny internal dispatcher
-(`culture/cli/introspect.py`) maps topics to handlers. Each namespace that
-wants to participate registers its own handlers on import. For `agex`,
-the agex-cli library already implements the three verbs — culture just
-routes. Native namespaces (`mesh`, `server`, `agent`, …) will add their
-own handlers in a future release.
+(`culture/cli/introspect.py`) maps topics to handlers. Each namespace
+that wants to participate registers its own handlers on import. For
+`devex`, the `agex-cli` library already implements the three verbs —
+culture just routes.
+
+### Upcoming namespaces
+
+Three more namespaces are registered as `(coming soon)` in
+`culture explain` output and will gain full handlers in future releases:
+
+- **`culture afi`** — Agent First Interface. Scaffolding standards for
+  tools whose primary consumer is an AI agent. Wraps the standalone
+  [`afi-cli`](https://github.com/agentculture/afi-cli).
+- **`culture identity`** — Identity management across the mesh. Will
+  wrap a standalone `zehut-cli` (Hebrew: "identity").
+- **`culture secret`** — Secret management. Will wrap a standalone
+  `shushu-cli`.
+
+Culture uses English for its first-class nouns; the underlying CLIs keep
+their brand names. `culture explain` is the always-current source of
+truth for which namespaces are ready vs. coming soon.
 
 ## For namespace authors
 

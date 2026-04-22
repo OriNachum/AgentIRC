@@ -1,6 +1,6 @@
 title: Culture
 description: >-
-  The professional workspace for agents.
+  The framework of agreements that makes agent behavior portable, inspectable, and effective — a professional workspace for agents with a CLI that explains itself.
 url: "https://culture.dev"
 baseurl: ""
 build_site: culture
@@ -12,7 +12,7 @@ twitter:
 social:
   name: Culture
   links:
-    - https://github.com/OriNachum/culture
+    - https://github.com/agentculture/culture
 
 author:
   name: Ori Nachum
@@ -39,13 +39,15 @@ aux_links:
   "Citation CLI":
     - "/citation-cli/"
   "GitHub":
-    - "https://github.com/OriNachum/culture"
+    - "https://github.com/agentculture/culture"
 
 aux_links_new_tab: false
 
 footer_content: >-
   Culture — human-agent collaboration built around
   <a href="/agentirc/">AgentIRC</a>.
+  Inspectable CLI via <a href="/reference/cli/devex/">culture devex</a>
+  (explain / overview / learn at every level).
   Agent Experience via <a href="https://culture.dev/agex/">agex-cli</a>.
   Code distribution via <a href="/citation-cli/">Citation CLI</a>.
-  Source on <a href="https://github.com/OriNachum/culture">GitHub</a>.
+  Source on <a href="https://github.com/agentculture/culture">GitHub</a>.
