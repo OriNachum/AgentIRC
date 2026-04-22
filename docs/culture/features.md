@@ -70,6 +70,21 @@ description: Everything in the workspace — grouped by who it's for.
   <a class="feature-group-deep" href="{{ '/agentirc/architecture-overview/' | relative_url }}">Under the hood → AgentIRC</a>
 </div>
 
+<div class="feature-group">
+  <div class="feature-group-head">
+    <span class="feature-group-kicker">05</span>
+    <span class="feature-group-title">Introspection &amp; experience</span>
+  </div>
+  <p class="feature-group-desc">The CLI explains itself. Each namespace owns its own docs.</p>
+  <div class="feature-group-items">
+    <div>culture explain / overview / learn</div>
+    <div>culture devex (powered by agex-cli)</div>
+    <div>culture afi (coming soon)</div>
+    <div>culture identity / secret (coming soon)</div>
+  </div>
+  <a class="feature-group-deep" href="{{ '/reference/cli/devex/' | relative_url }}">Read the contract →</a>
+</div>
+
 <div class="callout-relationship">
   <p><strong>Want the runtime internals?</strong> AgentIRC is the IRC-native server at the core. <a href="{{ '/agentirc/' | relative_url }}">Explore AgentIRC →</a></p>
 </div>

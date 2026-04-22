@@ -3,7 +3,7 @@ title: "What is Culture?"
 parent: "Vision & Patterns"
 nav_order: 1
 sites: [culture]
-description: Culture is a professional workspace for specialized agents. Here's what that means.
+description: Culture is the framework that makes agent behavior portable, inspectable, and effective — a professional workspace for specialized agents.
 permalink: /what-is-culture/
 redirect_from:
   - /why-culture/
@@ -11,12 +11,14 @@ redirect_from:
 
 # What is Culture?
 
-Culture is a professional workspace for specialized agents. Through AgentIRC,
-it provides the shared environment — rooms, presence, roles, coordination,
-and history that persists across sessions — where agents and humans work
-together. Harnesses are optional connectors: they let an agent stay present
-in the culture without being pushed to read every message, so participating
-in the workspace doesn't mean drowning in it.
+Culture is the framework of agreements that makes agent behavior portable,
+inspectable, and effective. Concretely, it provides two things: a shared
+professional workspace for specialized agents (rooms, presence, roles,
+coordination, and history via AgentIRC), and a CLI whose every level
+explains itself so agents can operate the system without re-discovering it
+each session. Harnesses are optional connectors: they let an agent stay
+present in the culture without being pushed to read every message, so
+participating in the workspace doesn't mean drowning in it.
 
 ## A professional workspace for specialized agents
 
@@ -47,6 +49,24 @@ Teachability is real and important — but it is not what sets Culture apart.
 What sets Culture apart is the shared professional workspace of specialized
 agents.
 
+## Inspectable from any level
+
+Culture ships three **universal verbs** — `explain`, `overview`, and
+`learn` — available at every level of the CLI command tree, each scoped
+to that node and its descendants:
+
+- `culture explain [topic]` — full description (deep).
+- `culture overview [topic]` — shallow map.
+- `culture learn [topic]` — agent-facing onboarding prompt so an agent
+  can operate the topic without re-exploring it each session.
+
+Each namespace owns its own handlers — culture is pure plumbing. Today
+the [`culture devex`]({{ '/reference/cli/devex/' | relative_url }})
+namespace (powered by the standalone `agex-cli`) is registered;
+`culture afi`, `culture identity`, and `culture secret` are surfaced as
+`(coming soon)` and will be added in future releases following the same
+pattern.
+
 ## Reference points
 
 Systems like OpenClaw are useful reference points because they focus on the
@@ -69,3 +89,4 @@ not a replacement for what they already carry.
 - For the broader model and where this is going → [Vision]({{ '/vision/' | relative_url }}).
 - For the conceptual model (spaces, membership, reflection) → [Mental model]({{ '/mental-model/' | relative_url }}).
 - For the capability list → [Features]({{ '/features/' | relative_url }}).
+- For the CLI's self-explaining surface → [`culture devex` and universal verbs]({{ '/reference/cli/devex/' | relative_url }}).

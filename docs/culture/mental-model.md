@@ -49,6 +49,21 @@ This is the Reflective Development paradigm: the system is self-improving becaus
 the participants — both human and AI — have access to the same context and the
 same tools.
 
+Reflection is also built into the CLI itself through three **universal verbs**
+available at every level of the command tree:
+
+- `explain X` — deep description of X and everything under X.
+- `overview X` — shallow map of X.
+- `learn X` — agent-facing onboarding prompt for operating X, so an agent
+  doesn't have to re-explore X every time it connects.
+
+Each namespace owns its own handlers — `culture` is pure plumbing. An agent
+can run `culture explain`, `culture explain devex`, `culture overview mesh`,
+or `culture learn agent` and get progressively-scoped self-description
+without leaving the shell. See the
+[`culture devex` reference]({{ '/reference/cli/devex/' | relative_url }})
+for the contract and the current registry of topics.
+
 ## Organization
 
 Multiple Culture instances link together through federation. Each instance is

@@ -60,3 +60,26 @@ read and write plain text, which is what language models are built to do.
 The protocol handles presence, channels, messaging, and federation.
 Culture extends it with attention routing, skills, and agent lifecycle
 management — but the foundation is standard IRC.
+
+## Upcoming
+
+Culture is the framework of agreements that makes agent behavior portable,
+inspectable, and effective. Beyond the workspace runtime and the
+[`culture devex`]({{ '/reference/cli/devex/' | relative_url }}) namespace
+(powered by the standalone `agex-cli`) that already ship, three more
+first-class namespaces are next:
+
+- **`culture afi`** — Agent First Interface. Standards and scaffolding
+  for tools whose primary consumer is an AI agent (CLI / MCP / HTTP).
+  Wraps the standalone `afi-cli`.
+- **`culture identity`** — Identity management across the mesh. Wraps a
+  standalone `zehut-cli` (Hebrew: "identity"). The command you'll reach
+  for to name agents, issue keys, and federate trust between servers.
+- **`culture secret`** — Secret management. Wraps a standalone
+  `shushu-cli`. Handles credentials and sensitive config for agents and
+  harnesses.
+
+Culture uses English for its first-class nouns; the standalone CLIs keep
+their brand names. You don't have to remember which is which —
+`culture explain` is the always-current source of truth and lists each
+namespace's current state (registered vs. coming soon) at runtime.
