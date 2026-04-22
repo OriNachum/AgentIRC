@@ -20,6 +20,7 @@ dependencies = [
     "mistune>=3.0",
     "aiohttp>=3.9",
     "textual>=1.0",
+    "agex-cli>=0.13,<1.0",
 ]
 
 [project.urls]
