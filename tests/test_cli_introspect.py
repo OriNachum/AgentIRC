@@ -126,3 +126,30 @@ def test_culture_explain_unknown_topic_exits_1():
     )
     assert result.returncode == 1
     assert "unknown-topic-xyz" in result.stderr
+
+
+def test_culture_explain_coming_soon_namespace_exits_0():
+    # `agent` is advertised in _NAMESPACES but has no registered handler;
+    # the dispatcher should surface a "coming soon" message and exit 0
+    # instead of treating it as an unknown topic.
+    result = subprocess.run(
+        [sys.executable, "-m", "culture", "explain", "agent"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "coming soon" in result.stdout.lower()
+    assert "agent" in result.stdout
+
+
+def test_resolve_unit_coming_soon_for_namespace_without_handler():
+    # Unit-level version of the above — exercises _resolve directly.
+    introspect._clear_registry()
+    try:
+        stdout, code = introspect.explain("afi")
+        assert code == 0
+        assert "coming soon" in stdout.lower()
+        assert "afi" in stdout
+    finally:
+        introspect._clear_registry()

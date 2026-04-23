@@ -6,14 +6,16 @@ nav_order: 10
 sites: [agentirc, culture]
 description: "Developer-experience passthrough and universal introspection verbs."
 permalink: /reference/cli/devex/
+redirect_from:
+  - /reference/cli/agex/
 ---
 
 # `culture devex` and universal verbs
 
 Culture ships a developer-experience namespace as a first-class citizen.
 `culture devex` is powered by the standalone
-[`agex-cli`](https://agex.culture.dev) library (`agent_experience` Python
-package). The command name differs for familiarity with the
+[`agex-cli`]({{ site.data.sites.agex }}) library (`agent_experience`
+Python package). The command name differs for familiarity with the
 developer-experience vocabulary; the underlying tool is the same. Two
 affordances:
 
