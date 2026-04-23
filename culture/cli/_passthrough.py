@@ -37,12 +37,19 @@ from culture.cli import introspect
 Entry = Callable[[list[str]], "int | None"]
 
 
-def _translate_exit(code: "int | str | None") -> int:
+def _translate_exit(code: "int | str | None") -> "tuple[int, str | None]":
+    """Map a ``SystemExit.code`` to ``(rc, message)``.
+
+    Python's ``sys.exit`` accepts ``None`` (rc 0), an ``int`` (rc = int), or
+    anything else (rc 1 with the stringified value printed to stderr). We
+    mirror all three so an embedded CLI using any ``sys.exit`` form is
+    surfaced to culture's caller the way a bare invocation would be.
+    """
     if code is None:
-        return 0
+        return 0, None
     if isinstance(code, int):
-        return code
-    return 1
+        return code, None
+    return 1, str(code)
 
 
 def run(entry: Entry, argv: list[str]) -> None:
@@ -50,14 +57,17 @@ def run(entry: Entry, argv: list[str]) -> None:
 
     Used by a group module's ``dispatch()`` to forward arguments verbatim to
     the embedded CLI. ``SystemExit`` raised inside the entry (typer's
-    hard-exit, argparse's ``--help`` / ``--version`` / error path) is caught
-    and its code re-emitted via ``sys.exit`` so the behaviour matches a
-    bare invocation of the embedded CLI.
+    hard-exit, argparse's ``--help`` / ``--version`` / error path, or
+    ``sys.exit("msg")``) is caught, its message (if any) forwarded to
+    stderr, and its code re-emitted via ``sys.exit`` so the behaviour
+    matches a bare invocation of the embedded CLI.
     """
     try:
         rc = entry(argv) or 0
-    except SystemExit as exc:
-        rc = _translate_exit(exc.code)
+    except SystemExit as exc:  # NOSONAR S5754 — SystemExit is re-emitted via sys.exit below
+        rc, message = _translate_exit(exc.code)
+        if message is not None:
+            print(message, file=sys.stderr)
     sys.exit(rc)
 
 
@@ -66,15 +76,22 @@ def capture(entry: Entry, argv: list[str]) -> tuple[str, int]:
 
     Used by universal-verb handlers (``explain`` / ``overview`` / ``learn``),
     which must return a value rather than exit. ``SystemExit`` raised inside
-    the entry is translated into the ``rc`` half of the return tuple.
+    the entry is translated into the ``rc`` half of the return tuple; any
+    string-valued ``exc.code`` is appended to the captured buffer so the
+    embedded CLI's error text reaches the caller the way a bare invocation
+    would emit it on stderr.
     """
     buf = io.StringIO()
     rc = 0
     try:
         with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
             rc = entry(argv) or 0
-    except SystemExit as exc:
-        rc = _translate_exit(exc.code)
+    except SystemExit as exc:  # NOSONAR S5754 — code is surfaced as rc; behaviour documented above
+        rc, message = _translate_exit(exc.code)
+        if message is not None:
+            buf.write(message)
+            if not message.endswith("\n"):
+                buf.write("\n")
     return buf.getvalue(), rc
 
 

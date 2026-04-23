@@ -38,8 +38,15 @@ def _error_entry(argv: list[str]) -> None:
 
 
 def _str_code_entry(argv: list[str]) -> None:
-    # Unusual SystemExit where code is a string: treated as rc=1.
+    # Unusual SystemExit where code is a string: treated as rc=1 and the
+    # message is forwarded to the caller (stderr for run, buf for capture).
     raise SystemExit("something went wrong")
+
+
+def _str_code_no_newline_entry(argv: list[str]) -> None:
+    # No trailing newline — capture() should append one to keep the buffer
+    # newline-terminated like a bare invocation's stderr stream.
+    raise SystemExit("boom")
 
 
 class TestCapture:
@@ -72,6 +79,16 @@ class TestCapture:
         out, rc = _passthrough.capture(_str_code_entry, [])
         # Stringly-typed exit codes are treated as generic failure (1).
         assert rc == 1
+        # The message must reach the caller — otherwise `culture overview <x>`
+        # would print nothing when the embedded CLI does `sys.exit("msg")`.
+        assert "something went wrong" in out
+
+    def test_capture_string_code_appends_newline(self):
+        out, rc = _passthrough.capture(_str_code_no_newline_entry, [])
+        assert rc == 1
+        # Even when the embedded CLI's message lacks a trailing newline, the
+        # buffer should end with one so introspect.dispatch prints cleanly.
+        assert out.endswith("boom\n")
 
 
 class TestRun:
@@ -94,6 +111,15 @@ class TestRun:
         with pytest.raises(SystemExit) as ei:
             _passthrough.run(_none_entry, [])
         assert ei.value.code == 0
+
+    def test_run_string_code_prints_and_exits_one(self, capsys):
+        with pytest.raises(SystemExit) as ei:
+            _passthrough.run(_str_code_entry, [])
+        assert ei.value.code == 1
+        # Python's default sys.exit("msg") prints the message to stderr
+        # before exiting 1; the passthrough must match that behaviour.
+        captured = capsys.readouterr()
+        assert "something went wrong" in captured.err
 
 
 class TestRegisterTopic:
