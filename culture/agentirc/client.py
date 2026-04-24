@@ -6,12 +6,33 @@ import logging
 import re
 from typing import TYPE_CHECKING
 
+from opentelemetry import trace as _otel_trace
+from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
+from opentelemetry.trace.propagation import set_span_in_context
+
 from culture.agentirc.channel import Channel
 from culture.agentirc.skill import Event, EventType
 from culture.aio import maybe_await
 from culture.constants import SYSTEM_USER_PREFIX
 from culture.protocol import replies
 from culture.protocol.message import Message
+from culture.telemetry.context import extract_traceparent_from_tags
+
+
+def _context_from_traceparent(tp: str):
+    """Build an OTEL context whose current span is a NonRecordingSpan
+    synthesized from a W3C traceparent string. The `_dispatch` span we
+    start next will be a child of this context."""
+    # Format: 00-<trace-id>-<parent-id>-<flags>
+    _, trace_hex, parent_hex, flags_hex = tp.split("-")
+    span_ctx = SpanContext(
+        trace_id=int(trace_hex, 16),
+        span_id=int(parent_hex, 16),
+        is_remote=True,
+        trace_flags=TraceFlags(int(flags_hex, 16)),
+    )
+    return set_span_in_context(NonRecordingSpan(span_ctx))
+
 
 if TYPE_CHECKING:
     from culture.agentirc.ircd import IRCd
@@ -110,20 +131,41 @@ class Client:
             buffer = await self._process_buffer(buffer)
 
     async def _dispatch(self, msg: Message) -> None:
-        handler = getattr(self, f"_handle_{msg.command.lower()}", None)
-        if handler:
-            await maybe_await(handler(msg))
-        else:
-            skill = self.server.get_skill_for_command(msg.command)
-            if skill and self._registered:
-                try:
-                    await skill.on_command(self, msg)
-                except Exception:
-                    logging.getLogger(__name__).exception(
-                        "Skill %s failed on command %s", skill.name, msg.command
-                    )
+        extract = extract_traceparent_from_tags(msg, peer=None)
+        parent_ctx = None
+        if extract.status == "valid":
+            parent_ctx = _context_from_traceparent(extract.traceparent)
+
+        attrs = {
+            "irc.command": msg.command,
+            "irc.prefix_nick": (msg.prefix.split("!")[0] if msg.prefix else ""),
+            "culture.trace.origin": "local" if extract.status == "missing" else "remote",
+        }
+        if extract.status in ("malformed", "too_long"):
+            attrs["culture.trace.dropped_reason"] = extract.status
+
+        # Per-call get_tracer: test fixture swaps provider between tests.
+        with _otel_trace.get_tracer("culture.agentirc").start_as_current_span(
+            f"irc.command.{msg.command}",
+            context=parent_ctx,
+            attributes=attrs,
+        ):
+            handler = getattr(self, f"_handle_{msg.command.lower()}", None)
+            if handler:
+                await maybe_await(handler(msg))
             else:
-                await self.send_numeric(replies.ERR_UNKNOWNCOMMAND, msg.command, "Unknown command")
+                skill = self.server.get_skill_for_command(msg.command)
+                if skill and self._registered:
+                    try:
+                        await skill.on_command(self, msg)
+                    except Exception:
+                        logging.getLogger(__name__).exception(
+                            "Skill %s failed on command %s", skill.name, msg.command
+                        )
+                else:
+                    await self.send_numeric(
+                        replies.ERR_UNKNOWNCOMMAND, msg.command, "Unknown command"
+                    )
 
     async def _handle_ping(self, msg: Message) -> None:
         token = msg.params[0] if msg.params else ""
