@@ -28,7 +28,7 @@ from culture.agentirc.config import ServerConfig, TelemetryConfig
 
 logger = logging.getLogger(__name__)
 
-_CULTURE_TRACER_NAME = "culture"
+_CULTURE_TRACER_NAME = "culture.agentirc"
 _initialized_for: TelemetryConfig | None = None
 _tracer: Tracer | None = None
 

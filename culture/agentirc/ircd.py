@@ -173,13 +173,17 @@ class IRCd:
 
     async def emit_event(self, event: Event) -> None:
         origin_tag = event.data.get("_origin")
-        attrs = {
+        attrs: dict[str, str] = {
             "event.type": event.type.value,
-            "event.channel": event.channel or "",
             "event.origin": "federated" if origin_tag else "local",
         }
+        if event.channel:
+            attrs["event.channel"] = event.channel
         if origin_tag:
             attrs["culture.federation.peer"] = origin_tag
+        # Per-call get_tracer: the `tracing_exporter` test fixture swaps the
+        # global provider between tests; a cached Tracer would bind to the
+        # first test's provider and stop delivering to later ones.
         with _otel_trace.get_tracer("culture.agentirc").start_as_current_span(
             "irc.event.emit", attributes=attrs
         ):
