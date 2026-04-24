@@ -1,0 +1,25 @@
+# otelcol-contrib starter config for Culture.
+# Edit the `exporters:` and `service.pipelines` sections to point at your
+# real backends (Tempo, Loki, Prometheus, Grafana Cloud, Honeycomb, etc.).
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+
+exporters:
+  debug:
+    verbosity: detailed
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]
