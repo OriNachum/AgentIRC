@@ -1,5 +1,3 @@
-import pytest
-
 from culture.protocol.message import Message
 from culture.telemetry.context import (
     TRACEPARENT_TAG,
