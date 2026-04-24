@@ -132,13 +132,28 @@ class Client:
 
     async def _process_buffer(self, buffer: str) -> str:
         """Parse and dispatch all complete lines from buffer, return remainder."""
-        while "\n" in buffer:
-            line, buffer = buffer.split("\n", 1)
-            if line.strip():
-                msg = Message.parse(line)
+        # Per-call get_tracer: test fixture swaps provider between tests.
+        with _otel_trace.get_tracer("culture.agentirc").start_as_current_span(
+            "irc.client.process_buffer"
+        ) as span:
+            while "\n" in buffer:
+                line, buffer = buffer.split("\n", 1)
+                if not line.strip():
+                    continue
+                try:
+                    msg = Message.parse(line)
+                except Exception as exc:  # noqa: BLE001 -- widen for any parser failure
+                    span.add_event(
+                        "irc.parse_error",
+                        attributes={
+                            "line_preview": line[:64],
+                            "error": type(exc).__name__,
+                        },
+                    )
+                    continue
                 if msg.command:
                     await self._dispatch(msg)
-        return buffer
+            return buffer
 
     async def handle(self, initial_msg: str | None = None) -> None:
         buffer = ""
