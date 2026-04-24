@@ -36,11 +36,11 @@ This spec adds OpenTelemetry for traces, metrics, and logs, plus a separate dura
 - `otelcol-contrib` as a systemd unit, config at `~/.culture/otelcol.yaml`.
 - Culture ships a minimal template (OTLP receiver on 4317, debug exporter) as documentation. Operators wire real backends (Tempo/Prometheus/Loki/Grafana Cloud) when they want them.
 
-**New protocol extension `protocol/extensions/tracing.md`:**
+**New protocol extension `culture/protocol/extensions/tracing.md`:**
 
 Defines `culture.dev/traceparent` and `culture.dev/tracestate` IRCv3 tags (W3C Trace Context over IRC), documents the inbound mitigation rules and the re-sign-per-hop federation relay behavior.
 
-**New doc `protocol/extensions/audit.md`:**
+**New doc `culture/protocol/extensions/audit.md`:**
 
 Documents the audit JSONL schema and file layout as a stable contract.
 
@@ -167,7 +167,7 @@ Registered once in `culture/telemetry/metrics.py` (server) and `packages/agent-h
 
 **Durability:** bounded `asyncio.Queue` (depth 10 000), dedicated writer task. On queue overflow: drop record, increment `culture.audit.writes{outcome=error}`, stderr warning. Dropping is better than blocking `emit_event`.
 
-**Record schema (documented in `protocol/extensions/audit.md` as a stable contract):**
+**Record schema (documented in `culture/protocol/extensions/audit.md` as a stable contract):**
 
 ```json
 {
@@ -273,8 +273,8 @@ telemetry:
 - `culture/clients/{claude,codex,copilot,acp}/culture.yaml` — add `telemetry:` block.
 - Each backend's `agent_runner.py` — wrap LLM call span + `record_llm_call(...)`.
 - `culture/telemetry/` — **new package**: `tracing.py`, `metrics.py`, `audit.py`, `context.py`, `__init__.py`.
-- `protocol/extensions/tracing.md` — **new**.
-- `protocol/extensions/audit.md` — **new**.
+- `culture/protocol/extensions/tracing.md` — **new**.
+- `culture/protocol/extensions/audit.md` — **new**.
 - `docs/agentirc/telemetry.md` — **new** feature doc.
 - `docs/agentirc/otelcol-template.yaml` — **new** collector starter config.
 - `pyproject.toml` — add `opentelemetry-api`, `opentelemetry-sdk`, `opentelemetry-exporter-otlp`, `opentelemetry-instrumentation-aiohttp-client`. Bump version minor. Update `uv.lock`.

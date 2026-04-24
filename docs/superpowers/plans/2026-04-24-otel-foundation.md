@@ -27,7 +27,7 @@
 - `culture/telemetry/__init__.py` — public re-exports (`init_telemetry`, `extract_traceparent_from_tags`, `inject_traceparent_into_tags`).
 - `culture/telemetry/tracing.py` — TracerProvider init, no-op fallback, span helpers.
 - `culture/telemetry/context.py` — W3C traceparent extract/inject against IRCv3 `Message.tags`.
-- `protocol/extensions/tracing.md` — protocol extension doc (tag names, caps, mitigation).
+- `culture/culture/protocol/extensions/tracing.md` — protocol extension doc (tag names, caps, mitigation).
 - `docs/agentirc/telemetry.md` — operator-facing feature doc.
 - `docs/agentirc/otelcol-template.yaml` — copy-paste collector starter config.
 - `tests/telemetry/__init__.py` — empty package marker.
@@ -58,11 +58,11 @@
 
 **Files:**
 
-- Create: `protocol/extensions/tracing.md`
+- Create: `culture/culture/protocol/extensions/tracing.md`
 
 - [ ] **Step 1: Write the doc**
 
-Write `protocol/extensions/tracing.md` with exactly this content:
+Write `culture/culture/protocol/extensions/tracing.md` with exactly this content:
 
 ````markdown
 # Extension: W3C Trace Context over IRC
@@ -613,7 +613,7 @@ class ExtractResult:
 def extract_traceparent_from_tags(msg: Message, peer: str | None) -> ExtractResult:
     """Extract W3C trace context from an incoming IRC message's tags.
 
-    Applies the inbound mitigation rules from `protocol/extensions/tracing.md`:
+    Applies the inbound mitigation rules from `culture/culture/protocol/extensions/tracing.md`:
     absent → missing; length/regex failure → malformed; oversize tracestate
     dropped while traceparent retained.
     """
@@ -1906,7 +1906,7 @@ When telemetry is enabled and a span is active, outbound client messages carry t
 - `culture.dev/traceparent` — W3C traceparent header value.
 - `culture.dev/tracestate` — W3C tracestate (optional).
 
-Protocol details, length caps, and inbound mitigation rules: see [`protocol/extensions/tracing.md`](../../protocol/extensions/tracing.md).
+Protocol details, length caps, and inbound mitigation rules: see [`culture/culture/protocol/extensions/tracing.md`](../../protocol/extensions/tracing.md).
 
 ## What's not in 8.2.0
 
@@ -1978,7 +1978,7 @@ Run via the agent tool (not a shell command). Inside the current session, invoke
 Agent(
   subagent_type="doc-test-alignment",
   description="Audit docs for OTEL foundation branch",
-  prompt="Audit the staged diff on branch `feature/otel-observability` for public-API surface changes and report any gaps in `docs/` or `protocol/extensions/`. New surface this plan introduces: (1) TelemetryConfig config fields in server.yaml; (2) IRCv3 tags `culture.dev/traceparent` and `culture.dev/tracestate`; (3) new exception class names — none in this plan (deferred). Check that `docs/agentirc/telemetry.md` mentions every config field and that `protocol/extensions/tracing.md` covers both tags."
+  prompt="Audit the staged diff on branch `feature/otel-observability` for public-API surface changes and report any gaps in `docs/` or `protocol/extensions/`. New surface this plan introduces: (1) TelemetryConfig config fields in server.yaml; (2) IRCv3 tags `culture.dev/traceparent` and `culture.dev/tracestate`; (3) new exception class names — none in this plan (deferred). Check that `docs/agentirc/telemetry.md` mentions every config field and that `culture/culture/protocol/extensions/tracing.md` covers both tags."
 )
 ```
 
@@ -2026,7 +2026,7 @@ The skill creates a placeholder section. Replace it with:
 ### Added
 
 - OpenTelemetry foundation: `culture/telemetry/` package with `TracerProvider` bootstrap, W3C trace context extract/inject helpers for IRCv3 tags, and `TelemetryConfig` block in `server.yaml`.
-- Protocol extension: `culture.dev/traceparent` and `culture.dev/tracestate` IRCv3 tags (`protocol/extensions/tracing.md`).
+- Protocol extension: `culture.dev/traceparent` and `culture.dev/tracestate` IRCv3 tags (`culture/culture/protocol/extensions/tracing.md`).
 - Server-side tracing: `IRCd.emit_event`, `Client._dispatch`, `Client._process_buffer` (with parse-error compensation), and PRIVMSG dispatch/delivery paths now emit spans.
 - Outbound traceparent injection on `Client.send` and `Client.send_raw` when a span is active.
 - Operator docs at `docs/agentirc/telemetry.md` plus a starter collector config at `docs/agentirc/otelcol-template.yaml`.
@@ -2086,7 +2086,7 @@ gh pr create --title "feat(telemetry): OTEL foundation + server-side tracing cor
 First shippable increment of the OTEL observability initiative (spec: `docs/superpowers/specs/2026-04-24-otel-observability-design.md`, phases 1–2).
 
 - New `culture/telemetry/` package with TracerProvider bootstrap and W3C context extract/inject helpers
-- New IRCv3 tags `culture.dev/traceparent` / `culture.dev/tracestate` documented in `protocol/extensions/tracing.md`
+- New IRCv3 tags `culture.dev/traceparent` / `culture.dev/tracestate` documented in `culture/culture/protocol/extensions/tracing.md`
 - Server-side spans on `IRCd.emit_event`, `Client._dispatch`, `Client._process_buffer`, and PRIVMSG dispatch/delivery
 - Outbound traceparent injection when a span is active
 - Feature doc + collector starter config at `docs/agentirc/`
