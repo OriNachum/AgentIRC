@@ -173,8 +173,12 @@ class IRCd:
 
     async def emit_event(self, event: Event) -> None:
         origin_tag = event.data.get("_origin")
+        # event.type may be an EventType enum OR a plain string — federated
+        # events forward unknown types verbatim (see _parse_event_type in
+        # server_link.py).
+        event_type_str = event.type.value if hasattr(event.type, "value") else str(event.type)
         attrs: dict[str, str] = {
-            "event.type": event.type.value,
+            "event.type": event_type_str,
             "event.origin": "federated" if origin_tag else "local",
         }
         if event.channel:
