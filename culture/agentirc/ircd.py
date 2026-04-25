@@ -39,11 +39,12 @@ class IRCd:
     """The culture IRC server."""
 
     def __init__(self, config: ServerConfig):
-        from culture.telemetry import init_metrics, init_telemetry
+        from culture.telemetry import init_audit, init_metrics, init_telemetry
 
         self.config = config
         self.tracer = init_telemetry(config)
         self.metrics = init_metrics(config)
+        self.audit = init_audit(config, self.metrics)
         self.clients: dict[str, Client | VirtualClient] = {}  # nick -> Client
         self.channels: dict[str, Channel] = {}  # name -> Channel
         self.skills: list[Skill] = []
@@ -73,6 +74,8 @@ class IRCd:
 
         logger.info("Bootstrapping system identity...")
         self._bootstrap_system_identity()
+
+        await self.audit.start()
 
         await self.emit_event(
             Event(
@@ -395,6 +398,7 @@ class IRCd:
             if self._server:
                 self._server.close()
                 await self._server.wait_closed()
+            await self.audit.shutdown()
         finally:
             self._stopped.set()
 

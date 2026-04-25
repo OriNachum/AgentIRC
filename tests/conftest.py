@@ -2,6 +2,7 @@
 import asyncio
 from unittest.mock import patch
 
+import pytest
 import pytest_asyncio
 from opentelemetry import metrics as otel_metrics
 from opentelemetry import trace
@@ -12,7 +13,7 @@ from opentelemetry.sdk.trace import TracerProvider as SdkTracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-from culture.agentirc.config import LinkConfig, ServerConfig
+from culture.agentirc.config import LinkConfig, ServerConfig, TelemetryConfig
 from culture.agentirc.ircd import IRCd
 from culture.telemetry.metrics import reset_for_tests as _reset_metrics
 from culture.telemetry.tracing import reset_for_tests as _reset_telemetry
@@ -104,7 +105,13 @@ async def server(tmp_path):
     # never read/write the real ~/.culture/bots/ directory.
     empty_bots = tmp_path / "_bots"
     empty_bots.mkdir()
-    config = ServerConfig(name="testserv", host="127.0.0.1", port=0, webhook_port=0)
+    config = ServerConfig(
+        name="testserv",
+        host="127.0.0.1",
+        port=0,
+        webhook_port=0,
+        telemetry=TelemetryConfig(audit_dir=str(tmp_path / "audit")),
+    )
     with (
         patch(_BOTS_DIR_MANAGER, empty_bots),
         patch(_BOTS_DIR_CONFIG, empty_bots),
@@ -157,6 +164,7 @@ async def linked_servers(tmp_path):
         port=0,
         webhook_port=0,
         links=[LinkConfig(name="beta", host="127.0.0.1", port=0, password=link_password)],
+        telemetry=TelemetryConfig(audit_dir=str(tmp_path / "audit_alpha")),
     )
     config_b = ServerConfig(
         name="beta",
@@ -164,6 +172,7 @@ async def linked_servers(tmp_path):
         port=0,
         webhook_port=0,
         links=[LinkConfig(name="alpha", host="127.0.0.1", port=0, password=link_password)],
+        telemetry=TelemetryConfig(audit_dir=str(tmp_path / "audit_beta")),
     )
 
     server_a = IRCd(config_a)
@@ -263,6 +272,7 @@ async def server_welcome_disabled(tmp_path):
         port=0,
         webhook_port=0,
         system_bots={"welcome": {"enabled": False}},
+        telemetry=TelemetryConfig(audit_dir=str(tmp_path / "audit")),
     )
     with (
         patch(_BOTS_DIR_MANAGER, empty_bots),
@@ -367,3 +377,13 @@ async def metrics_reader():
         yield reader
     finally:
         _reset_metrics()
+
+
+@pytest.fixture
+def audit_dir(tmp_path):
+    """Yields a Path for tests to use as `telemetry.audit_dir`.
+
+    Tests build a ServerConfig with `telemetry=TelemetryConfig(audit_dir=str(tmp_path))`
+    and inspect file contents via `Path(audit_dir).glob("*.jsonl*")`.
+    """
+    return tmp_path
