@@ -9,7 +9,7 @@ nav_order: 90
 
 Culture ships with first-class OpenTelemetry support: traces for every IRC command and event, W3C trace context carried across federation via a new IRCv3 tag, and a local collector pattern that keeps Culture's surface small.
 
-This page covers the **Foundation + Server Tracing** release (culture 8.2.0), **Federation Trace-Context Relay** (culture 8.3.0), and the **Metrics Pillar** (culture 8.4.0). Audit, harness instrumentation, and bot instrumentation ship in subsequent releases.
+This page covers the **Foundation + Server Tracing** release (culture 8.2.0), **Federation Trace-Context Relay** (culture 8.3.0), the **Metrics Pillar** (culture 8.4.0), and the **Audit JSONL Sink** (culture 8.5.0). Harness and bot instrumentation ship in subsequent releases.
 
 ## What you get in 8.2.0
 
@@ -102,6 +102,11 @@ telemetry:
   traces_sampler: parentbased_always_on
   metrics_enabled: true
   metrics_export_interval_ms: 10000
+  audit_enabled: true
+  audit_dir: ~/.culture/audit
+  audit_max_file_bytes: 268435456
+  audit_rotate_utc_midnight: true
+  audit_queue_depth: 10000
 ```
 
 - `enabled: false` (default) → no SDK init, no export, no overhead. Traceparent tags on inbound messages are still parsed and validated (for the future mitigation metric), but no spans are created.
@@ -128,13 +133,34 @@ When telemetry is enabled and a span is active, outbound client messages carry t
 
 Protocol details, length caps, and inbound mitigation rules: see [`tracing.md`](https://github.com/agentculture/culture/blob/main/culture/protocol/extensions/tracing.md) (lives under `culture/` in the repo; Jekyll excludes that path from the published site).
 
-## What's not in 8.4.0
+## What you get in 8.5.0
+
+The audit JSONL sink lands: every event flowing through `IRCd.emit_event` (PRIVMSG, JOIN, PART, ROOMCREATE, …) is appended as a single JSON object to `~/.culture/audit/<server>-<YYYY-MM-DD>.jsonl`. Each line carries the full event payload, the active OTEL `trace_id` / `span_id` for cross-pillar joins, the actor (nick + kind + remote_addr), and the target (channel or DM). PARSE_ERROR lines from `Client._process_buffer` are also captured.
+
+Highlights:
+
+- **Always on by default.** `audit_enabled: true` is independent of `telemetry.enabled` — even with OTEL fully off, the JSONL still writes. Set `audit_enabled: false` to disable.
+- **Bounded async queue + dedicated writer task.** `audit_queue_depth: 10000` (configurable). On overflow, the record is dropped and `culture.audit.writes{outcome=error}` increments — dropping is preferable to blocking the event loop.
+- **Daily rotation on UTC midnight + size cap at 256 MiB.** Same-day size rotations get `.1`, `.2`, … suffixes.
+- **`0600` file mode, `0700` directory mode** — admin-only by construction.
+- **Stable schema.** See [`audit.md`](https://github.com/agentculture/culture/blob/main/culture/protocol/extensions/audit.md) for the record format and additive-only compat policy.
+
+New audit metrics (extend the Plan 3 `MetricsRegistry`):
+
+- `culture.audit.writes` — Counter. Labels: `outcome=ok|error`. Increments on every record write attempt.
+- `culture.audit.queue_depth` — UpDownCounter. Currently-queued records waiting to flush.
+
+New operator guide: [`docs/agentirc/audit.md`](audit.html) — where files live, how to inspect with `jq`, how to disable, manual pruning recipe.
+
+## What's not in 8.5.0
 
 The design spec at `docs/superpowers/specs/2026-04-24-otel-observability-design.md` covers the full three-pillar scope. These pieces ship in later releases:
 
-- Audit JSONL sink + audit metrics (`culture.audit.writes`, `culture.audit.queue_depth`).
 - Harness-side tracing for `claude`/`codex`/`copilot`/`acp` + harness LLM metrics (`culture.harness.llm.*`).
 - Bot webhook HTTP instrumentation + bot metrics (`culture.bot.invocations`, `culture.bot.webhook.duration`).
-- Outbound `culture.s2s.messages` (8.4.0 records inbound only — outbound needs a clean verb-extraction site without parsing every `send_raw` line).
+- Outbound `culture.s2s.messages` (records inbound only — outbound needs a clean verb-extraction site).
+- OTEL Logs export of audit records (best-effort duplicate; JSONL stays source of truth either way).
+- `audit-prune` CLI for retention; operators prune manually in v1.
+- Federated lifecycle audit (JOIN/PART/QUIT on the receiver side) — gap tracked in [#296](https://github.com/agentculture/culture/issues/296). Federated `message` events DO produce audit records correctly.
 
 Each will get an entry under "What you get in \<version\>" as it lands.
