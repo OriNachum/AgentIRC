@@ -940,6 +940,8 @@ class ServerLink:
             "event.type": event_type_str,
             "s2s.peer": self.peer_name or "",
         }
+        # Single span name (no verb suffix): the wire verb is decided downstream
+        # by _RELAY_DISPATCH or the SEVENT fallback, after this span opens.
         with otel_trace.get_tracer(_TRACER_NAME).start_as_current_span(
             "irc.s2s.relay", attributes=attrs
         ):
