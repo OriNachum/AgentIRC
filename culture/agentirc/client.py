@@ -7,6 +7,7 @@ import re
 from typing import TYPE_CHECKING
 
 from opentelemetry import trace as _otel_trace
+from opentelemetry.trace import Span as _OtelSpan
 
 from culture.agentirc.channel import Channel
 from culture.agentirc.skill import Event, EventType
@@ -57,6 +58,7 @@ class Client:
         self.caps: set[str] = set()
         self.modes: set[str] = set()
         self.icon: str | None = None
+        self._session_span: _OtelSpan | None = None
 
     @property
     def prefix(self) -> str:
@@ -142,21 +144,28 @@ class Client:
             return buffer
 
     async def handle(self, initial_msg: str | None = None) -> None:
-        buffer = ""
-        if initial_msg:
-            buffer = initial_msg.replace("\r\n", "\n").replace("\r", "\n")
-            buffer = await self._process_buffer(buffer)
-        while True:
-            data = await self.reader.read(4096)
-            if not data:
-                break
-            buffer += data.decode("utf-8", errors="replace")
-            # Cap buffer to prevent unbounded memory growth (512 bytes per RFC 2812)
-            if len(buffer) > 8192:
-                buffer = buffer[-4096:]
-            # Normalize all line endings to \n for simpler parsing
-            buffer = buffer.replace("\r\n", "\n").replace("\r", "\n")
-            buffer = await self._process_buffer(buffer)
+        peer_info = self.writer.get_extra_info("peername")
+        remote_addr = f"{peer_info[0]}:{peer_info[1]}" if peer_info else ""
+        with _otel_trace.get_tracer(_TRACER_NAME).start_as_current_span(
+            "irc.client.session",
+            attributes={"irc.client.remote_addr": remote_addr},
+        ) as span:
+            self._session_span = span
+            buffer = ""
+            if initial_msg:
+                buffer = initial_msg.replace("\r\n", "\n").replace("\r", "\n")
+                buffer = await self._process_buffer(buffer)
+            while True:
+                data = await self.reader.read(4096)
+                if not data:
+                    break
+                buffer += data.decode("utf-8", errors="replace")
+                # Cap buffer to prevent unbounded memory growth (512 bytes per RFC 2812)
+                if len(buffer) > 8192:
+                    buffer = buffer[-4096:]
+                # Normalize all line endings to \n for simpler parsing
+                buffer = buffer.replace("\r\n", "\n").replace("\r", "\n")
+                buffer = await self._process_buffer(buffer)
 
     async def _dispatch(self, msg: Message) -> None:
         extract = extract_traceparent_from_tags(msg, peer=None)
@@ -164,8 +173,9 @@ class Client:
         if extract.status == "valid":
             parent_ctx = context_from_traceparent(extract.traceparent)
 
+        verb = msg.command.upper()
         attrs = {
-            "irc.command": msg.command,
+            "irc.command": verb,
             "irc.prefix_nick": (msg.prefix.split("!")[0] if msg.prefix else ""),
             "culture.trace.origin": "local" if extract.status == "missing" else "remote",
         }
@@ -174,7 +184,7 @@ class Client:
 
         # Per-call get_tracer: test fixture swaps provider between tests.
         with _otel_trace.get_tracer(_TRACER_NAME).start_as_current_span(
-            f"irc.command.{msg.command}",
+            f"irc.command.{verb}",
             context=parent_ctx,
             attributes=attrs,
         ):
@@ -275,6 +285,8 @@ class Client:
 
         self.nick = nick
         self.server.clients[nick] = self
+        if self._session_span is not None:
+            self._session_span.set_attribute("irc.client.nick", nick)
         await self._try_register()
 
     async def _handle_user(self, msg: Message) -> None:
@@ -319,89 +331,103 @@ class Client:
         )
 
     async def _handle_join(self, msg: Message) -> None:
-        if not self._registered:
-            return
-        if not msg.params:
-            await self.send_numeric(replies.ERR_NEEDMOREPARAMS, "JOIN", replies.MSG_NEEDMOREPARAMS)
-            return
-
-        channel_name = msg.params[0]
-        if not channel_name.startswith("#"):
-            return
-
-        # Block joins to archived rooms
-        existing = self.server.channels.get(channel_name)
-        if existing and existing.archived:
-            await self.send(
-                Message(
-                    prefix=self.server.config.name,
-                    command="NOTICE",
-                    params=[self.nick, f"{channel_name} is archived and cannot be joined"],
+        with _otel_trace.get_tracer(_TRACER_NAME).start_as_current_span(
+            "irc.join",
+            attributes={"irc.channel": "", "irc.client.nick": self.nick or ""},
+        ) as join_span:
+            if not self._registered:
+                return
+            if not msg.params:
+                await self.send_numeric(
+                    replies.ERR_NEEDMOREPARAMS, "JOIN", replies.MSG_NEEDMOREPARAMS
                 )
+                return
+
+            channel_name = msg.params[0]
+            join_span.set_attribute("irc.channel", channel_name)
+            if not channel_name.startswith("#"):
+                return
+
+            # Block joins to archived rooms
+            existing = self.server.channels.get(channel_name)
+            if existing and existing.archived:
+                await self.send(
+                    Message(
+                        prefix=self.server.config.name,
+                        command="NOTICE",
+                        params=[self.nick, f"{channel_name} is archived and cannot be joined"],
+                    )
+                )
+                return
+
+            channel = self.server.get_or_create_channel(channel_name)
+            if self in channel.members:
+                return
+
+            channel.add(self)
+            self.channels.add(channel)
+
+            # Notify all channel members (including self)
+            join_msg = Message(prefix=self.prefix, command="JOIN", params=[channel_name])
+            for member in list(channel.members):
+                await member.send(join_msg)
+
+            # Send topic if set
+            if channel.topic:
+                await self.send_numeric(replies.RPL_TOPIC, channel_name, channel.topic)
+
+            # Send names list
+            await self._send_names(channel)
+
+            # Emit event AFTER delivering all join-related numerics (topic, NAMES)
+            # so that the event PRIVMSG doesn't interleave with 353/366 in client buffers.
+            await self.server.emit_event(
+                Event(type=EventType.JOIN, channel=channel_name, nick=self.nick)
             )
-            return
-
-        channel = self.server.get_or_create_channel(channel_name)
-        if self in channel.members:
-            return
-
-        channel.add(self)
-        self.channels.add(channel)
-
-        # Notify all channel members (including self)
-        join_msg = Message(prefix=self.prefix, command="JOIN", params=[channel_name])
-        for member in list(channel.members):
-            await member.send(join_msg)
-
-        # Send topic if set
-        if channel.topic:
-            await self.send_numeric(replies.RPL_TOPIC, channel_name, channel.topic)
-
-        # Send names list
-        await self._send_names(channel)
-
-        # Emit event AFTER delivering all join-related numerics (topic, NAMES)
-        # so that the event PRIVMSG doesn't interleave with 353/366 in client buffers.
-        await self.server.emit_event(
-            Event(type=EventType.JOIN, channel=channel_name, nick=self.nick)
-        )
 
     async def _handle_part(self, msg: Message) -> None:
-        if not msg.params:
-            await self.send_numeric(replies.ERR_NEEDMOREPARAMS, "PART", replies.MSG_NEEDMOREPARAMS)
-            return
+        with _otel_trace.get_tracer(_TRACER_NAME).start_as_current_span(
+            "irc.part",
+            attributes={"irc.channel": "", "irc.client.nick": self.nick or ""},
+        ) as part_span:
+            if not msg.params:
+                await self.send_numeric(
+                    replies.ERR_NEEDMOREPARAMS, "PART", replies.MSG_NEEDMOREPARAMS
+                )
+                return
 
-        channel_name = msg.params[0]
-        reason = msg.params[1] if len(msg.params) > 1 else ""
+            channel_name = msg.params[0]
+            part_span.set_attribute("irc.channel", channel_name)
+            reason = msg.params[1] if len(msg.params) > 1 else ""
 
-        channel = self.server.channels.get(channel_name)
-        if not channel or self not in channel.members:
-            await self.send_numeric(
-                replies.ERR_NOTONCHANNEL,
-                channel_name,
-                replies.MSG_NOTONCHANNEL,
+            channel = self.server.channels.get(channel_name)
+            if not channel or self not in channel.members:
+                await self.send_numeric(
+                    replies.ERR_NOTONCHANNEL,
+                    channel_name,
+                    replies.MSG_NOTONCHANNEL,
+                )
+                return
+
+            part_params = [channel_name, reason] if reason else [channel_name]
+            part_msg = Message(prefix=self.prefix, command="PART", params=part_params)
+            for member in list(channel.members):
+                await member.send(part_msg)
+
+            await self.server.emit_event(
+                Event(
+                    type=EventType.PART,
+                    channel=channel_name,
+                    nick=self.nick,
+                    data={"reason": reason},
+                )
             )
-            return
 
-        part_params = [channel_name, reason] if reason else [channel_name]
-        part_msg = Message(prefix=self.prefix, command="PART", params=part_params)
-        for member in list(channel.members):
-            await member.send(part_msg)
+            channel.remove(self)
+            self.channels.discard(channel)
 
-        await self.server.emit_event(
-            Event(
-                type=EventType.PART,
-                channel=channel_name,
-                nick=self.nick,
-                data={"reason": reason},
-            )
-        )
-
-        channel.remove(self)
-        self.channels.discard(channel)
-
-        if not channel.members and not channel.persistent:
-            del self.server.channels[channel_name]
+            if not channel.members and not channel.persistent:
+                del self.server.channels[channel_name]
 
     async def _handle_topic(self, msg: Message) -> None:
         if not msg.params:
