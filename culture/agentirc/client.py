@@ -175,6 +175,7 @@ class Client:
 
     async def _dispatch(self, msg: Message) -> None:
         extract = extract_traceparent_from_tags(msg, peer=None)
+        self.server.metrics.trace_inbound.add(1, {"result": extract.status, "peer": ""})
         if extract.status == "valid":
             parent_ctx: _OtelContext | None = context_from_traceparent(extract.traceparent)
         else:

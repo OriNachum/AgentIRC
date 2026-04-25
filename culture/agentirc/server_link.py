@@ -203,6 +203,9 @@ class ServerLink:
         handler = getattr(self, f"_handle_{msg.command.lower()}", None)
 
         extracted = extract_traceparent_from_tags(msg, peer=self.peer_name)
+        self.server.metrics.trace_inbound.add(
+            1, {"result": extracted.status, "peer": self.peer_name or ""}
+        )
         if extracted.status == "valid":
             parent_ctx: _OtelContext | None = context_from_traceparent(extracted.traceparent)
         else:
