@@ -13,11 +13,61 @@ from culture.aio import maybe_await
 from culture.bots.virtual_client import VirtualClient
 from culture.constants import SYSTEM_USER_PREFIX
 from culture.protocol.message import Message
+from culture.telemetry import current_traceparent
+from culture.telemetry.context import TRACEPARENT_TAG
 
 if TYPE_CHECKING:
     from culture.agentirc.ircd import IRCd
 
 logger = logging.getLogger(__name__)
+
+
+def _prepend_trace_tags(line: str, tp: str) -> str:
+    """Inject *tp* as the ``culture.dev/traceparent`` IRCv3 tag on *line*.
+
+    - Empty line → returned unchanged (defensive no-op).
+    - Line with no existing tag block (does not start with ``@``) → prepend
+      ``@culture.dev/traceparent=<tp> `` before the rest of the line.
+    - Line that already has a tag block (starts with ``@``) → merge the tag
+      into the existing block.  If the block already contains
+      ``culture.dev/traceparent``, its value is replaced with *tp*; otherwise
+      the new tag is appended with a ``;`` separator.
+
+    The helper is intentionally lenient: if the tag block is somehow
+    ill-formed the existing text is preserved and the new tag is appended —
+    tagging is best-effort, never load-bearing.
+    """
+    if not line:
+        return line
+
+    if not line.startswith("@"):
+        return f"@{TRACEPARENT_TAG}={tp} {line}"
+
+    # Split off the tag block: everything up to the first space, then the rest.
+    space_idx = line.find(" ")
+    if space_idx == -1:
+        # Malformed: entire line is a tag block with no message body.
+        # Append the tag and move on.
+        return f"{line};{TRACEPARENT_TAG}={tp}"
+
+    tag_block = line[1:space_idx]  # strip leading '@'
+    rest = line[space_idx + 1 :]
+
+    # Split existing tags on ';', replace or append the traceparent tag.
+    tags = tag_block.split(";")
+    replaced = False
+    new_tags = []
+    for tag in tags:
+        key = tag.split("=", 1)[0]
+        if key == TRACEPARENT_TAG:
+            new_tags.append(f"{TRACEPARENT_TAG}={tp}")
+            replaced = True
+        else:
+            new_tags.append(tag)
+    if not replaced:
+        new_tags.append(f"{TRACEPARENT_TAG}={tp}")
+
+    return f"@{';'.join(new_tags)} {rest}"
 
 
 class ServerLink:
@@ -62,6 +112,9 @@ class ServerLink:
         return False
 
     async def send_raw(self, line: str) -> None:
+        tp = current_traceparent()
+        if tp:
+            line = _prepend_trace_tags(line, tp)
         try:
             self.writer.write(f"{line}\r\n".encode("utf-8"))
             await self.writer.drain()
