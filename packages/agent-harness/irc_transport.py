@@ -62,7 +62,7 @@ class IRCTransport:
         self.on_roominvite = on_roominvite
         self.icon = icon
         self._tracer = tracer
-        # stored for the daemon to forward to the agent runner; not used in transport
+        # accepted for future per-message metrics (e.g. byte counters); unused in v1
         self._metrics = metrics
         self._backend = backend
         self.connected = False
