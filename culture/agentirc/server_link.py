@@ -15,8 +15,8 @@ from culture.aio import maybe_await
 from culture.bots.virtual_client import VirtualClient
 from culture.constants import SYSTEM_USER_PREFIX
 from culture.protocol.message import Message
-from culture.telemetry import current_traceparent
-from culture.telemetry.context import TRACEPARENT_TAG
+from culture.telemetry import context_from_traceparent, current_traceparent
+from culture.telemetry.context import TRACEPARENT_TAG, extract_traceparent_from_tags
 
 # OTEL instrumentation name (must match `_CULTURE_TRACER_NAME` in
 # culture/telemetry/tracing.py so all spans go through one tracer instance).
@@ -198,9 +198,29 @@ class ServerLink:
         await self.send_raw(f"SERVER {self.server.config.name} 1 :{self.server.config.name} IRC")
 
     async def _dispatch(self, msg: Message) -> None:
+        verb = msg.command.upper()
         handler = getattr(self, f"_handle_{msg.command.lower()}", None)
-        if handler:
-            await maybe_await(handler(msg))
+
+        extracted = extract_traceparent_from_tags(msg, peer=self.peer_name)
+        parent_ctx = None
+        if extracted.status == "valid":
+            parent_ctx = context_from_traceparent(extracted.traceparent)
+
+        attrs = {
+            "irc.command": verb,
+            "culture.trace.origin": "remote",
+            "culture.federation.peer": self.peer_name or "",
+        }
+        if extracted.status in ("malformed", "too_long"):
+            attrs["culture.trace.dropped_reason"] = extracted.status
+
+        with otel_trace.get_tracer(_TRACER_NAME).start_as_current_span(
+            f"irc.s2s.{verb}",
+            context=parent_ctx,
+            attributes=attrs,
+        ):
+            if handler:
+                await maybe_await(handler(msg))
 
     # --- Handshake handlers ---
 
