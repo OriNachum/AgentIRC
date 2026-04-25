@@ -64,12 +64,9 @@ def test_daemon_template_passes_kwargs_to_irc_transport():
 def test_daemon_template_documents_runner_metrics_contract():
     """_start_agent_runner's NotImplementedError must mention the metrics kwarg contract."""
     source = _daemon_source()
-    # Find the NotImplementedError block in _start_agent_runner.
-    assert (
-        "metrics" in source
-    ), "The word 'metrics' must appear in daemon.py (expected in NotImplementedError message)"
-    # More specific: the runner contract description must be present.
-    assert "metrics=self._metrics" in source, (
-        "Expected 'metrics=self._metrics' contract description not found in "
+    # "telemetry.record_llm_call" appears only in the NotImplementedError message,
+    # so this assertion fails correctly if the documentation block is removed.
+    assert "telemetry.record_llm_call" in source, (
+        "Expected 'telemetry.record_llm_call' contract text not found in "
         "_start_agent_runner's NotImplementedError message"
     )
