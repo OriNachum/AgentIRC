@@ -7,6 +7,8 @@ all four extract.status values: missing, valid, malformed, too_long.
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from culture.telemetry.context import TRACEPARENT_TAG
@@ -82,7 +84,6 @@ async def test_trace_inbound_missing_on_s2s_dispatch(metrics_reader, linked_serv
     link_alpha_to_beta.writer.write(b":alpha SMSG #trace-test alpha-bob :hello\r\n")
     await link_alpha_to_beta.writer.drain()
     # Wait briefly for dispatch.
-    import asyncio as _asyncio
 
     for _ in range(50):
         n = get_counter_value(
@@ -92,7 +93,7 @@ async def test_trace_inbound_missing_on_s2s_dispatch(metrics_reader, linked_serv
         )
         if n >= 1:
             break
-        await _asyncio.sleep(0.02)
+        await asyncio.sleep(0.02)
     count = get_counter_value(
         metrics_reader,
         "culture.trace.inbound",
@@ -108,7 +109,6 @@ async def test_trace_inbound_valid_on_s2s_dispatch(metrics_reader, linked_server
     line = f"@{TRACEPARENT_TAG}={VALID_TP} :alpha SMSG #trace-test alpha-bob :ping\r\n"
     link_alpha_to_beta.writer.write(line.encode("utf-8"))
     await link_alpha_to_beta.writer.drain()
-    import asyncio as _asyncio
 
     for _ in range(50):
         n = get_counter_value(
@@ -118,7 +118,7 @@ async def test_trace_inbound_valid_on_s2s_dispatch(metrics_reader, linked_server
         )
         if n >= 1:
             break
-        await _asyncio.sleep(0.02)
+        await asyncio.sleep(0.02)
     count = get_counter_value(
         metrics_reader,
         "culture.trace.inbound",
