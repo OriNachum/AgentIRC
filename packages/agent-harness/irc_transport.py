@@ -7,6 +7,7 @@ import asyncio
 import contextlib
 import logging
 import re
+from contextlib import AbstractContextManager
 from typing import TYPE_CHECKING, Callable
 
 from culture.aio import maybe_await
@@ -27,7 +28,12 @@ logger = logging.getLogger(__name__)
 
 
 class IRCTransport:
-    """Async IRC client for the daemon."""
+    """Async IRC client for the daemon.
+
+    Optional kwargs ``tracer``, ``metrics``, and ``backend`` enable OTEL
+    tracing and LLM metrics when an SDK provider is installed. Pass ``None``
+    (the default) for all three to run without instrumentation.
+    """
 
     def __init__(
         self,
@@ -56,6 +62,7 @@ class IRCTransport:
         self.on_roominvite = on_roominvite
         self.icon = icon
         self._tracer = tracer
+        # stored for the daemon to forward to the agent runner; not used in transport
         self._metrics = metrics
         self._backend = backend
         self.connected = False
@@ -76,12 +83,16 @@ class IRCTransport:
             "332": self._on_numeric_topic,
         }
 
-    def _span(self, name: str, attrs: dict | None = None):
+    def _span(self, name: str, attrs: dict | None = None) -> AbstractContextManager:
         """Return a real span context manager when tracing is enabled, else a no-op.
 
         Keeps the no-tracer fast path clean — all callers write the same
         ``with self._span(...):`` pattern regardless of whether a tracer is
         configured.
+
+        Does NOT accept a ``context=`` argument; callers that need a span
+        parented to a remote trace context (e.g. inbound message handling in
+        ``_handle``) call ``self._tracer.start_as_current_span`` directly.
         """
         if self._tracer is not None:
             return self._tracer.start_as_current_span(name, attributes=attrs or {})

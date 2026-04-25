@@ -139,29 +139,12 @@ def _captured_lines(writer: _CaptureWriter) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Fixtures (tracer from conftest.py harness_tracing_exporter)
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def _reset_state():
-    """Ensure the harness telemetry module is reset after each test."""
-    from telemetry import reset_for_tests
-
-    reset_for_tests()
-    yield
-    reset_for_tests()
-
-
-# ---------------------------------------------------------------------------
 # test_outbound_carries_traceparent_when_span_active
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_outbound_carries_traceparent_when_span_active(
-    harness_tracing_exporter, _reset_state
-):
+async def test_outbound_carries_traceparent_when_span_active(harness_tracing_exporter):
     exporter, provider = harness_tracing_exporter
     tracer = provider.get_tracer("test")
     transport = _make_transport(tracer=tracer)
@@ -188,7 +171,7 @@ async def test_outbound_carries_traceparent_when_span_active(
 
 
 @pytest.mark.asyncio
-async def test_outbound_no_tag_when_no_span(harness_tracing_exporter, _reset_state):
+async def test_outbound_no_tag_when_no_span(harness_tracing_exporter):
     _exporter, provider = harness_tracing_exporter
     tracer = provider.get_tracer("test")
     transport = _make_transport(tracer=tracer)
@@ -211,9 +194,7 @@ async def test_outbound_no_tag_when_no_span(harness_tracing_exporter, _reset_sta
 
 
 @pytest.mark.asyncio
-async def test_inbound_with_valid_traceparent_starts_child_span(
-    harness_tracing_exporter, _reset_state
-):
+async def test_inbound_with_valid_traceparent_starts_child_span(harness_tracing_exporter):
     exporter, provider = harness_tracing_exporter
     tracer = provider.get_tracer("test")
     transport = _make_transport(tracer=tracer)
@@ -251,7 +232,7 @@ async def test_inbound_with_valid_traceparent_starts_child_span(
 
 
 @pytest.mark.asyncio
-async def test_inbound_missing_traceparent_starts_root_span(harness_tracing_exporter, _reset_state):
+async def test_inbound_missing_traceparent_starts_root_span(harness_tracing_exporter):
     exporter, provider = harness_tracing_exporter
     tracer = provider.get_tracer("test")
     transport = _make_transport(tracer=tracer)
@@ -288,7 +269,7 @@ async def test_inbound_missing_traceparent_starts_root_span(harness_tracing_expo
 
 
 @pytest.mark.asyncio
-async def test_inbound_malformed_traceparent_dropped(harness_tracing_exporter, _reset_state):
+async def test_inbound_malformed_traceparent_dropped(harness_tracing_exporter):
     exporter, provider = harness_tracing_exporter
     tracer = provider.get_tracer("test")
     transport = _make_transport(tracer=tracer)
@@ -327,7 +308,7 @@ async def test_inbound_malformed_traceparent_dropped(harness_tracing_exporter, _
 
 
 @pytest.mark.asyncio
-async def test_inbound_too_long_traceparent_dropped(harness_tracing_exporter, _reset_state):
+async def test_inbound_too_long_traceparent_dropped(harness_tracing_exporter):
     exporter, provider = harness_tracing_exporter
     tracer = provider.get_tracer("test")
     transport = _make_transport(tracer=tracer)
@@ -368,7 +349,7 @@ async def test_inbound_too_long_traceparent_dropped(harness_tracing_exporter, _r
 
 
 @pytest.mark.asyncio
-async def test_no_tracer_means_no_spans(harness_tracing_exporter, _reset_state):
+async def test_no_tracer_means_no_spans(harness_tracing_exporter):
     exporter, _provider = harness_tracing_exporter
     # Build transport WITHOUT a tracer.
     transport = _make_transport(tracer=None)
@@ -400,7 +381,7 @@ async def test_no_tracer_means_no_spans(harness_tracing_exporter, _reset_state):
 
 
 @pytest.mark.asyncio
-async def test_connect_span_wraps_do_connect(harness_tracing_exporter, _reset_state):
+async def test_connect_span_wraps_do_connect(harness_tracing_exporter):
     exporter, provider = harness_tracing_exporter
     tracer = provider.get_tracer("test")
     transport = _make_transport(tracer=tracer)
