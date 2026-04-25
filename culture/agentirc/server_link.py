@@ -158,12 +158,13 @@ class ServerLink:
             line, buffer = buffer.split("\n", 1)
             if line.strip():
                 msg = Message.parse(line)
-                # +2 accounts for the \r\n that was stripped during line-split.
-                line_bytes = len(line.encode("utf-8")) + 2
-                self.server.metrics.irc_bytes_received.add(line_bytes, {"direction": "s2s"})
-                self.server.metrics.irc_message_size.record(
-                    line_bytes, {"verb": msg.command, "direction": "s2s"}
-                )
+                if self.server is not None:
+                    # +2 accounts for the \r\n that was stripped during line-split.
+                    line_bytes = len(line.encode("utf-8")) + 2
+                    self.server.metrics.irc_bytes_received.add(line_bytes, {"direction": "s2s"})
+                    self.server.metrics.irc_message_size.record(
+                        line_bytes, {"verb": msg.command, "direction": "s2s"}
+                    )
                 if msg.command:
                     await self._dispatch(msg)
         return buffer
