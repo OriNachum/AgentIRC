@@ -60,6 +60,9 @@ class MetricsRegistry:
     client_command_duration: Histogram
     # Trace-context hygiene
     trace_inbound: Counter
+    # Audit (Plan 4)
+    audit_writes: Counter
+    audit_queue_depth: UpDownCounter
 
 
 def reset_for_tests() -> None:
@@ -155,6 +158,15 @@ def _build_registry(meter: Meter) -> MetricsRegistry:
         trace_inbound=meter.create_counter(
             "culture.trace.inbound",
             description="Inbound traceparent extraction outcome by result and peer",
+        ),
+        # Audit (Plan 4)
+        audit_writes=meter.create_counter(
+            "culture.audit.writes",
+            description="Audit JSONL write outcomes (ok|error)",
+        ),
+        audit_queue_depth=meter.create_up_down_counter(
+            "culture.audit.queue_depth",
+            description="Audit queue depth (records waiting to flush to disk)",
         ),
     )
 
