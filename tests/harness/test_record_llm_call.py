@@ -12,10 +12,6 @@ import pytest
 # Imported via sys.path set in conftest.py
 # pylint: disable=import-error
 from config import DaemonConfig
-from opentelemetry import metrics as otel_metrics
-from opentelemetry.sdk.metrics import MeterProvider as SdkMeterProvider
-from opentelemetry.sdk.metrics.export import InMemoryMetricReader
-from opentelemetry.sdk.resources import Resource
 from telemetry import (
     init_harness_telemetry,
     record_llm_call,
@@ -36,25 +32,17 @@ def _reset_state():
 
 
 @pytest.fixture
-def harness_metrics_reader():
-    """Install an InMemoryMetricReader and return a (reader, registry) pair.
+def harness_metrics_reader_with_registry(harness_metrics_reader):
+    """Extend the shared harness_metrics_reader fixture with a registry.
 
-    The registry is built from the proxy meter that points at the just-installed
-    real MeterProvider — so ``record_llm_call`` writes to the in-memory store.
+    Builds a registry from the proxy meter that points at the pre-installed
+    real MeterProvider so ``record_llm_call`` writes to the in-memory store.
+
+    Returns a (reader, registry) pair — tests that need both use this fixture.
     """
-    reset_for_tests()
-    reader = InMemoryMetricReader()
-    provider = SdkMeterProvider(
-        resource=Resource.create({"service.name": "test-harness"}),
-        metric_readers=[reader],
-    )
-    otel_metrics.set_meter_provider(provider)
-    # Build registry from the proxy meter (disabled init uses proxy → points at
-    # the SDK provider we just installed).
     config = DaemonConfig()
     _, registry = init_harness_telemetry(config)
-    yield reader, registry
-    reset_for_tests()
+    return harness_metrics_reader, registry
 
 
 # ---------------------------------------------------------------------------
@@ -104,9 +92,11 @@ def _get_histogram_count(reader, metric_name: str, attrs: dict | None = None) ->
 # ---------------------------------------------------------------------------
 
 
-def test_records_calls_counter_and_duration_histogram_unconditionally(harness_metrics_reader):
+def test_records_calls_counter_and_duration_histogram_unconditionally(
+    harness_metrics_reader_with_registry,
+):
     """llm_calls and llm_call_duration always record even when usage is None."""
-    reader, registry = harness_metrics_reader
+    reader, registry = harness_metrics_reader_with_registry
 
     record_llm_call(
         registry,
@@ -125,9 +115,9 @@ def test_records_calls_counter_and_duration_histogram_unconditionally(harness_me
     assert _get_counter_sum(reader, "culture.harness.llm.tokens.output") == 0.0
 
 
-def test_skips_missing_usage_keys(harness_metrics_reader):
+def test_skips_missing_usage_keys(harness_metrics_reader_with_registry):
     """Partial usage dict: only present non-None int keys record."""
-    reader, registry = harness_metrics_reader
+    reader, registry = harness_metrics_reader_with_registry
 
     record_llm_call(
         registry,
@@ -143,9 +133,9 @@ def test_skips_missing_usage_keys(harness_metrics_reader):
     assert _get_counter_sum(reader, "culture.harness.llm.tokens.output") == 0.0
 
 
-def test_records_both_token_counters_when_present(harness_metrics_reader):
+def test_records_both_token_counters_when_present(harness_metrics_reader_with_registry):
     """Full usage dict: both token counters record with harness.nick label."""
-    reader, registry = harness_metrics_reader
+    reader, registry = harness_metrics_reader_with_registry
 
     record_llm_call(
         registry,
@@ -175,9 +165,9 @@ def test_records_both_token_counters_when_present(harness_metrics_reader):
     )
 
 
-def test_outcome_label_propagates(harness_metrics_reader):
+def test_outcome_label_propagates(harness_metrics_reader_with_registry):
     """outcome=error must appear on llm_calls and llm_call_duration."""
-    reader, registry = harness_metrics_reader
+    reader, registry = harness_metrics_reader_with_registry
 
     record_llm_call(
         registry,
@@ -205,9 +195,9 @@ def test_outcome_label_propagates(harness_metrics_reader):
     )
 
 
-def test_multiple_calls_accumulate(harness_metrics_reader):
+def test_multiple_calls_accumulate(harness_metrics_reader_with_registry):
     """Multiple calls accumulate in the counter."""
-    reader, registry = harness_metrics_reader
+    reader, registry = harness_metrics_reader_with_registry
 
     for _ in range(3):
         record_llm_call(
@@ -223,9 +213,9 @@ def test_multiple_calls_accumulate(harness_metrics_reader):
     assert _get_counter_sum(reader, "culture.harness.llm.calls") == 3.0
 
 
-def test_none_valued_usage_keys_are_skipped(harness_metrics_reader):
+def test_none_valued_usage_keys_are_skipped(harness_metrics_reader_with_registry):
     """usage keys present but set to None are silently skipped (not 0)."""
-    reader, registry = harness_metrics_reader
+    reader, registry = harness_metrics_reader_with_registry
 
     record_llm_call(
         registry,
@@ -245,9 +235,9 @@ def test_none_valued_usage_keys_are_skipped(harness_metrics_reader):
     assert _get_histogram_count(reader, "culture.harness.llm.call.duration") == 1
 
 
-def test_timeout_outcome(harness_metrics_reader):
+def test_timeout_outcome(harness_metrics_reader_with_registry):
     """outcome=timeout is valid and records correctly."""
-    reader, registry = harness_metrics_reader
+    reader, registry = harness_metrics_reader_with_registry
 
     record_llm_call(
         registry,

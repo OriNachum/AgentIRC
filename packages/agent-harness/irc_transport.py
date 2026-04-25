@@ -4,13 +4,24 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import re
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from culture.aio import maybe_await
 from culture.clients.BACKEND.message_buffer import MessageBuffer
 from culture.protocol.message import Message
+from culture.telemetry.context import (
+    TRACEPARENT_TAG,
+    context_from_traceparent,
+    current_traceparent,
+    extract_traceparent_from_tags,
+)
+
+if TYPE_CHECKING:
+    from opentelemetry.trace import Tracer
+    from telemetry import HarnessMetricsRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +41,9 @@ class IRCTransport:
         tags: list[str] | None = None,
         on_roominvite: Callable[[str, str], None] | None = None,
         icon: str | None = None,
+        tracer: Tracer | None = None,
+        metrics: HarnessMetricsRegistry | None = None,
+        backend: str = "harness",
     ):
         self.host = host
         self.port = port
@@ -41,6 +55,9 @@ class IRCTransport:
         self.tags = tags or []
         self.on_roominvite = on_roominvite
         self.icon = icon
+        self._tracer = tracer
+        self._metrics = metrics
+        self._backend = backend
         self.connected = False
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
@@ -59,23 +76,42 @@ class IRCTransport:
             "332": self._on_numeric_topic,
         }
 
+    def _span(self, name: str, attrs: dict | None = None):
+        """Return a real span context manager when tracing is enabled, else a no-op.
+
+        Keeps the no-tracer fast path clean — all callers write the same
+        ``with self._span(...):`` pattern regardless of whether a tracer is
+        configured.
+        """
+        if self._tracer is not None:
+            return self._tracer.start_as_current_span(name, attributes=attrs or {})
+        return contextlib.nullcontext()
+
     async def connect(self) -> None:
         self._should_run = True
         await self._do_connect()
 
     async def _do_connect(self) -> None:
-        try:
-            self._reader, self._writer = await asyncio.open_connection(self.host, self.port)
-        except OSError as exc:
-            raise ConnectionError(
-                f"Cannot connect to IRC server at {self.host}:{self.port} "
-                f"- is the server running?"
-            ) from exc
-        await self._send_raw("CAP REQ :message-tags")
-        await self._send_raw(f"NICK {self.nick}")
-        await self._send_raw(f"USER {self.user} 0 * :{self.user}")
-        await self._send_raw("CAP END")
-        self._read_task = asyncio.create_task(self._read_loop())
+        with self._span(
+            "harness.irc.connect",
+            attrs={
+                "harness.backend": self._backend,
+                "harness.nick": self.nick,
+                "harness.server": f"{self.host}:{self.port}",
+            },
+        ):
+            try:
+                self._reader, self._writer = await asyncio.open_connection(self.host, self.port)
+            except OSError as exc:
+                raise ConnectionError(
+                    f"Cannot connect to IRC server at {self.host}:{self.port} "
+                    f"- is the server running?"
+                ) from exc
+            await self._send_raw("CAP REQ :message-tags")
+            await self._send_raw(f"NICK {self.nick}")
+            await self._send_raw(f"USER {self.user} 0 * :{self.user}")
+            await self._send_raw("CAP END")
+            self._read_task = asyncio.create_task(self._read_loop())
 
     async def disconnect(self) -> None:
         self._should_run = False
@@ -153,6 +189,14 @@ class IRCTransport:
             await self._writer.drain()
 
     async def _send_raw(self, line: str) -> None:
+        # Inject W3C traceparent as an IRCv3 tag prefix when a span is active.
+        # Only inject when we have a tracer configured (fast-path: no work if
+        # self._tracer is None) and there is no tag block already on the line
+        # (defensive guard — prevents double-tagging if a caller pre-tagged).
+        if self._tracer is not None and not line.startswith("@"):
+            tp = current_traceparent()
+            if tp:
+                line = f"@{TRACEPARENT_TAG}={tp} {line}"
         await self.send_raw(line)
 
     async def _read_loop(self) -> None:
@@ -195,9 +239,41 @@ class IRCTransport:
                 delay = min(delay * 2, 60)
 
     async def _handle(self, msg: Message) -> None:
-        handler = self._cmd_handlers.get(msg.command)
-        if handler:
-            await maybe_await(handler(msg))
+        # Extract inbound traceparent before opening any span so the new span
+        # can be correctly parented to the remote trace context.
+        result = extract_traceparent_from_tags(msg, peer=None)
+
+        if self._tracer is not None:
+            if result.status == "valid":
+                ctx = context_from_traceparent(result.traceparent)
+                span_cm = self._tracer.start_as_current_span(
+                    "harness.irc.message.handle",
+                    context=ctx,
+                    attributes={
+                        "irc.command": msg.command,
+                        "irc.client.nick": self.nick,
+                        "culture.trace.origin": "remote",
+                    },
+                )
+            else:
+                attrs = {
+                    "irc.command": msg.command,
+                    "irc.client.nick": self.nick,
+                    "culture.trace.origin": ("local" if result.status == "missing" else "remote"),
+                }
+                if result.status in ("malformed", "too_long"):
+                    attrs["culture.trace.dropped_reason"] = result.status
+                span_cm = self._tracer.start_as_current_span(
+                    "harness.irc.message.handle",
+                    attributes=attrs,
+                )
+        else:
+            span_cm = contextlib.nullcontext()
+
+        with span_cm:
+            handler = self._cmd_handlers.get(msg.command)
+            if handler:
+                await maybe_await(handler(msg))
 
     async def _on_ping(self, msg: Message) -> None:
         token = msg.params[0] if msg.params else ""

@@ -45,24 +45,6 @@ def disabled_config():
     return DaemonConfig()
 
 
-@pytest.fixture
-def harness_metrics_reader():
-    """Install an InMemoryMetricReader against a fresh SdkMeterProvider.
-
-    Returns the reader so tests can call ``reader.get_metrics_data()``.
-    Resets harness module state before install and after teardown.
-    """
-    reset_for_tests()
-    reader = InMemoryMetricReader()
-    provider = SdkMeterProvider(
-        resource=Resource.create({"service.name": "test-harness"}),
-        metric_readers=[reader],
-    )
-    otel_metrics.set_meter_provider(provider)
-    yield reader
-    reset_for_tests()
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
