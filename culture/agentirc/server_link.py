@@ -113,7 +113,7 @@ class ServerLink:
         self._peer_pass: str | None = None
         self.last_seen_seq: int = 0
         self._squit_received: bool = False
-        self._session_span = None
+        self._session_span: otel_trace.Span | None = None
 
     def should_relay(self, channel_name: str) -> bool:
         """Check if a channel event should be relayed over this link."""
