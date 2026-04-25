@@ -84,6 +84,8 @@ The metrics pillar lands: 15 server-side instruments registered once via `init_m
 
 When telemetry or metrics are disabled, the SDK is not installed and instruments are bound to OTEL's proxy meter — call sites can `instrument.add(...)` / `.record(...)` unconditionally without guards.
 
+`init_metrics(config)` returns a `MetricsRegistry` dataclass — every instrument above is a typed attribute on it (e.g. `registry.irc_bytes_sent`, `registry.events_emitted`, `registry.s2s_links_active`). The `IRCd` instance carries `self.metrics: MetricsRegistry`, so call sites use `self.server.metrics.<instrument>`. Future plans (audit / harness / bots) extend the same registry rather than spawning parallel ones.
+
 ## Configuration
 
 Telemetry is **off by default**. Enable it in `~/.culture/server.yaml`:
