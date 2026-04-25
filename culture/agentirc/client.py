@@ -6,12 +6,59 @@ import logging
 import re
 from typing import TYPE_CHECKING
 
+from opentelemetry import trace as _otel_trace
+from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
+from opentelemetry.trace.propagation import set_span_in_context
+
 from culture.agentirc.channel import Channel
 from culture.agentirc.skill import Event, EventType
 from culture.aio import maybe_await
 from culture.constants import SYSTEM_USER_PREFIX
 from culture.protocol import replies
 from culture.protocol.message import Message
+from culture.telemetry.context import TRACEPARENT_TAG as _TP_TAG_NAME
+from culture.telemetry.context import (
+    extract_traceparent_from_tags,
+)
+from culture.telemetry.context import inject_traceparent as _inject_traceparent
+
+# OTEL instrumentation name (must match `_CULTURE_TRACER_NAME` in
+# culture/telemetry/tracing.py so trace consumers see one consistent value).
+_TRACER_NAME = "culture.agentirc"
+# Span attribute keys for PRIVMSG body capture, defined once so a future
+# rename / sanitization layer has one edit point.
+_ATTR_BODY = "irc.message.body"
+_ATTR_SIZE = "irc.message.size"
+
+
+def _context_from_traceparent(tp: str):
+    """Build an OTEL context whose current span is a NonRecordingSpan
+    synthesized from a W3C traceparent string. The `_dispatch` span we
+    start next will be a child of this context."""
+    # Format: 00-<trace-id>-<parent-id>-<flags>
+    _, trace_hex, parent_hex, flags_hex = tp.split("-")
+    span_ctx = SpanContext(
+        trace_id=int(trace_hex, 16),
+        span_id=int(parent_hex, 16),
+        is_remote=True,
+        trace_flags=TraceFlags(int(flags_hex, 16)),
+    )
+    return set_span_in_context(NonRecordingSpan(span_ctx))
+
+
+def _current_traceparent() -> str | None:
+    """Return the W3C traceparent for the currently-active span, or None
+    if no span is recording (no-op tracer / sampler dropped).
+    """
+    span = _otel_trace.get_current_span()
+    ctx = span.get_span_context()
+    if not ctx.is_valid:
+        return None
+    return (
+        f"00-{format(ctx.trace_id, '032x')}-{format(ctx.span_id, '016x')}"
+        f"-{format(int(ctx.trace_flags), '02x')}"
+    )
+
 
 if TYPE_CHECKING:
     from culture.agentirc.ircd import IRCd
@@ -45,6 +92,14 @@ class Client:
         return f"{self.nick}!{self.user}@{self.host}"
 
     async def send(self, message: Message) -> None:
+        # Only inject trace context for clients that negotiated IRCv3
+        # message-tags; otherwise older clients would see an unexpected @-tag
+        # block and `send_tagged`'s tag-stripping for non-capable clients
+        # would be undone here.
+        if "message-tags" in self.caps:
+            tp = _current_traceparent()
+            if tp is not None:
+                _inject_traceparent(message, traceparent=tp, tracestate=None)
         try:
             self.writer.write(message.format().encode("utf-8"))
             await self.writer.drain()
@@ -55,7 +110,15 @@ class Client:
         """Write a pre-formatted IRC line to the client socket.
 
         Appends CRLF internally, matching ServerLink.send_raw convention.
+        Injects `culture.dev/traceparent` as an IRCv3 tag when a span is active
+        AND the client negotiated the `message-tags` capability.
         """
+        if "message-tags" in self.caps:
+            tp = _current_traceparent()
+            if tp is not None:
+                # send_raw takes a pre-formatted line without an existing tag
+                # block; prefix a fresh @tag.
+                line = f"@{_TP_TAG_NAME}={tp} {line}"
         try:
             self.writer.write(f"{line}\r\n".encode("utf-8"))
             await self.writer.drain()
@@ -84,13 +147,28 @@ class Client:
 
     async def _process_buffer(self, buffer: str) -> str:
         """Parse and dispatch all complete lines from buffer, return remainder."""
-        while "\n" in buffer:
-            line, buffer = buffer.split("\n", 1)
-            if line.strip():
-                msg = Message.parse(line)
+        # Per-call get_tracer: test fixture swaps provider between tests.
+        with _otel_trace.get_tracer(_TRACER_NAME).start_as_current_span(
+            "irc.client.process_buffer"
+        ) as span:
+            while "\n" in buffer:
+                line, buffer = buffer.split("\n", 1)
+                if not line.strip():
+                    continue
+                try:
+                    msg = Message.parse(line)
+                except Exception as exc:  # noqa: BLE001 -- widen for any parser failure
+                    span.add_event(
+                        "irc.parse_error",
+                        attributes={
+                            "line_preview": line[:64],
+                            "error": type(exc).__name__,
+                        },
+                    )
+                    continue
                 if msg.command:
                     await self._dispatch(msg)
-        return buffer
+            return buffer
 
     async def handle(self, initial_msg: str | None = None) -> None:
         buffer = ""
@@ -110,20 +188,41 @@ class Client:
             buffer = await self._process_buffer(buffer)
 
     async def _dispatch(self, msg: Message) -> None:
-        handler = getattr(self, f"_handle_{msg.command.lower()}", None)
-        if handler:
-            await maybe_await(handler(msg))
-        else:
-            skill = self.server.get_skill_for_command(msg.command)
-            if skill and self._registered:
-                try:
-                    await skill.on_command(self, msg)
-                except Exception:
-                    logging.getLogger(__name__).exception(
-                        "Skill %s failed on command %s", skill.name, msg.command
-                    )
+        extract = extract_traceparent_from_tags(msg, peer=None)
+        parent_ctx = None
+        if extract.status == "valid":
+            parent_ctx = _context_from_traceparent(extract.traceparent)
+
+        attrs = {
+            "irc.command": msg.command,
+            "irc.prefix_nick": (msg.prefix.split("!")[0] if msg.prefix else ""),
+            "culture.trace.origin": "local" if extract.status == "missing" else "remote",
+        }
+        if extract.status in ("malformed", "too_long"):
+            attrs["culture.trace.dropped_reason"] = extract.status
+
+        # Per-call get_tracer: test fixture swaps provider between tests.
+        with _otel_trace.get_tracer(_TRACER_NAME).start_as_current_span(
+            f"irc.command.{msg.command}",
+            context=parent_ctx,
+            attributes=attrs,
+        ):
+            handler = getattr(self, f"_handle_{msg.command.lower()}", None)
+            if handler:
+                await maybe_await(handler(msg))
             else:
-                await self.send_numeric(replies.ERR_UNKNOWNCOMMAND, msg.command, "Unknown command")
+                skill = self.server.get_skill_for_command(msg.command)
+                if skill and self._registered:
+                    try:
+                        await skill.on_command(self, msg)
+                    except Exception:
+                        logging.getLogger(__name__).exception(
+                            "Skill %s failed on command %s", skill.name, msg.command
+                        )
+                else:
+                    await self.send_numeric(
+                        replies.ERR_UNKNOWNCOMMAND, msg.command, "Unknown command"
+                    )
 
     async def _handle_ping(self, msg: Message) -> None:
         token = msg.params[0] if msg.params else ""
@@ -615,46 +714,64 @@ class Client:
         await self.send_numeric(replies.RPL_UMODEIS, mode_str)
 
     async def _send_to_channel(self, channel, target, relay, text, is_notice):
-        for member in list(channel.members):
-            if member is not self:
-                await member.send(relay)
-        event_data = {"text": text}
-        if is_notice:
-            event_data["notice"] = True
-        await self.server.emit_event(
-            Event(
-                type=EventType.MESSAGE,
-                channel=target,
-                nick=self.nick,
-                data=event_data,
+        with _otel_trace.get_tracer(_TRACER_NAME).start_as_current_span(
+            "irc.privmsg.deliver.channel",
+            attributes={
+                "irc.channel": target,
+                _ATTR_BODY: text,
+                _ATTR_SIZE: len(text),
+                "irc.notice": is_notice,
+            },
+        ):
+            for member in list(channel.members):
+                if member is not self:
+                    await member.send(relay)
+            event_data = {"text": text}
+            if is_notice:
+                event_data["notice"] = True
+            await self.server.emit_event(
+                Event(
+                    type=EventType.MESSAGE,
+                    channel=target,
+                    nick=self.nick,
+                    data=event_data,
+                )
             )
-        )
 
     async def _send_to_client(self, target, relay, text, is_notice):
         from culture.agentirc.remote_client import RemoteClient
 
-        recipient = self.server.get_client(target)
-        if not recipient:
-            return False
-        if isinstance(recipient, RemoteClient):
-            s2s_cmd = "SNOTICE" if is_notice else "SMSG"
-            await recipient.link.send_raw(
-                f":{self.server.config.name} {s2s_cmd} {target} {self.nick} :{text}"
+        with _otel_trace.get_tracer(_TRACER_NAME).start_as_current_span(
+            "irc.privmsg.deliver.dm",
+            attributes={
+                "irc.target.nick": target,
+                _ATTR_BODY: text,
+                _ATTR_SIZE: len(text),
+                "irc.notice": is_notice,
+            },
+        ):
+            recipient = self.server.get_client(target)
+            if not recipient:
+                return False
+            if isinstance(recipient, RemoteClient):
+                s2s_cmd = "SNOTICE" if is_notice else "SMSG"
+                await recipient.link.send_raw(
+                    f":{self.server.config.name} {s2s_cmd} {target} {self.nick} :{text}"
+                )
+            else:
+                await recipient.send(relay)
+            event_data = {"text": text, "target": target}
+            if is_notice:
+                event_data["notice"] = True
+            await self.server.emit_event(
+                Event(
+                    type=EventType.MESSAGE,
+                    channel=None,
+                    nick=self.nick,
+                    data=event_data,
+                )
             )
-        else:
-            await recipient.send(relay)
-        event_data = {"text": text, "target": target}
-        if is_notice:
-            event_data["notice"] = True
-        await self.server.emit_event(
-            Event(
-                type=EventType.MESSAGE,
-                channel=None,
-                nick=self.nick,
-                data=event_data,
-            )
-        )
-        return True
+            return True
 
     async def _handle_privmsg(self, msg: Message) -> None:
         if len(msg.params) < 2:
@@ -665,28 +782,37 @@ class Client:
 
         target = msg.params[0]
         text = msg.params[1]
-        relay = Message(prefix=self.prefix, command="PRIVMSG", params=[target, text])
+        # Per-call get_tracer: test fixture swaps provider between tests.
+        with _otel_trace.get_tracer(_TRACER_NAME).start_as_current_span(
+            "irc.privmsg.dispatch",
+            attributes={
+                "irc.target": target,
+                _ATTR_BODY: text,
+                _ATTR_SIZE: len(text),
+            },
+        ):
+            relay = Message(prefix=self.prefix, command="PRIVMSG", params=[target, text])
 
-        if target.startswith("#"):
-            channel = self.server.channels.get(target)
-            if not channel:
-                await self.send_numeric(
-                    replies.ERR_NOSUCHCHANNEL, target, replies.MSG_NOSUCHCHANNEL
-                )
-                return
-            if self not in channel.members:
-                await self.send_numeric(
-                    replies.ERR_CANNOTSENDTOCHAN, target, "Cannot send to channel"
-                )
-                return
-            await self._send_to_channel(channel, target, relay, text, False)
-            await self._notify_mentions(target, text)
-        else:
-            found = await self._send_to_client(target, relay, text, False)
-            if not found:
-                await self.send_numeric(replies.ERR_NOSUCHNICK, target, replies.MSG_NOSUCHNICK)
-                return
-            await self._notify_mentions(None, text)
+            if target.startswith("#"):
+                channel = self.server.channels.get(target)
+                if not channel:
+                    await self.send_numeric(
+                        replies.ERR_NOSUCHCHANNEL, target, replies.MSG_NOSUCHCHANNEL
+                    )
+                    return
+                if self not in channel.members:
+                    await self.send_numeric(
+                        replies.ERR_CANNOTSENDTOCHAN, target, "Cannot send to channel"
+                    )
+                    return
+                await self._send_to_channel(channel, target, relay, text, False)
+                await self._notify_mentions(target, text)
+            else:
+                found = await self._send_to_client(target, relay, text, False)
+                if not found:
+                    await self.send_numeric(replies.ERR_NOSUCHNICK, target, replies.MSG_NOSUCHNICK)
+                    return
+                await self._notify_mentions(None, text)
 
     async def _notify_mentions(self, channel_name: str | None, text: str) -> None:
         from culture.agentirc.remote_client import RemoteClient

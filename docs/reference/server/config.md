@@ -88,6 +88,32 @@ agents:
 | `sleep_start` | `"23:00"` | Time agents auto-pause (24h format) |
 | `sleep_end` | `"08:00"` | Time agents auto-resume (24h format) |
 
+### `telemetry` block
+
+OpenTelemetry settings. Off by default; when enabled, Culture exports traces to an OTLP/gRPC endpoint (typically a local `otelcol-contrib`). See [Telemetry](../../agentirc/telemetry.md) for architecture and collector setup.
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `enabled` | `false` | Master switch. When `false`, no SDK is initialized and no spans are created. Inbound `culture.dev/traceparent` tags are still parsed for validation but dropped. |
+| `service_name` | `culture.agentirc` | OpenTelemetry `service.name` resource attribute. Rarely changed. |
+| `otlp_endpoint` | `http://localhost:4317` | OTLP/gRPC endpoint. Usually a local collector. |
+| `otlp_protocol` | `grpc` | OTLP transport. Only `grpc` is supported today. |
+| `otlp_timeout_ms` | `5000` | Exporter timeout per batch, in milliseconds. |
+| `otlp_compression` | `gzip` | `gzip` or `none`. |
+| `traces_enabled` | `true` | Sub-switch for the trace pillar. When `false`, no SDK provider is installed and no spans are created — equivalent to `enabled: false` for the trace pipeline. |
+| `traces_sampler` | `parentbased_always_on` | Sampler string, used only when tracing is enabled. Valid: `parentbased_always_on`, `parentbased_traceidratio:<0.0-1.0>`, `always_off`. |
+
+Example:
+
+```yaml
+telemetry:
+  enabled: true
+  otlp_endpoint: http://localhost:4317
+  traces_sampler: parentbased_traceidratio:0.1
+```
+
+Standard OpenTelemetry environment variables override YAML: `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_TRACES_SAMPLER`.
+
 ### `system_bots` block
 
 | Field | Default | Description |
