@@ -229,10 +229,14 @@ class AuditSink:
         self._current_size = existing_size
 
 
-def _utc_iso_timestamp(epoch_seconds: float) -> str:
+def utc_iso_timestamp(epoch_seconds: float) -> str:
     """ISO 8601 UTC with microsecond precision, trailing Z."""
     dt = datetime.fromtimestamp(epoch_seconds, tz=timezone.utc)
     return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{dt.microsecond:06d}Z"
+
+
+# Back-compat alias kept for any code written against the private name.
+_utc_iso_timestamp = utc_iso_timestamp
 
 
 def _target_for(event: "Event") -> dict[str, str]:
@@ -268,7 +272,7 @@ def build_audit_record(
     event_type_str = event.type.value if hasattr(event.type, "value") else str(event.type)
 
     return {
-        "ts": _utc_iso_timestamp(event.timestamp),
+        "ts": utc_iso_timestamp(event.timestamp),
         "server": server_name,
         "event_type": event_type_str,
         "origin": "federated" if origin_tag else "local",

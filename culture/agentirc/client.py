@@ -17,6 +17,7 @@ from culture.aio import maybe_await
 from culture.constants import SYSTEM_USER_PREFIX
 from culture.protocol import replies
 from culture.protocol.message import Message
+from culture.telemetry.audit import utc_iso_timestamp as _utc_iso_timestamp
 from culture.telemetry.context import TRACEPARENT_TAG as _TP_TAG_NAME
 from culture.telemetry.context import (
     context_from_traceparent,
@@ -148,6 +149,7 @@ class Client:
                             "error": type(exc).__name__,
                         },
                     )
+                    self._submit_parse_error_audit(line, exc)
                     continue
                 # Record received bytes + message size for every successfully-parsed
                 # line.  +2 accounts for the \r\n that was stripped during line-split.
@@ -159,6 +161,48 @@ class Client:
                 if msg.command:
                     await self._dispatch(msg)
             return buffer
+
+    def _submit_parse_error_audit(self, line: str, exc: BaseException) -> None:
+        """Build and submit a PARSE_ERROR audit record for a malformed inbound line.
+
+        The record cannot go through build_audit_record (which expects an Event);
+        PARSE_ERROR is a synthetic event_type with no Event object behind it.
+        """
+        # Capture trace/span ids from the active span (the
+        # `irc.client.process_buffer` we're inside of).
+        span = _otel_trace.get_current_span()
+        ctx = span.get_span_context()
+        trace_id_hex = format(ctx.trace_id, "032x") if ctx.is_valid else ""
+        span_id_hex = format(ctx.span_id, "016x") if ctx.is_valid else ""
+
+        peer_info = self.writer.get_extra_info("peername")
+        remote_addr = f"{peer_info[0]}:{peer_info[1]}" if peer_info else ""
+
+        tags: dict[str, str] = {}
+        if trace_id_hex and span_id_hex:
+            tags["culture.dev/traceparent"] = f"00-{trace_id_hex}-{span_id_hex}-01"
+
+        record = {
+            "ts": _utc_iso_timestamp(time.time()),
+            "server": self.server.config.name,
+            "event_type": "PARSE_ERROR",
+            "origin": "local",
+            "peer": "",
+            "trace_id": trace_id_hex,
+            "span_id": span_id_hex,
+            "actor": {
+                "nick": self.nick or "",
+                "kind": "human",
+                "remote_addr": remote_addr,
+            },
+            "target": {"kind": "", "name": ""},
+            "payload": {
+                "line_preview": line[:64],
+                "error": type(exc).__name__,
+            },
+            "tags": tags,
+        }
+        self.server.audit.submit(record)
 
     async def handle(self, initial_msg: str | None = None) -> None:
         peer_info = self.writer.get_extra_info("peername")
