@@ -24,6 +24,40 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 # ---------------------------------------------------------------------------
+# Async iterator stubs — replace if-False-yield workarounds (S5797/S3626)
+# ---------------------------------------------------------------------------
+
+
+class _StubAsyncIter:
+    """Async iterator that yields a fixed sequence of pre-built messages."""
+
+    def __init__(self, messages):
+        self._iter = iter(messages)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        try:
+            return next(self._iter)
+        except StopIteration:
+            raise StopAsyncIteration
+
+
+class _RaisingAsyncIter:
+    """Async iterator that raises immediately on iteration."""
+
+    def __init__(self, exc):
+        self._exc = exc
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        raise self._exc
+
+
+# ---------------------------------------------------------------------------
 # Stub out claude_agent_sdk if not installed so CI can import agent_runner.py
 # ---------------------------------------------------------------------------
 
@@ -67,10 +101,8 @@ def _stub_claude_sdk():
     class ToolResultBlock(_Base):
         pass
 
-    async def query(**kwargs):
-        if False:
-            yield  # marks this as an async generator
-        return
+    def query(**kwargs):
+        return _StubAsyncIter([])
 
     mod.AssistantMessage = AssistantMessage
     mod.ResultMessage = ResultMessage
@@ -240,12 +272,10 @@ async def test_process_turn_records_error_outcome(metrics_reader, registry):
     """Error path: outcome=error increments llm_calls{outcome=error}."""
     runner = _make_runner(registry=registry, nick="spark-claude", model="claude-opus-4-6")
 
-    async def _raising_query(**kwargs):
-        if False:
-            yield  # marks this as an async generator
-        raise RuntimeError("SDK exploded")
-
-    with patch("culture.clients.claude.agent_runner.query", _raising_query):
+    with patch(
+        "culture.clients.claude.agent_runner.query",
+        lambda **kw: _RaisingAsyncIter(RuntimeError("SDK exploded")),
+    ):
         result = await runner._process_turn("hello")
 
     assert result is False

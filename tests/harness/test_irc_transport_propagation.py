@@ -147,7 +147,7 @@ def _captured_lines(writer: _CaptureWriter) -> list[str]:
 
 @pytest.mark.asyncio
 async def test_outbound_carries_traceparent_when_span_active(harness_tracing_exporter):
-    exporter, provider = harness_tracing_exporter
+    _exporter, provider = harness_tracing_exporter
     tracer = provider.get_tracer("test")
     transport = _make_transport(tracer=tracer)
     _reader, writer = _inject_rw(transport)
@@ -355,7 +355,7 @@ async def test_no_tracer_means_no_spans(harness_tracing_exporter):
     exporter, _provider = harness_tracing_exporter
     # Build transport WITHOUT a tracer.
     transport = _make_transport(tracer=None)
-    reader, writer = _inject_rw(transport)
+    reader, _writer = _inject_rw(transport)
 
     inbound = ":alice!a@h PRIVMSG #room :hi\r\n"
     reader.feed(inbound.encode())
@@ -429,7 +429,7 @@ async def test_send_raw_direct_carries_traceparent(harness_tracing_exporter):
     _send_raw() — callers that bypassed it (e.g. daemon HISTORY commands)
     silently lost trace context.
     """
-    exporter, provider = harness_tracing_exporter
+    _exporter, provider = harness_tracing_exporter
     tracer = provider.get_tracer("test")
     transport = _make_transport(tracer=tracer)
     _reader, writer = _inject_rw(transport)

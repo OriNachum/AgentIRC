@@ -108,11 +108,11 @@ def test_records_calls_counter_and_duration_histogram_unconditionally(
         outcome="success",
     )
 
-    assert _get_counter_sum(reader, "culture.harness.llm.calls") == 1.0
+    assert _get_counter_sum(reader, "culture.harness.llm.calls") == pytest.approx(1.0)
     assert _get_histogram_count(reader, "culture.harness.llm.call.duration") == 1
     # Token counters must NOT have been touched.
-    assert _get_counter_sum(reader, "culture.harness.llm.tokens.input") == 0.0
-    assert _get_counter_sum(reader, "culture.harness.llm.tokens.output") == 0.0
+    assert _get_counter_sum(reader, "culture.harness.llm.tokens.input") == pytest.approx(0.0)
+    assert _get_counter_sum(reader, "culture.harness.llm.tokens.output") == pytest.approx(0.0)
 
 
 def test_skips_missing_usage_keys(harness_metrics_reader_with_registry):
@@ -129,8 +129,8 @@ def test_skips_missing_usage_keys(harness_metrics_reader_with_registry):
         outcome="success",
     )
 
-    assert _get_counter_sum(reader, "culture.harness.llm.tokens.input") == 100.0
-    assert _get_counter_sum(reader, "culture.harness.llm.tokens.output") == 0.0
+    assert _get_counter_sum(reader, "culture.harness.llm.tokens.input") == pytest.approx(100.0)
+    assert _get_counter_sum(reader, "culture.harness.llm.tokens.output") == pytest.approx(0.0)
 
 
 def test_records_both_token_counters_when_present(harness_metrics_reader_with_registry):
@@ -147,22 +147,16 @@ def test_records_both_token_counters_when_present(harness_metrics_reader_with_re
         outcome="success",
     )
 
-    assert (
-        _get_counter_sum(
-            reader,
-            "culture.harness.llm.tokens.input",
-            {"backend": "claude", "model": "claude-opus-4-6", "harness.nick": "spark-claude"},
-        )
-        == 50.0
-    )
-    assert (
-        _get_counter_sum(
-            reader,
-            "culture.harness.llm.tokens.output",
-            {"backend": "claude", "model": "claude-opus-4-6", "harness.nick": "spark-claude"},
-        )
-        == 200.0
-    )
+    assert _get_counter_sum(
+        reader,
+        "culture.harness.llm.tokens.input",
+        {"backend": "claude", "model": "claude-opus-4-6", "harness.nick": "spark-claude"},
+    ) == pytest.approx(50.0)
+    assert _get_counter_sum(
+        reader,
+        "culture.harness.llm.tokens.output",
+        {"backend": "claude", "model": "claude-opus-4-6", "harness.nick": "spark-claude"},
+    ) == pytest.approx(200.0)
 
 
 def test_outcome_label_propagates(harness_metrics_reader_with_registry):
@@ -179,12 +173,9 @@ def test_outcome_label_propagates(harness_metrics_reader_with_registry):
         outcome="error",
     )
 
-    assert (
-        _get_counter_sum(
-            reader, "culture.harness.llm.calls", {"backend": "acp", "outcome": "error"}
-        )
-        == 1.0
-    )
+    assert _get_counter_sum(
+        reader, "culture.harness.llm.calls", {"backend": "acp", "outcome": "error"}
+    ) == pytest.approx(1.0)
     assert (
         _get_histogram_count(
             reader,
@@ -210,7 +201,7 @@ def test_multiple_calls_accumulate(harness_metrics_reader_with_registry):
             outcome="success",
         )
 
-    assert _get_counter_sum(reader, "culture.harness.llm.calls") == 3.0
+    assert _get_counter_sum(reader, "culture.harness.llm.calls") == pytest.approx(3.0)
 
 
 def test_none_valued_usage_keys_are_skipped(harness_metrics_reader_with_registry):
@@ -228,10 +219,10 @@ def test_none_valued_usage_keys_are_skipped(harness_metrics_reader_with_registry
     )
 
     # None values must not add to the token counters.
-    assert _get_counter_sum(reader, "culture.harness.llm.tokens.input") == 0.0
-    assert _get_counter_sum(reader, "culture.harness.llm.tokens.output") == 0.0
+    assert _get_counter_sum(reader, "culture.harness.llm.tokens.input") == pytest.approx(0.0)
+    assert _get_counter_sum(reader, "culture.harness.llm.tokens.output") == pytest.approx(0.0)
     # But calls and duration still record.
-    assert _get_counter_sum(reader, "culture.harness.llm.calls") == 1.0
+    assert _get_counter_sum(reader, "culture.harness.llm.calls") == pytest.approx(1.0)
     assert _get_histogram_count(reader, "culture.harness.llm.call.duration") == 1
 
 
@@ -249,4 +240,6 @@ def test_timeout_outcome(harness_metrics_reader_with_registry):
         outcome="timeout",
     )
 
-    assert _get_counter_sum(reader, "culture.harness.llm.calls", {"outcome": "timeout"}) == 1.0
+    assert _get_counter_sum(
+        reader, "culture.harness.llm.calls", {"outcome": "timeout"}
+    ) == pytest.approx(1.0)
