@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [8.7.0] - 2026-04-26
+
+### Added
+
+- OTEL bot instrumentation (Plan 7): bot.event.dispatch and bot.run spans, culture.bot.invocations counter, culture.bot.webhook.duration histogram, aiohttp-server auto-instrumentation on the webhook listener.
+
+### Changed
+
+- docs/agentirc/telemetry.md updated with the 8.7.0 section; harness-telemetry.md cross-link updated.
+
 ## [8.6.0] - 2026-04-26
 
 ### Added

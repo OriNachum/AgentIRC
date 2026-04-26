@@ -230,7 +230,7 @@ corresponding key is present in `usage` with an `int` value.
 
 ## What's not in 8.6.0
 
-- **Bot-side OTEL instrumentation** — Plan 6.
+- **Bot-side OTEL instrumentation** — shipped in 8.7.0 (Plan 7). See [`telemetry.md`](telemetry.html#what-you-get-in-870).
 - **Tracestate injection** — server-parity-deferred. Both server-side
   `client.py` / `server_link.py` and the harness currently pass `tracestate=None`
   when injecting. A future plan will add `current_tracestate()` to

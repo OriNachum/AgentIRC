@@ -63,6 +63,9 @@ class MetricsRegistry:
     # Audit (Plan 4)
     audit_writes: Counter
     audit_queue_depth: UpDownCounter
+    # Bots (Plan 7)
+    bot_invocations: Counter
+    bot_webhook_duration: Histogram
 
 
 def reset_for_tests() -> None:
@@ -167,6 +170,16 @@ def _build_registry(meter: Meter) -> MetricsRegistry:
         audit_queue_depth=meter.create_up_down_counter(
             "culture.audit.queue_depth",
             description="Audit queue depth (records waiting to flush to disk)",
+        ),
+        # Bots (Plan 7)
+        bot_invocations=meter.create_counter(
+            "culture.bot.invocations",
+            description="Bot dispatch invocations by bot, event.type, outcome=success|error",
+        ),
+        bot_webhook_duration=meter.create_histogram(
+            "culture.bot.webhook.duration",
+            unit="s",
+            description="Webhook request handler duration by bot and status_class=2xx|3xx|4xx|5xx",
         ),
     )
 

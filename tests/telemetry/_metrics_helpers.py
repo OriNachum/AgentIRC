@@ -64,3 +64,12 @@ def get_histogram_count(reader, name: str, attrs: dict | None = None) -> int:
         if _attrs_match(dict(point.attributes), attrs):
             total += point.count
     return total
+
+
+def get_histogram_sum(reader, name: str, attrs: dict | None = None) -> float:
+    """Sum of recorded values for histogram points matching `attrs`. 0.0 if absent."""
+    total = 0.0
+    for point in _walk_data_points(reader, name):
+        if _attrs_match(dict(point.attributes), attrs):
+            total += point.sum
+    return total
