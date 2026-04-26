@@ -9,7 +9,7 @@ nav_order: 90
 
 Culture ships with first-class OpenTelemetry support: traces for every IRC command and event, W3C trace context carried across federation via a new IRCv3 tag, and a local collector pattern that keeps Culture's surface small.
 
-This page covers the **Foundation + Server Tracing** release (culture 8.2.0), **Federation Trace-Context Relay** (culture 8.3.0), the **Metrics Pillar** (culture 8.4.0), the **Audit JSONL Sink** (culture 8.5.0), and **Harness-side OTEL** (culture 8.6.0). Bot instrumentation ships in a subsequent release.
+This page covers the **Foundation + Server Tracing** release (culture 8.2.0), **Federation Trace-Context Relay** (culture 8.3.0), the **Metrics Pillar** (culture 8.4.0), the **Audit JSONL Sink** (culture 8.5.0), **Harness-side OTEL** (culture 8.6.0), and **Bot Instrumentation** (culture 8.7.0).
 
 ## What you get in 8.2.0
 
@@ -189,11 +189,47 @@ For full configuration details, the per-backend `service.name` table, the
 end-to-end test recipe, and a list of what's deferred, see the operator guide at
 [`docs/agentirc/harness-telemetry.html`](harness-telemetry.html).
 
-## What's not in 8.6.0
+## What you get in 8.7.0
+
+Bot instrumentation lands. Event-triggered dispatch and webhook-triggered dispatch each get their own span tree, both stitched into the same trace as the upstream client/server activity that triggered them.
+
+Event-trigger path:
+
+```text
+irc.command.PRIVMSG (or any event-emitting verb)
+└── irc.event.emit
+    └── bot.event.dispatch  (one per matched bot)
+        └── bot.run         (Bot.handle body)
+            └── irc.privmsg.deliver.channel | .dm
+```
+
+Webhook path:
+
+```text
+HTTP POST /<bot_name>      (auto-instrumented inbound span)
+└── bot.run                (Bot.handle body)
+    └── irc.privmsg.deliver.*
+```
+
+New spans:
+
+- `bot.event.dispatch` — one per matched bot inside `BotManager.on_event`. Attributes: `bot.name`, `event.type`. Status `ERROR` if `Bot.handle` raises.
+- `bot.run` — wraps `Bot.handle` for both event and webhook paths. Attributes: `bot.name`, optional `bot.run.empty_message=True` if the rendered message is empty.
+
+The webhook HTTP server is auto-instrumented via [`opentelemetry-instrumentation-aiohttp-server`](https://pypi.org/project/opentelemetry-instrumentation-aiohttp-server/). Each request produces an inbound HTTP server span (verb + path + status code) that becomes the parent of `bot.run`. If the caller sends a `traceparent` header, the request joins their existing trace.
+
+New metrics:
+
+- `culture.bot.invocations` — Counter. Labels: `bot`, `event.type`, `outcome=success|error`. Increments only after the bot has matched the filter and been started — filter rejections and startup failures are logged but not counted.
+- `culture.bot.webhook.duration` — Histogram, `s`. Labels: `bot`, `status_class=2xx|3xx|4xx|5xx`. Recorded by a per-request middleware on the webhook listener. `bot=_unrouted` is used for `/health` and other non-bot paths so the histogram never silently mis-attributes.
+
+Bots add no new wire protocol surface. Trace context flows in via the existing IRCv3 `culture.dev/traceparent` tag for events and via the standard W3C `traceparent` HTTP header for webhooks.
+
+## What's not in 8.7.0
 
 The design spec at `docs/superpowers/specs/2026-04-24-otel-observability-design.md` covers the full three-pillar scope. These pieces remain deferred:
 
-- Bot webhook HTTP instrumentation + bot metrics (`culture.bot.invocations`, `culture.bot.webhook.duration`).
+- Outbound webhook delivery instrumentation (`opentelemetry-instrumentation-aiohttp-client`) — bots currently make no outbound HTTP calls; will be added when that feature lands.
 - Outbound `culture.s2s.messages` (records inbound only — outbound needs a clean verb-extraction site).
 - OTEL Logs export of audit records (best-effort duplicate; JSONL stays source of truth either way).
 - `audit-prune` CLI for retention; operators prune manually in v1.

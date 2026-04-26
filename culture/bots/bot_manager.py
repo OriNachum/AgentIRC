@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from opentelemetry import trace as _otel_trace
+
 from culture.bots.bot import Bot
 from culture.bots.config import (
     BOT_CONFIG_FILE,
@@ -110,10 +112,27 @@ class BotManager:
                 continue
             if not await self._try_start_bot(bot):
                 continue
-            try:
-                await bot.handle({"event": ctx})
-            except Exception:
-                logger.exception("Bot %s handle() failed for event %s", cfg.name, event.type)
+            event_type_str = ctx["type"]
+            with _otel_trace.get_tracer("culture.agentirc").start_as_current_span(
+                "bot.event.dispatch",
+                attributes={"bot.name": cfg.name, "event.type": event_type_str},
+            ) as span:
+                outcome = "success"
+                try:
+                    await bot.handle({"event": ctx})
+                except Exception as exc:
+                    outcome = "error"
+                    span.set_status(_otel_trace.StatusCode.ERROR, str(exc))
+                    logger.exception("Bot %s handle() failed for event %s", cfg.name, event.type)
+                finally:
+                    self.server.metrics.bot_invocations.add(
+                        1,
+                        {
+                            "bot": cfg.name,
+                            "event.type": event_type_str,
+                            "outcome": outcome,
+                        },
+                    )
 
     def load_system_bots(self) -> None:
         """Discover and register system bots from the package."""

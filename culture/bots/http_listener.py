@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import TYPE_CHECKING
 
 from aiohttp import web
+from opentelemetry.instrumentation.aiohttp_server import AioHttpServerInstrumentor
 
 if TYPE_CHECKING:
     from culture.bots.bot_manager import BotManager
@@ -25,7 +27,16 @@ class HttpListener:
         self._runner: web.AppRunner | None = None
 
     async def start(self) -> None:
-        self._app = web.Application()
+        # Patch aiohttp.web.Application to auto-inject the OTEL server
+        # middleware. Deferred from import time so just importing this module
+        # has no side effect. Re-instrument each start() so the captured
+        # tracer/meter rebinds to the *current* TracerProvider — important for
+        # tests that swap providers between runs, harmless in production.
+        instrumentor = AioHttpServerInstrumentor()
+        if instrumentor.is_instrumented_by_opentelemetry:
+            instrumentor.uninstrument()
+        instrumentor.instrument()
+        self._app = web.Application(middlewares=[self._record_webhook_duration])
         self._app.router.add_get("/health", self._handle_health)
         self._app.router.add_post("/{bot_name}", self._handle_webhook)
 
@@ -40,6 +51,29 @@ class HttpListener:
             await self._runner.cleanup()
             self._runner = None
             self._app = None
+
+    @web.middleware
+    async def _record_webhook_duration(self, request, handler):
+        """Record per-request duration into culture.bot.webhook.duration."""
+        bot_name = request.match_info.get("bot_name") or "_unrouted"
+        start = time.perf_counter()
+        # Default for the "handler raised a non-HTTPException" path: aiohttp
+        # converts unhandled exceptions to 500 responses outside this
+        # middleware, so the histogram should report 5xx for them.
+        status_class = "5xx"
+        try:
+            response = await handler(request)
+            status_class = f"{response.status // 100}xx"
+            return response
+        except web.HTTPException as exc:
+            status_class = f"{exc.status // 100}xx"
+            raise
+        finally:
+            duration = time.perf_counter() - start
+            self.bot_manager.server.metrics.bot_webhook_duration.record(
+                duration,
+                {"bot": bot_name, "status_class": status_class},
+            )
 
     async def _handle_health(self, request: web.Request) -> web.Response:
         return web.json_response({"status": "ok"})

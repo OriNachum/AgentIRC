@@ -8,6 +8,8 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from opentelemetry import trace as _otel_trace
+
 from culture.agentirc.skill import Event, EventType
 from culture.bots.config import BOTS_DIR, BotConfig
 from culture.bots.template_engine import render_fallback, render_template
@@ -125,19 +127,28 @@ class Bot:
 
         Returns the rendered message text.
         """
-        if not self.active or not self.virtual_client:
-            raise RuntimeError(f"Bot {self.config.name} is not active")
+        # Span opens before the active-check so a misrouted dispatch (inactive
+        # bot reached via webhook) still surfaces in tracing with ERROR status
+        # and bot.name set, instead of silently raising.
+        with _otel_trace.get_tracer("culture.agentirc").start_as_current_span(
+            "bot.run",
+            attributes={"bot.name": self.config.name},
+        ) as span:
+            if not self.active or not self.virtual_client:
+                span.set_status(_otel_trace.StatusCode.ERROR, "bot not active")
+                raise RuntimeError(f"Bot {self.config.name} is not active")
 
-        message = await self._resolve_message(payload)
-        if not message:
-            return ""
+            message = await self._resolve_message(payload)
+            if not message:
+                span.set_attribute("bot.run.empty_message", True)
+                return ""
 
-        if self.config.mention:
-            message = f"@{self.config.mention} {message}"
+            if self.config.mention:
+                message = f"@{self.config.mention} {message}"
 
-        await self._deliver(message, payload)
-        await self._maybe_fire_event(payload)
-        return message
+            await self._deliver(message, payload)
+            await self._maybe_fire_event(payload)
+            return message
 
     async def _resolve_message(self, payload: dict) -> str:
         """Render the message from custom handler or template."""

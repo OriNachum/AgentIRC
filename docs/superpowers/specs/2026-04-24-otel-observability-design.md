@@ -91,7 +91,7 @@ Documents the audit JSONL schema and file layout as a stable contract.
 ### `culture/bots/`
 
 - `BotManager.on_event` — span `bot.event.dispatch` per matched bot, attrs `bot.name`, `event.type`. Metric `culture.bot.invocations{bot, event.type, outcome}`.
-- `http_listener` webhook sender — enable `opentelemetry-instrumentation-aiohttp-client`. Outbound HTTP becomes child spans with traceparent sent as HTTP header automatically. Post-span hook maps status to `status_class` label for `culture.bot.webhook.duration` histogram.
+- `http_listener` webhook receiver — enable `opentelemetry-instrumentation-aiohttp-server`. Inbound HTTP becomes a server span that parents `bot.run`; W3C `traceparent` headers from callers stitch incoming webhooks into their existing trace. A local middleware records the `culture.bot.webhook.duration` histogram (unit `s`) with `{bot, status_class}` labels. **Note (Phase 7, 8.7.0):** the originally-specified outbound `aiohttp-client` instrumentation is deferred — bots make no outbound HTTP calls today; will be added when that feature lands.
 - `Bot` execution — span `bot.run`.
 
 ### `packages/agent-harness/irc_transport.py` (reference, cited into each backend)
