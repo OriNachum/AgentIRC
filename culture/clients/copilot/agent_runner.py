@@ -7,9 +7,16 @@ import logging
 import os
 import shutil
 import tempfile
-from typing import Any, Awaitable, Callable
+import time
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
+
+from opentelemetry import trace as _otel_trace
 
 from culture.aio import maybe_await
+from culture.clients.copilot.telemetry import _HARNESS_TRACER_NAME, record_llm_call
+
+if TYPE_CHECKING:
+    from culture.clients.copilot.telemetry import HarnessMetricsRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +33,8 @@ class CopilotAgentRunner:
         on_exit: Callable[[int], Awaitable[None]] | None = None,
         on_message: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
         on_turn_error: Callable[[], Awaitable[None] | None] | None = None,
+        metrics: HarnessMetricsRegistry | None = None,
+        nick: str = "",
     ) -> None:
         self.model = model
         self.directory = directory
@@ -34,6 +43,8 @@ class CopilotAgentRunner:
         self.on_exit = on_exit
         self.on_message = on_message
         self.on_turn_error = on_turn_error
+        self._metrics = metrics
+        self._nick = nick
 
         self._isolated_home: str | None = None
         self._client: Any = None
@@ -171,12 +182,43 @@ class CopilotAgentRunner:
 
         Returns True if the loop should exit due to a fatal error.
         """
+        start_perf = time.perf_counter()
+        outcome = "success"
+        tracer = _otel_trace.get_tracer(_HARNESS_TRACER_NAME)
+        exit_signal = False
         try:
-            response = await self._session.send_and_wait(text, timeout=120.0)
-            await self._handle_turn_response(response)
-        except Exception:
-            return await self._handle_turn_error()
-        return False
+            with tracer.start_as_current_span(
+                "harness.llm.call",
+                attributes={
+                    "harness.backend": "copilot",
+                    "harness.model": self.model,
+                    "harness.nick": self._nick,
+                },
+            ):
+                try:
+                    response = await self._session.send_and_wait(text, timeout=120.0)
+                    await self._handle_turn_response(response)
+                except asyncio.TimeoutError:
+                    outcome = "timeout"
+                    exit_signal = await self._handle_turn_error()
+                except Exception:
+                    outcome = "error"
+                    exit_signal = await self._handle_turn_error()
+        finally:
+            duration_ms = (time.perf_counter() - start_perf) * 1000.0
+            if self._metrics is not None:
+                # Copilot token usage tracking — issue #299 (currently usage=None;
+                # github-copilot-sdk does not expose token counts on responses).
+                record_llm_call(
+                    self._metrics,
+                    backend="copilot",
+                    model=self.model,
+                    nick=self._nick,
+                    usage=None,
+                    duration_ms=duration_ms,
+                    outcome=outcome,
+                )
+        return exit_signal
 
     async def _prompt_loop(self) -> None:
         """Process queued prompts one at a time using send_and_wait."""
