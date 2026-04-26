@@ -116,12 +116,12 @@ def test_init_reinit_on_config_change():
     tcfg = TelemetryConfig(enabled=False)
     config = DaemonConfig(telemetry=tcfg)
 
-    tracer1, registry1 = init_harness_telemetry(config)
+    _tracer1, registry1 = init_harness_telemetry(config)
 
     # Mutate config — snapshot diff should force reinit.
     tcfg.metrics_export_interval_ms = 1000
 
-    tracer2, registry2 = init_harness_telemetry(config)
+    _tracer2, registry2 = init_harness_telemetry(config)
     assert registry1 is not registry2
 
 
@@ -204,7 +204,9 @@ def test_init_with_metrics_reader_records_calls(harness_metrics_reader):
         outcome="success",
     )
 
-    assert _get_counter_sum(harness_metrics_reader, "culture.harness.llm.calls") == 1.0
+    assert _get_counter_sum(harness_metrics_reader, "culture.harness.llm.calls") == pytest.approx(
+        1.0
+    )
 
 
 # ---------------------------------------------------------------------------
