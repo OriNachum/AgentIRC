@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING
 
@@ -120,6 +121,8 @@ class BotManager:
                 outcome = "success"
                 try:
                     await bot.handle({"event": ctx})
+                except asyncio.CancelledError:
+                    raise
                 except Exception as exc:
                     outcome = "error"
                     span.set_status(_otel_trace.StatusCode.ERROR, str(exc))

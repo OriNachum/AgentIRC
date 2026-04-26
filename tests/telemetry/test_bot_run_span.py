@@ -44,12 +44,14 @@ async def test_bot_run_span_parented_under_dispatch(tracing_exporter, server_wit
 @pytest.mark.asyncio
 async def test_bot_run_span_marks_empty_message(tracing_exporter, server_with_bot):
     """Empty rendered message sets bot.run.empty_message=True."""
+    # Whitespace-only template strips to "" inside Bot._render_message,
+    # forcing the empty-message branch deterministically.
     server, _ = server_with_bot(
         bot_name="testserv-empty",
         trigger_type="event",
         event_filter="type == 'topic'",
         channels=["#z"],
-        template=None,
+        template="   ",
     )
 
     await server.emit_event(
@@ -62,9 +64,7 @@ async def test_bot_run_span_marks_empty_message(tracing_exporter, server_with_bo
         if s.name == "bot.run" and s.attributes.get("bot.name") == "testserv-empty"
     ]
     assert len(run_spans) == 1
-    if not run_spans[0].attributes.get("bot.run.empty_message"):
-        pytest.skip("template fallback produced non-empty message; not the path under test")
-    assert run_spans[0].attributes["bot.run.empty_message"] is True
+    assert run_spans[0].attributes.get("bot.run.empty_message") is True
 
 
 @pytest.mark.asyncio

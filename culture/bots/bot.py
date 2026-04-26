@@ -127,9 +127,9 @@ class Bot:
 
         Returns the rendered message text.
         """
-        # Span opens before the active-check so a misrouted dispatch (inactive
-        # bot reached via webhook) still surfaces in tracing with ERROR status
-        # and bot.name set, instead of silently raising.
+        # Span opens before the active-check so, if handle() is invoked for an
+        # inactive bot, the failure still surfaces in tracing with ERROR
+        # status and bot.name set instead of only raising.
         with _otel_trace.get_tracer("culture.agentirc").start_as_current_span(
             "bot.run",
             attributes={"bot.name": self.config.name},
