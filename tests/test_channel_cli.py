@@ -12,6 +12,7 @@ from culture.cli.channel import (
     _require_ipc,
     _try_ipc,
     _valid_nick,
+    _warn_observer_fallback,
     dispatch,
     register,
 )
@@ -87,7 +88,8 @@ class TestMessageIpcRouting:
         monkeypatch.setenv("CULTURE_NICK", "spark-claude")
         monkeypatch.setenv("XDG_RUNTIME_DIR", tempfile.mkdtemp())
 
-        # _try_ipc should return None when socket doesn't exist
+        # _try_ipc itself stays silent — the warning is emitted by the
+        # observer-fallback caller (see TestObserverFallbackWarning).
         result = _try_ipc("irc_send", channel="#general", message="hello")
         assert result is None
 
@@ -96,6 +98,81 @@ class TestMessageIpcRouting:
         monkeypatch.delenv("CULTURE_NICK", raising=False)
         result = _try_ipc("irc_send", channel="#general", message="hello")
         assert result is None
+
+
+class TestObserverFallbackWarning:
+    """Issue #302: the three observer-fallback callers must warn loudly.
+
+    Before the fix, a daemon/CLI socket-path mismatch on macOS caused
+    `culture channel message` to silently fall back to an anonymous peek
+    connection. The CLI printed `Sent to #general` either way, so the
+    bug hid for two releases. The warning must (a) name the nick that
+    was attempted, (b) name the operation, and (c) point at the GitHub
+    issue tracker so the next reproducer takes seconds to file.
+
+    The warning lives in `_warn_observer_fallback`, called only by
+    `_cmd_message`, `_cmd_list`, and `_cmd_read`. `_topic_read` and the
+    `_require_ipc` commands exit on failure instead, so no spurious
+    "falling back" notice contradicts their actual error.
+    """
+
+    def test_warns_when_nick_set_and_daemon_unreachable(self, monkeypatch, capsys):
+        """CULTURE_NICK set + IPC down → stderr warning naming op + nick + issues URL."""
+        monkeypatch.setenv("CULTURE_NICK", "spark-claude")
+        monkeypatch.setenv("XDG_RUNTIME_DIR", tempfile.mkdtemp())
+
+        _warn_observer_fallback("channel message")
+
+        err = capsys.readouterr().err
+        assert "spark-claude" in err
+        assert "channel message" in err
+        assert "Falling back to observer" in err
+        assert "https://github.com/agentculture/culture/issues" in err
+
+    def test_warning_text_is_operation_specific(self, monkeypatch, capsys):
+        """Each caller passes its own operation name; helper renders it verbatim."""
+        monkeypatch.setenv("CULTURE_NICK", "spark-claude")
+        monkeypatch.setenv("XDG_RUNTIME_DIR", tempfile.mkdtemp())
+
+        _warn_observer_fallback("channel list")
+        err = capsys.readouterr().err
+        assert "channel list" in err
+        assert "channel message" not in err  # no leakage from sibling callers
+
+    def test_no_warning_when_nick_unset(self, monkeypatch, capsys):
+        """Human use without CULTURE_NICK is the legitimate observer path — no warning."""
+        monkeypatch.delenv("CULTURE_NICK", raising=False)
+
+        _warn_observer_fallback("channel message")
+
+        assert capsys.readouterr().err == ""
+
+    def test_no_warning_when_nick_invalid(self, monkeypatch, capsys):
+        """Invalid nick falls into the same human-use bucket — no warning."""
+        monkeypatch.setenv("CULTURE_NICK", "nodash")
+
+        _warn_observer_fallback("channel message")
+
+        assert capsys.readouterr().err == ""
+
+    def test_topic_read_does_not_warn(self, monkeypatch, capsys):
+        """_topic_read uses _try_ipc but exits on failure — no fallback, no warning.
+
+        Regression guard against the Qodo/Copilot review on PR #304: the
+        previous design auto-warned inside `_try_ipc` and printed a
+        misleading 'falling back' notice for `topic` (which actually exits).
+        """
+        from culture.cli.channel import _topic_read
+
+        monkeypatch.setenv("CULTURE_NICK", "spark-claude")
+        monkeypatch.setenv("XDG_RUNTIME_DIR", tempfile.mkdtemp())
+
+        with pytest.raises(SystemExit):
+            _topic_read("#general")
+
+        err = capsys.readouterr().err
+        assert "Falling back" not in err
+        assert "topic query requires" in err
 
 
 class TestNickValidation:

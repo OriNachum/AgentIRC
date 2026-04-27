@@ -24,11 +24,43 @@ def _valid_nick(nick: str) -> bool:
     return len(parts) == 2 and all(parts)
 
 
+_ISSUE_TRACKER_URL = "https://github.com/agentculture/culture/issues"
+
+
+def _warn_observer_fallback(operation: str) -> None:
+    """Warn on stderr when an observer-fallback command silently went anonymous.
+
+    Called only by the three commands that do fall back to the observer
+    connection (`message`, `list`, `read`). `topic` and the `_require_ipc`
+    commands exit on failure instead, so this helper is not used there —
+    a misleading "falling back" notice would contradict the actual error.
+
+    Issue #302: a daemon/CLI socket-path mismatch on macOS hid behind the
+    silent peek fallback for two releases. The warning names the issue
+    tracker so the next reproducer takes seconds to file.
+    """
+    nick = os.environ.get("CULTURE_NICK")
+    if not nick or not _valid_nick(nick):
+        return  # Human use without CULTURE_NICK — observer is the intended path.
+    sock = agent_socket_path(nick)
+    print(
+        f"Warning: agent daemon IPC for {nick} failed ({sock}).\n"
+        f"  Falling back to observer connection — `{operation}` will not run\n"
+        f"  through the agent daemon and the action will not appear under {nick}.\n"
+        f"  Verify the daemon is running:    culture agent status {nick}\n"
+        f"  If it is running, this is a bug. Please open an issue:\n"
+        f"    {_ISSUE_TRACKER_URL}",
+        file=sys.stderr,
+    )
+
+
 def _try_ipc(msg_type: str, **kwargs) -> dict | None:
     """Try to route a command through the agent daemon's IPC socket.
 
     Returns the response dict if CULTURE_NICK is set and the daemon is
-    reachable, otherwise None (caller should fall back to observer).
+    reachable, otherwise None (caller should fall back to observer or
+    surface its own error — see `_warn_observer_fallback` for the
+    observer-fallback path).
     """
     nick = os.environ.get("CULTURE_NICK")
     if not nick or not _valid_nick(nick):
@@ -169,6 +201,7 @@ def _cmd_list(args: argparse.Namespace) -> None:
             print(f"  {ch}")
         return
 
+    _warn_observer_fallback("channel list")
     observer = get_observer(args.config)
     channels = asyncio.run(observer.list_channels())
 
@@ -199,6 +232,7 @@ def _cmd_read(args: argparse.Namespace) -> None:
             print(f"<{nick}> {text}")
         return
 
+    _warn_observer_fallback("channel read")
     observer = get_observer(args.config)
     messages = asyncio.run(observer.read_channel(channel, limit=args.limit))
 
@@ -267,6 +301,7 @@ def _cmd_message(args: argparse.Namespace) -> None:
         print(f"Sent to {target}")
         return
 
+    _warn_observer_fallback("channel message")
     observer = get_observer(args.config)
     asyncio.run(observer.send_message(target, text))
     print(f"Sent to {target}")
