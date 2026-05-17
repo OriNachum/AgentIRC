@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [12.1.11] - 2026-05-18
+
+### Changed
+
+- tests/conftest.py: shared `wait_until(predicate, timeout=2.5, interval=0.05)` polling helper replacing four hand-rolled `_wait_for_span` loops in telemetry tests. Returns `True` strictly bounded by `timeout` (does not re-evaluate predicate after deadline) per Qodo review of the v12.1.8 first cut. Closes #294.
+
+### Fixed
+
+- culture/telemetry/metrics.py: defensive MeterProvider.shutdown() exception handlers (`reset_for_tests`, `init_metrics` reinit teardown) marked `# pragma: no cover`; adds `test_metrics_init.py` cases that drive the enabled-OTLP init path and reinit teardown. metrics.py now at 100% coverage. Closes #393.
+- tests/conftest.py: autouse repo-root mutation guard fixture. Snapshots `(mtime, size)` of `culture.yaml`, `pyproject.toml`, and `CHANGELOG.md` before each test and asserts no change after. Catches cwd-leak bugs in filesystem-writing helpers that previously corrupted tracked files when a test bypassed `tmp_path`. Closes #351.
+- tests/test_pidfile.py: new `test_process_lookup_error_returns_false` covering the `ProcessLookupError` branch in `is_process_alive`. Renames the second `TestIsProcessAlive` class to `TestIsProcessAliveErrorPaths` so it no longer shadows the original happy-path class. Closes #394.
+
 ## [12.1.10] - 2026-05-18
 
 ### Fixed

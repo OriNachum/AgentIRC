@@ -1,7 +1,9 @@
 # tests/conftest.py
 import asyncio
+import os
 import sys
 import types
+from pathlib import Path
 from unittest.mock import patch
 
 # ---------------------------------------------------------------------------
@@ -103,6 +105,30 @@ RECV_TIMEOUT_SECONDS = 2.0
 _BOTS_DIR_MANAGER = "culture.bots.bot_manager.BOTS_DIR"
 _BOTS_DIR_CONFIG = "culture.bots.config.BOTS_DIR"
 _BOTS_DIR_BOT = "culture.bots.bot.BOTS_DIR"
+
+
+async def wait_until(
+    predicate,
+    *,
+    timeout: float = 2.5,
+    interval: float = 0.05,
+) -> bool:
+    """Poll `predicate` (sync callable, truthy = success) until it fires or
+    `timeout` elapses. Returns True on success, False on timeout — caller
+    decides whether timeout is fatal.
+
+    Defaults match the project's existing `range(50) * 0.05s` convention.
+    Prefer this over hand-rolled `for _ in range(N): if cond: break; sleep(...)`
+    loops or duplicated `_wait_for_span` helpers (closes #294).
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while True:
+        if predicate():
+            return True
+        if loop.time() >= deadline:
+            return False
+        await asyncio.sleep(interval)
 
 
 class IRCTestClient:
@@ -476,3 +502,60 @@ def audit_dir(tmp_path):
     and inspect file contents via `Path(audit_dir).glob("*.jsonl*")`.
     """
     return tmp_path
+
+
+# ---------------------------------------------------------------------------
+# Repo-root mutation guard (closes #351)
+#
+# PR #346 found that `culture agent create` regressions could rewrite the
+# tracked `culture.yaml` at the project root because helpers default
+# `directory=os.getcwd()` in `culture/cli/agent.py:285-310`. Any test that
+# calls `_cmd_create` without `monkeypatch.chdir(tmpdir)` is similarly
+# leak-prone, and `git status` was the only canary.
+#
+# This guard takes a stat() snapshot of the project-root canary files
+# *before* each test and asserts they're unchanged *after*. If a future
+# test of the same shape lands, it fails immediately with a message
+# pointing at the cwd-leak class. Cost is ~1µs per test (a handful of
+# stat() calls) and zero git invocations.
+# ---------------------------------------------------------------------------
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_CANARY_PATHS: tuple[Path, ...] = (
+    _REPO_ROOT / "culture.yaml",
+    _REPO_ROOT / "pyproject.toml",
+    _REPO_ROOT / "CHANGELOG.md",
+)
+
+
+def _canary_snapshot() -> dict[Path, tuple[float, int] | None]:
+    """Return (mtime, size) for each canary, or None if absent."""
+    snap: dict[Path, tuple[float, int] | None] = {}
+    for p in _CANARY_PATHS:
+        try:
+            st = os.stat(p)
+            snap[p] = (st.st_mtime, st.st_size)
+        except FileNotFoundError:
+            snap[p] = None
+    return snap
+
+
+@pytest.fixture(autouse=True)
+def _repo_root_mutation_guard(request):
+    """Fail any test that mutates tracked repo-root files (closes #351).
+
+    Real writes belong in `tmp_path`. If this fires, the culprit is almost
+    certainly a `_cmd_*` helper that defaulted `directory=os.getcwd()` and
+    wasn't pinned to `tmp_path` with `monkeypatch.chdir(...)`.
+    """
+    before = _canary_snapshot()
+    yield
+    after = _canary_snapshot()
+    if before != after:
+        diff = {p: (before[p], after[p]) for p in before if before[p] != after[p]}
+        raise AssertionError(
+            f"Test {request.node.nodeid!r} mutated tracked repo-root files "
+            f"outside tmp_path. Changed: {diff}. "
+            "Pin filesystem-writing helpers to `tmp_path` via "
+            "`monkeypatch.chdir(tmp_path)`."
+        )

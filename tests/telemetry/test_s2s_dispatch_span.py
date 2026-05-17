@@ -16,6 +16,7 @@ from opentelemetry import trace as otel_trace
 
 from culture.protocol.message import Message
 from culture.telemetry.context import TRACEPARENT_TAG
+from tests.conftest import wait_until
 
 VALID_TP = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
 
@@ -23,13 +24,14 @@ VALID_TP = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
 async def _wait_for_span(exporter, name: str, timeout: float = 1.0) -> None:
     """Wait until at least one span with `name` appears in `exporter`,
     or `timeout` seconds elapse. SimpleSpanProcessor is synchronous, but
-    the federation write travels through an event-loop boundary."""
-    deadline = asyncio.get_event_loop().time() + timeout
-    while asyncio.get_event_loop().time() < deadline:
-        if any(s.name == name for s in exporter.get_finished_spans()):
-            return
-        await asyncio.sleep(0.02)
-    # Fall through; caller's assertion will fail with helpful context.
+    the federation write travels through an event-loop boundary.
+    Caller's assertion fails with helpful context if the span never lands.
+    """
+    await wait_until(
+        lambda: any(s.name == name for s in exporter.get_finished_spans()),
+        timeout=timeout,
+        interval=0.02,
+    )
 
 
 def _spans_with_name(exporter, name):

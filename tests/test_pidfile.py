@@ -164,11 +164,21 @@ class TestReadPidErrorPath:
         assert read_pid("server-bogus") is None
 
 
-class TestIsProcessAlive:
+class TestIsProcessAliveErrorPaths:
     def test_permission_error_returns_true(self):
         """If the OS says we can't signal the PID, the process still exists."""
         with patch("culture.pidfile.os.kill", side_effect=PermissionError("denied")):
             assert is_process_alive(1) is True
+
+    def test_process_lookup_error_returns_false(self):
+        """If os.kill raises ProcessLookupError, the PID is gone — return False.
+
+        The high-PID variant at TestIsProcessAlive.test_nonexistent_pid is racy
+        on busy CI; this monkeypatched version covers the same branch
+        deterministically.
+        """
+        with patch("culture.pidfile.os.kill", side_effect=ProcessLookupError):
+            assert is_process_alive(99999) is False
 
 
 class TestDefaultServer:

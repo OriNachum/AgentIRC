@@ -73,7 +73,7 @@ def reset_for_tests() -> None:
     if _meter_provider is not None:
         try:
             _meter_provider.shutdown()
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001  # pragma: no cover - shutdown errors must not crash reset
             pass
         _meter_provider = None
     _initialized_for = None
@@ -207,7 +207,7 @@ def init_metrics(config: ServerConfig) -> MetricsRegistry:
     if _meter_provider is not None:
         try:
             _meter_provider.shutdown()
-        except Exception:  # noqa: BLE001 - shutdown errors must not crash init
+        except Exception:  # noqa: BLE001  # pragma: no cover - shutdown errors must not crash init
             logger.debug("MeterProvider shutdown failed", exc_info=True)
         _meter_provider = None
 
