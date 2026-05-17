@@ -110,7 +110,17 @@ class BotManager:
                         continue
                 bot = Bot(config, self.server)
                 self.bots[config.name] = bot
-                await bot.start()
+                # Mirror the _try_start_bot guard so that an event fired
+                # mid-start() (e.g. user.join from this bot's own
+                # join_channel) can't re-enter Bot.start() from on_event
+                # and trip the "Nick already in use" check on the
+                # VirtualClient this same call already registered.
+                # Closes #317.
+                bot._starting = True  # type: ignore[attr-defined]
+                try:
+                    await bot.start()
+                finally:
+                    bot._starting = False  # type: ignore[attr-defined]
                 logger.info("Loaded bot %s", config.name)
             except Exception:
                 logger.exception("Failed to load bot from %s", bot_dir)
