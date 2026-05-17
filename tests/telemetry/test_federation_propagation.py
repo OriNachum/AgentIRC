@@ -10,13 +10,15 @@ import asyncio
 
 import pytest
 
+from tests.conftest import wait_until
+
 
 async def _wait_for_span(exporter, name: str, timeout: float = 1.5) -> None:
-    deadline = asyncio.get_event_loop().time() + timeout
-    while asyncio.get_event_loop().time() < deadline:
-        if any(s.name == name for s in exporter.get_finished_spans()):
-            return
-        await asyncio.sleep(0.02)
+    await wait_until(
+        lambda: any(s.name == name for s in exporter.get_finished_spans()),
+        timeout=timeout,
+        interval=0.02,
+    )
 
 
 def _spans_with_name(exporter, name):
