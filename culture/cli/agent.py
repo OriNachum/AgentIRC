@@ -62,6 +62,8 @@ logger = logging.getLogger("culture")
 
 NAME = "agent"
 
+_NICK_HELP = "Agent suffix or full nick"
+
 
 def register(subparsers: argparse._SubParsersAction) -> None:
     agent_parser = subparsers.add_parser("agent", help="Manage AI agents")
@@ -194,8 +196,24 @@ def register(subparsers: argparse._SubParsersAction) -> None:
 
     # -- unregister -----------------------------------------------------------
     unregister_parser = agent_sub.add_parser("unregister", help="Unregister agent")
-    unregister_parser.add_argument("target", help="Agent suffix or full nick")
+    unregister_parser.add_argument("target", help=_NICK_HELP)
     unregister_parser.add_argument("--config", default=DEFAULT_SERVER_CONFIG, help=_CONFIG_HELP)
+
+    # -- install --------------------------------------------------------------
+    install_parser = agent_sub.add_parser(
+        "install",
+        help="Install systemd/launchd/scheduled-task unit for a single agent",
+    )
+    install_parser.add_argument("nick", help=_NICK_HELP)
+    install_parser.add_argument("--config", default=DEFAULT_SERVER_CONFIG, help=_CONFIG_HELP)
+
+    # -- uninstall ------------------------------------------------------------
+    uninstall_parser = agent_sub.add_parser(
+        "uninstall",
+        help="Remove the systemd/launchd/scheduled-task unit for a single agent",
+    )
+    uninstall_parser.add_argument("nick", help=_NICK_HELP)
+    uninstall_parser.add_argument("--config", default=DEFAULT_SERVER_CONFIG, help=_CONFIG_HELP)
 
     # -- migrate --------------------------------------------------------------
     # Most repos have already migrated; the verb stays in the CLI surface
@@ -211,7 +229,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
 def dispatch(args: argparse.Namespace) -> None:
     if not args.agent_command:
         print(
-            "Usage: culture agent {create|join|start|stop|status|rename|assign|sleep|wake|learn|message|read|archive|unarchive|delete|register|unregister|migrate}",
+            "Usage: culture agent {create|join|start|stop|status|rename|assign|sleep|wake|learn|message|read|archive|unarchive|delete|register|unregister|install|uninstall|migrate}",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -234,6 +252,8 @@ def dispatch(args: argparse.Namespace) -> None:
         "delete": _cmd_delete,
         "register": _cmd_register,
         "unregister": _cmd_unregister,
+        "install": _cmd_install,
+        "uninstall": _cmd_uninstall,
         "migrate": _cmd_migrate,
     }
     handler = handlers.get(args.agent_command)
@@ -1094,6 +1114,70 @@ def _cmd_unregister(args: argparse.Namespace) -> None:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
     print(f"Unregistered: {prefix}{suffix}")
+
+
+# -----------------------------------------------------------------------
+# Install / Uninstall — per-agent service unit
+# -----------------------------------------------------------------------
+
+
+def _resolve_manifest_suffix(config: ServerConfig, nick: str) -> str:
+    """Accept suffix or full <server>-<suffix> nick and return the suffix
+    if it's in the manifest. Exit with code 1 if not found.
+
+    Disambiguation: try the input as a bare suffix first. Only fall back
+    to stripping the `<server>-` prefix if the bare form isn't in the
+    manifest — otherwise a legitimate suffix like `spark-claude` (with
+    server `spark`) would be silently rewritten to `claude`.
+    """
+    server_name = config.server.name
+    if nick in config.manifest:
+        return nick
+    prefix = f"{server_name}-"
+    if nick.startswith(prefix):
+        stripped = nick.removeprefix(prefix)
+        if stripped in config.manifest:
+            return stripped
+    display = nick if nick.startswith(prefix) else f"{prefix}{nick}"
+    print(
+        f"Error: {display} not in manifest. Register it first with `culture agent register`.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
+def _cmd_install(args: argparse.Namespace) -> None:
+    """Install a systemd/launchd/scheduled-task unit for one agent."""
+    import shutil
+
+    from culture.persistence import install_service
+
+    config = load_config_or_default(args.config)
+    suffix = _resolve_manifest_suffix(config, args.nick)
+    full_nick = f"{config.server.name}-{suffix}"
+
+    culture_bin = shutil.which("culture") or "culture"
+    # No --config: defer to `culture agent start`'s argparse default
+    # (~/.culture/server.yaml). Pinning a per-workdir path here would
+    # re-crashloop deployments — see PR #344 and the regression test
+    # tests/test_setup_update_cli.py::test_install_mesh_services_omits_legacy_config_path.
+    agent_cmd = [culture_bin, "agent", "start", full_nick, "--foreground"]
+    svc = f"culture-agent-{full_nick}"
+    path = install_service(svc, agent_cmd, f"culture agent {full_nick}")
+    print(f"Installed {svc} → {path}")
+
+
+def _cmd_uninstall(args: argparse.Namespace) -> None:
+    """Remove a per-agent service unit. Graceful no-op if not installed."""
+    from culture.persistence import uninstall_service
+
+    config = load_config_or_default(args.config)
+    suffix = _resolve_manifest_suffix(config, args.nick)
+    full_nick = f"{config.server.name}-{suffix}"
+
+    svc = f"culture-agent-{full_nick}"
+    uninstall_service(svc)
+    print(f"Uninstalled {svc}")
 
 
 # -----------------------------------------------------------------------
