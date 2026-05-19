@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [12.3.0] - 2026-05-20
+
+### Added
+
+- culture agent install/uninstall <nick> — per-agent systemd/launchd/scheduled-task unit management without mesh.yaml (#348)
+
 ## [12.2.0] - 2026-05-19
 
 ### Added

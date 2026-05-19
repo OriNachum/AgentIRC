@@ -1,9 +1,15 @@
 # Agent systemd units
 
-`culture mesh setup` and `culture mesh update` write per-agent systemd
-user units to `~/.config/systemd/user/culture-agent-<nick>.service` so
-the agents come up automatically after reboot under
-`Restart=on-failure`.
+Two paths install per-agent systemd user units to
+`~/.config/systemd/user/culture-agent-<nick>.service` so the agents come
+up automatically after reboot under `Restart=on-failure`:
+
+- `culture mesh setup` / `culture mesh update` — bulk install/refresh
+  for every agent in `~/.culture/mesh.yaml`.
+- `culture agent install <nick>` / `culture agent uninstall <nick>` —
+  one-off install or removal for a single agent registered in
+  `~/.culture/server.yaml`. Decoupled from `mesh.yaml`; useful for
+  hosts that manage agents directly and for recovery.
 
 The unit's `ExecStart` is intentionally minimal:
 
@@ -33,32 +39,29 @@ followed by `Scheduled restart job, restart counter is at NNNN`, you
 have a stale unit. Recover with:
 
 ```bash
-# Stop and remove the stale unit:
-systemctl --user disable --now culture-agent-<nick>.service
-rm ~/.config/systemd/user/culture-agent-<nick>.service
-systemctl --user daemon-reload
+# Uninstall the stale unit (disables, stops, removes file, runs daemon-reload):
+culture agent uninstall <nick>
 
-# Confirm it's gone:
-systemctl --user status culture-agent-<nick>.service   # should say "not-found"
+# Re-install with the current unit body (no --config pin):
+culture agent install <nick>
 
-# If the manifest at ~/.culture/server.yaml is also stale (e.g. the
-# nick's workdir was renamed or its culture.yaml deleted), tidy it up:
-culture agent unregister <suffix>     # see `culture agent status` for hints
-culture agent register <workdir>      # if the workdir's culture.yaml is fresh
-
-# Start the agent manually to confirm it works without systemd in the way:
-culture agent start <nick>
-
-# If you want systemd auto-start back, re-run mesh setup for a populated
-# mesh.yaml:
-culture mesh setup --config ~/.culture/mesh.yaml
+# Confirm it's healthy:
+systemctl --user status culture-agent-<nick>.service
 ```
 
-`culture mesh setup` only re-installs units for agents listed in the
-`agents:` block of `mesh.yaml`. If your `mesh.yaml` has an empty
-`agents: []`, the recovery stops at the manual `culture agent start`
-step — there is currently no per-agent install command decoupled from
-`mesh.yaml`.
+If the manifest at `~/.culture/server.yaml` itself is stale (e.g. the
+nick's workdir was renamed or its `culture.yaml` deleted), tidy it
+before re-installing:
+
+```bash
+culture agent unregister <suffix>     # see `culture agent status` for hints
+culture agent register <workdir>      # if the workdir's culture.yaml is fresh
+culture agent install <suffix>
+```
+
+`culture agent install` / `uninstall` operate on a single agent listed
+in `~/.culture/server.yaml` — no `mesh.yaml` required. For bulk install
+across every agent in `mesh.yaml`, use `culture mesh setup` instead.
 
 ## See also
 

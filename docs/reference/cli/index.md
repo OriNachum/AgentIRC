@@ -241,6 +241,37 @@ culture agent learn                     # auto-detects agent from cwd
 culture agent learn --nick spark-culture  # for a specific agent
 ```
 
+### `culture agent install`
+
+Install a single-agent auto-start unit (systemd user on Linux, launchd
+on macOS, scheduled task on Windows) for an agent already registered in
+`~/.culture/server.yaml`.
+
+```bash
+culture agent install spark-claude    # full nick
+culture agent install claude          # bare suffix — resolved against server.yaml
+```
+
+The generated `ExecStart` is `culture agent start <full-nick>
+--foreground` with no `--config` flag — the daemon falls through to
+the manifest at `~/.culture/server.yaml`. Decoupled from `mesh.yaml`:
+use this when you manage agents directly rather than via
+`culture mesh setup`. See
+[Agent systemd units](./agent-systemd.html) for unit-body details and
+recovery.
+
+### `culture agent uninstall`
+
+Remove the auto-start unit for a single agent. Graceful no-op if the
+unit was never installed; cleans up file, disables, stops, and runs
+`systemctl --user daemon-reload` on Linux.
+
+```bash
+culture agent uninstall spark-claude
+```
+
+The agent must still be in the manifest — uninstall before unregister.
+
 ## Messaging
 
 ### `culture channel message`
