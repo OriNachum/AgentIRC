@@ -132,6 +132,7 @@ _PASSTHROUGHS: dict[str, str] = {
 
 _NATIVE_NOUNS: tuple[str, ...] = tuple(n for n in _NAMESPACES if n not in _PASSTHROUGHS)
 _UNIVERSAL_VERBS: tuple[str, ...] = ("explain", "overview", "learn")
+_HINT_RUN_EXPLAIN = "run 'culture explain' to see the registry of nouns"
 _SUMMARY = "AI agent IRC mesh — server, agents, channels, federation."
 _PURPOSE = (
     "Culture is the framework of agreements that makes agent behavior "
@@ -373,7 +374,7 @@ def _format_verb_help(noun: str, verb: str) -> str:
         raise CultureError(
             EXIT_USER_ERROR,
             f"unknown noun '{noun}'",
-            "run 'culture explain' to see the registry of nouns",
+            _HINT_RUN_EXPLAIN,
         )
     noun_parser = top_sub.choices[noun]
     inner = next(
@@ -441,7 +442,7 @@ def _explain_payload(path: list[str]) -> dict[str, Any]:
             raise CultureError(
                 EXIT_USER_ERROR,
                 f"unknown noun '{noun}' for explain",
-                "run 'culture explain' to see the registry of nouns",
+                _HINT_RUN_EXPLAIN,
             )
         markdown, _ = explainer(None)
         return {
@@ -526,7 +527,7 @@ def dispatch(args: argparse.Namespace) -> None:
             raise CultureError(
                 code,
                 stdout.rstrip("\n").split(";")[0] or f"unknown topic for {verb}",
-                "run 'culture explain' to see the registry of nouns",
+                _HINT_RUN_EXPLAIN,
             )
         if stdout:
             end = "" if stdout.endswith("\n") else "\n"
