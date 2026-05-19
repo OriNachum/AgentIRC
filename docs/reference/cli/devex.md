@@ -2,7 +2,7 @@
 
 Culture ships a developer-experience namespace as a first-class citizen.
 `culture devex` is powered by the standalone
-[`agex-cli`](https://culture.dev/devex) library (`agent_experience`
+[`agex-cli`](https://culture.dev/agex/) library (`agent_experience`
 Python package). The command name differs for familiarity with the
 developer-experience vocabulary; the underlying tool is the same. Two
 affordances:
