@@ -1,8 +1,8 @@
 # Agent systemd units
 
 Two paths install per-agent systemd user units to
-`~/.config/systemd/user/culture-agent-<nick>.service` so the agents come
-up automatically after reboot under `Restart=on-failure`:
+`$HOME/.config/systemd/user/culture-agent-<nick>.service` so the agents
+come up automatically after reboot under `Restart=on-failure`:
 
 - `culture mesh setup` / `culture mesh update` — bulk install/refresh
   for every agent in `~/.culture/mesh.yaml`.

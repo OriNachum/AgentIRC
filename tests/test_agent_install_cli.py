@@ -158,6 +158,28 @@ def test_uninstall_rejects_unknown_nick(tmp_path, capsys):
     mock_uninstall.assert_not_called()
 
 
+def test_install_disambiguates_suffix_that_starts_with_server_prefix(tmp_path):
+    """Regression: a bare suffix like `spark-claude` (server `spark`) must
+    not be silently stripped to `claude`. The manifest lookup takes priority
+    over prefix stripping."""
+    from culture.cli.agent import _cmd_install
+
+    server_yaml = _write_manifest(tmp_path, server_name="spark", suffixes=("spark-claude",))
+    args = argparse.Namespace(config=str(server_yaml), nick="spark-claude")
+
+    with (
+        patch("culture.persistence.install_service") as mock_install,
+        patch("shutil.which", return_value="/usr/bin/culture"),
+    ):
+        mock_install.return_value = Path("/tmp/fake.service")
+        _cmd_install(args)
+
+    svc_name = mock_install.call_args[0][0]
+    command = mock_install.call_args[0][1]
+    assert svc_name == "culture-agent-spark-spark-claude"
+    assert "spark-spark-claude" in command
+
+
 def test_install_uninstall_parsers_registered():
     """Both verbs appear in the argparse surface."""
     from culture.cli import _build_parser

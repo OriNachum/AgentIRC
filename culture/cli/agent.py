@@ -62,6 +62,8 @@ logger = logging.getLogger("culture")
 
 NAME = "agent"
 
+_NICK_HELP = "Agent suffix or full nick"
+
 
 def register(subparsers: argparse._SubParsersAction) -> None:
     agent_parser = subparsers.add_parser("agent", help="Manage AI agents")
@@ -194,7 +196,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
 
     # -- unregister -----------------------------------------------------------
     unregister_parser = agent_sub.add_parser("unregister", help="Unregister agent")
-    unregister_parser.add_argument("target", help="Agent suffix or full nick")
+    unregister_parser.add_argument("target", help=_NICK_HELP)
     unregister_parser.add_argument("--config", default=DEFAULT_SERVER_CONFIG, help=_CONFIG_HELP)
 
     # -- install --------------------------------------------------------------
@@ -202,7 +204,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         "install",
         help="Install systemd/launchd/scheduled-task unit for a single agent",
     )
-    install_parser.add_argument("nick", help="Agent suffix or full nick")
+    install_parser.add_argument("nick", help=_NICK_HELP)
     install_parser.add_argument("--config", default=DEFAULT_SERVER_CONFIG, help=_CONFIG_HELP)
 
     # -- uninstall ------------------------------------------------------------
@@ -210,7 +212,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         "uninstall",
         help="Remove the systemd/launchd/scheduled-task unit for a single agent",
     )
-    uninstall_parser.add_argument("nick", help="Agent suffix or full nick")
+    uninstall_parser.add_argument("nick", help=_NICK_HELP)
     uninstall_parser.add_argument("--config", default=DEFAULT_SERVER_CONFIG, help=_CONFIG_HELP)
 
     # -- migrate --------------------------------------------------------------
@@ -1121,18 +1123,27 @@ def _cmd_unregister(args: argparse.Namespace) -> None:
 
 def _resolve_manifest_suffix(config: ServerConfig, nick: str) -> str:
     """Accept suffix or full <server>-<suffix> nick and return the suffix
-    if it's in the manifest. Exit with code 1 if not found."""
+    if it's in the manifest. Exit with code 1 if not found.
+
+    Disambiguation: try the input as a bare suffix first. Only fall back
+    to stripping the `<server>-` prefix if the bare form isn't in the
+    manifest — otherwise a legitimate suffix like `spark-claude` (with
+    server `spark`) would be silently rewritten to `claude`.
+    """
     server_name = config.server.name
+    if nick in config.manifest:
+        return nick
     prefix = f"{server_name}-"
-    suffix = nick.removeprefix(prefix) if nick.startswith(prefix) else nick
-    if suffix not in config.manifest:
-        print(
-            f"Error: {server_name}-{suffix} not in manifest. "
-            f"Register it first with `culture agent register`.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-    return suffix
+    if nick.startswith(prefix):
+        stripped = nick.removeprefix(prefix)
+        if stripped in config.manifest:
+            return stripped
+    display = nick if nick.startswith(prefix) else f"{prefix}{nick}"
+    print(
+        f"Error: {display} not in manifest. " f"Register it first with `culture agent register`.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 
 def _cmd_install(args: argparse.Namespace) -> None:
