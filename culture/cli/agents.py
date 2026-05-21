@@ -1,4 +1,4 @@
-"""Agent subcommands: culture agent {create,join,start,stop,status,...}."""
+"""Agent subcommands: culture agents {create,join,start,stop,status,...}."""
 
 from __future__ import annotations
 
@@ -60,14 +60,14 @@ from .shared.process import stop_agent
 
 logger = logging.getLogger("culture")
 
-NAME = "agent"
+NAME = "agents"
 
 _NICK_HELP = "Agent suffix or full nick"
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
-    agent_parser = subparsers.add_parser("agent", help="Manage AI agents")
-    agent_sub = agent_parser.add_subparsers(dest="agent_command")
+    agent_parser = subparsers.add_parser("agents", help="Manage AI agents")
+    agent_sub = agent_parser.add_subparsers(dest="agents_command")
 
     # -- create ---------------------------------------------------------------
     _agent_args = [
@@ -227,9 +227,9 @@ def register(subparsers: argparse._SubParsersAction) -> None:
 
 
 def dispatch(args: argparse.Namespace) -> None:
-    if not args.agent_command:
+    if not args.agents_command:
         print(
-            "Usage: culture agent {create|join|start|stop|status|rename|assign|sleep|wake|learn|message|read|archive|unarchive|delete|register|unregister|install|uninstall|migrate}",
+            "Usage: culture agents {create|join|start|stop|status|rename|assign|sleep|wake|learn|message|read|archive|unarchive|delete|register|unregister|install|uninstall|migrate}",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -256,11 +256,11 @@ def dispatch(args: argparse.Namespace) -> None:
         "uninstall": _cmd_uninstall,
         "migrate": _cmd_migrate,
     }
-    handler = handlers.get(args.agent_command)
+    handler = handlers.get(args.agents_command)
     if handler:
         handler(args)
     else:
-        print(f"Unknown agent command: {args.agent_command}", file=sys.stderr)
+        print(f"Unknown agent command: {args.agents_command}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -363,7 +363,7 @@ def _check_existing_agent(config, full_nick: str, config_path: str) -> None:
         print(f"  Model:     {existing.model}", file=sys.stderr)
         print(f"  Config:    {config_path}", file=sys.stderr)
         print(file=sys.stderr)
-        print(f"Start with: culture agent start {full_nick}", file=sys.stderr)
+        print(f"Start with: culture agents start {full_nick}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -419,7 +419,7 @@ def _cmd_create(args: argparse.Namespace) -> None:
     print(f"  Channels: {', '.join(agent.channels)}")
     print(f"  Config: {args.config}")
     print()
-    print(f"Start with: culture agent start {full_nick}")
+    print(f"Start with: culture agents start {full_nick}")
 
 
 def _cmd_join(args: argparse.Namespace) -> None:
@@ -452,7 +452,7 @@ def _resolve_by_nick(config, nick: str):
         sys.exit(1)
     if agent.archived:
         print(f"Agent '{nick}' is archived. Unarchive first:", file=sys.stderr)
-        print(f"  culture agent unarchive {nick}", file=sys.stderr)
+        print(f"  culture agents unarchive {nick}", file=sys.stderr)
         sys.exit(1)
     return agent
 
@@ -471,7 +471,7 @@ def _resolve_auto(config) -> list:
                 file=sys.stderr,
             )
         else:
-            print("No agents configured. Run 'culture agent create' first.", file=sys.stderr)
+            print("No agents configured. Run 'culture agents create' first.", file=sys.stderr)
         sys.exit(1)
     print("Multiple agents configured. Specify a nick or use --all.", file=sys.stderr)
     for a in active:
@@ -816,8 +816,8 @@ def _cmd_rename(args: argparse.Namespace) -> None:
     print(f"Agent renamed: {old_nick} → {new_nick}")
     print()
     print("Restart the agent for the new nick to take effect:")
-    print(f"  culture agent stop {old_nick}   # if still running under old name")
-    print(f"  culture agent start {new_nick}")
+    print(f"  culture agents stop {old_nick}   # if still running under old name")
+    print(f"  culture agents start {new_nick}")
 
 
 def _cmd_assign(args: argparse.Namespace) -> None:
@@ -861,8 +861,8 @@ def _cmd_assign(args: argparse.Namespace) -> None:
     print(f"Agent reassigned: {old_nick} → {new_nick}")
     print()
     print("Restart the agent for the new nick to take effect:")
-    print(f"  culture agent stop {old_nick}   # if still running under old name")
-    print(f"  culture agent start {new_nick}")
+    print(f"  culture agents stop {old_nick}   # if still running under old name")
+    print(f"  culture agents start {new_nick}")
 
 
 # -----------------------------------------------------------------------
@@ -879,12 +879,12 @@ def _resolve_ipc_targets(config, args, command_name: str) -> list:
     """
     if args.nick and args.all:
         _argparse_error(
-            f"culture agent {command_name}",
+            f"culture agents {command_name}",
             "cannot specify both <nick> and --all",
         )
     if not args.nick and not args.all:
         _argparse_error(
-            f"culture agent {command_name}",
+            f"culture agents {command_name}",
             "the following arguments are required: <nick> or --all",
         )
     if args.all:
@@ -893,7 +893,7 @@ def _resolve_ipc_targets(config, args, command_name: str) -> list:
         if a.nick == args.nick:
             return [a]
     _argparse_error(
-        f"culture agent {command_name}",
+        f"culture agents {command_name}",
         f"agent {args.nick!r} not found in config",
     )
     return []  # unreachable — _argparse_error sys.exits
@@ -1025,7 +1025,7 @@ def _cmd_archive(args: argparse.Namespace) -> None:
     print(f"Agent archived: {args.nick}")
     if args.reason:
         print(f"  Reason: {args.reason}")
-    print(f"\nTo restore: culture agent unarchive {args.nick}")
+    print(f"\nTo restore: culture agents unarchive {args.nick}")
 
 
 def _cmd_unarchive(args: argparse.Namespace) -> None:
@@ -1037,7 +1037,7 @@ def _cmd_unarchive(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     print(f"Agent unarchived: {args.nick}")
-    print(f"\nStart with: culture agent start {args.nick}")
+    print(f"\nStart with: culture agents start {args.nick}")
 
 
 def _cmd_delete(args: argparse.Namespace) -> None:
@@ -1140,7 +1140,7 @@ def _resolve_manifest_suffix(config: ServerConfig, nick: str) -> str:
             return stripped
     display = nick if nick.startswith(prefix) else f"{prefix}{nick}"
     print(
-        f"Error: {display} not in manifest. Register it first with `culture agent register`.",
+        f"Error: {display} not in manifest. Register it first with `culture agents register`.",
         file=sys.stderr,
     )
     sys.exit(1)
@@ -1157,13 +1157,13 @@ def _cmd_install(args: argparse.Namespace) -> None:
     full_nick = f"{config.server.name}-{suffix}"
 
     culture_bin = shutil.which("culture") or "culture"
-    # No --config: defer to `culture agent start`'s argparse default
+    # No --config: defer to `culture agents start`'s argparse default
     # (~/.culture/server.yaml). Pinning a per-workdir path here would
     # re-crashloop deployments — see PR #344 and the regression test
     # tests/test_setup_update_cli.py::test_install_mesh_services_omits_legacy_config_path.
-    agent_cmd = [culture_bin, "agent", "start", full_nick, "--foreground"]
+    agent_cmd = [culture_bin, "agents", "start", full_nick, "--foreground"]
     svc = f"culture-agent-{full_nick}"
-    path = install_service(svc, agent_cmd, f"culture agent {full_nick}")
+    path = install_service(svc, agent_cmd, f"culture agents {full_nick}")
     print(f"Installed {svc} → {path}")
 
 
@@ -1204,4 +1204,4 @@ def _cmd_migrate(args: argparse.Namespace) -> None:
     dir_count = len(set(config.manifest.values()))
     print(f"\nMigration complete: {agent_count} agent(s) across {dir_count} directory(ies)")
     print(f"\nAgent commands now use {legacy_path} by default.")
-    print("Verify with: culture agent status")
+    print("Verify with: culture agents status")
