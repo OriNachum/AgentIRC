@@ -1,5 +1,5 @@
 # tests/test_agent_install_cli.py
-"""Tests for `culture agent install/uninstall <nick>` (#348)."""
+"""Tests for `culture agents install/uninstall <nick>` (#348)."""
 
 import argparse
 from pathlib import Path
@@ -28,8 +28,8 @@ def _write_manifest(tmp_path, server_name="spark", suffixes=("claude",)):
 
 
 def test_install_passes_correct_argv_to_install_service(tmp_path):
-    """`culture agent install <suffix>` builds argv = ['culture','agent','start',<full>,'--foreground']."""
-    from culture.cli.agent import _cmd_install
+    """`culture agents install <suffix>` builds argv = ['culture','agents','start',<full>,'--foreground']."""
+    from culture.cli.agents import _cmd_install
 
     server_yaml = _write_manifest(tmp_path, server_name="spark", suffixes=("claude",))
     args = argparse.Namespace(config=str(server_yaml), nick="claude")
@@ -46,13 +46,13 @@ def test_install_passes_correct_argv_to_install_service(tmp_path):
     svc_name, command, description = args_[0], args_[1], args_[2]
 
     assert svc_name == "culture-agent-spark-claude"
-    assert command == ["/usr/bin/culture", "agent", "start", "spark-claude", "--foreground"]
-    assert description == "culture agent spark-claude"
+    assert command == ["/usr/bin/culture", "agents", "start", "spark-claude", "--foreground"]
+    assert description == "culture agents spark-claude"
 
 
 def test_install_accepts_full_nick(tmp_path):
     """The verb also accepts the full <server>-<suffix> nick form."""
-    from culture.cli.agent import _cmd_install
+    from culture.cli.agents import _cmd_install
 
     server_yaml = _write_manifest(tmp_path, server_name="spark", suffixes=("claude",))
     args = argparse.Namespace(config=str(server_yaml), nick="spark-claude")
@@ -75,7 +75,7 @@ def test_install_omits_config_flag_in_argv(tmp_path):
     fixed in PR #344. Mirrors
     test_setup_update_cli.py::test_install_mesh_services_omits_legacy_config_path.
     """
-    from culture.cli.agent import _cmd_install
+    from culture.cli.agents import _cmd_install
 
     server_yaml = _write_manifest(tmp_path, server_name="spark", suffixes=("claude",))
     args = argparse.Namespace(config=str(server_yaml), nick="claude")
@@ -97,7 +97,7 @@ def test_install_omits_config_flag_in_argv(tmp_path):
 
 def test_install_rejects_unknown_nick(tmp_path, capsys):
     """An agent not in the manifest is rejected with exit code 1."""
-    from culture.cli.agent import _cmd_install
+    from culture.cli.agents import _cmd_install
 
     server_yaml = _write_manifest(tmp_path, server_name="spark", suffixes=("claude",))
     args = argparse.Namespace(config=str(server_yaml), nick="ghost")
@@ -116,8 +116,8 @@ def test_install_rejects_unknown_nick(tmp_path, capsys):
 
 
 def test_uninstall_calls_uninstall_service_with_correct_name(tmp_path):
-    """`culture agent uninstall <suffix>` calls uninstall_service('culture-agent-<full>')."""
-    from culture.cli.agent import _cmd_uninstall
+    """`culture agents uninstall <suffix>` calls uninstall_service('culture-agent-<full>')."""
+    from culture.cli.agents import _cmd_uninstall
 
     server_yaml = _write_manifest(tmp_path, server_name="spark", suffixes=("claude",))
     args = argparse.Namespace(config=str(server_yaml), nick="claude")
@@ -130,7 +130,7 @@ def test_uninstall_calls_uninstall_service_with_correct_name(tmp_path):
 
 def test_uninstall_accepts_full_nick(tmp_path):
     """uninstall also accepts <server>-<suffix>."""
-    from culture.cli.agent import _cmd_uninstall
+    from culture.cli.agents import _cmd_uninstall
 
     server_yaml = _write_manifest(tmp_path, server_name="spark", suffixes=("claude",))
     args = argparse.Namespace(config=str(server_yaml), nick="spark-claude")
@@ -143,7 +143,7 @@ def test_uninstall_accepts_full_nick(tmp_path):
 
 def test_uninstall_rejects_unknown_nick(tmp_path, capsys):
     """uninstall against a non-manifest agent exits 1 instead of silently no-op'ing."""
-    from culture.cli.agent import _cmd_uninstall
+    from culture.cli.agents import _cmd_uninstall
 
     server_yaml = _write_manifest(tmp_path, server_name="spark", suffixes=("claude",))
     args = argparse.Namespace(config=str(server_yaml), nick="ghost")
@@ -162,7 +162,7 @@ def test_install_disambiguates_suffix_that_starts_with_server_prefix(tmp_path):
     """Regression: a bare suffix like `spark-claude` (server `spark`) must
     not be silently stripped to `claude`. The manifest lookup takes priority
     over prefix stripping."""
-    from culture.cli.agent import _cmd_install
+    from culture.cli.agents import _cmd_install
 
     server_yaml = _write_manifest(tmp_path, server_name="spark", suffixes=("spark-claude",))
     args = argparse.Namespace(config=str(server_yaml), nick="spark-claude")
@@ -185,19 +185,19 @@ def test_install_uninstall_parsers_registered():
     from culture.cli import _build_parser
 
     p = _build_parser()
-    args = p.parse_args(["agent", "install", "claude"])
-    assert args.command == "agent"
-    assert args.agent_command == "install"
+    args = p.parse_args(["agents", "install", "claude"])
+    assert args.command == "agents"
+    assert args.agents_command == "install"
     assert args.nick == "claude"
 
-    args = p.parse_args(["agent", "uninstall", "claude"])
-    assert args.agent_command == "uninstall"
+    args = p.parse_args(["agents", "uninstall", "claude"])
+    assert args.agents_command == "uninstall"
     assert args.nick == "claude"
 
 
 def test_install_uninstall_in_dispatch():
     """Handlers are wired into the dispatch table."""
-    from culture.cli import agent
+    from culture.cli import agents
 
-    assert callable(agent._cmd_install)
-    assert callable(agent._cmd_uninstall)
+    assert callable(agents._cmd_install)
+    assert callable(agents._cmd_uninstall)
