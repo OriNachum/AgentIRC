@@ -135,7 +135,7 @@ agents:
   culture: /home/user/git/culture
 ```
 
-At startup, `culture agent start` reads this manifest, loads each directory's
+At startup, `culture agents start` reads this manifest, loads each directory's
 `culture.yaml`, and constructs full agent configs with computed nicks
 (`<server>-<suffix>`).
 
@@ -156,9 +156,9 @@ additionally tracks per-backend declarations at
 harness agents.
 
 The file declares _intent_ — what agent should run if registered.
-Registration is still explicit: run `culture agent register <workdir>`
+Registration is still explicit: run `culture agents register <workdir>`
 from a clone to add the entry to your local `~/.culture/server.yaml`
-manifest, then `culture agent start <server>-<suffix>` to bring it up.
+manifest, then `culture agents start <server>-<suffix>` to bring it up.
 
 ### Single-agent (flat format)
 
@@ -204,7 +204,7 @@ agents:
 | `system_prompt` | `""` | System prompt injected into the agent |
 | `tags` | `[]` | Arbitrary labels for filtering and display |
 | `icon` | `null` | Optional display icon (emoji) |
-| `archived` | `false` | Set by `culture agent archive`; hides from listings |
+| `archived` | `false` | Set by `culture agents archive`; hides from listings |
 | `turn_timeout_seconds` | `600` | Outer safety-net timeout for one SDK turn. On expiry the runner exits 1 and crash-recovery restarts it. Set to `0` to disable. |
 | `attention` | `null` | Per-agent attention overrides (shallow-merged over the daemon-level `attention:` block). Stored internally as `attention_overrides`. See [Dynamic Attention Levels](../../attention.md) for the schema. |
 
@@ -274,7 +274,7 @@ When any CLI command loads a legacy-format file, it is **automatically migrated*
 to manifest format. For explicit migration:
 
 ```bash
-culture agent migrate
+culture agents migrate
 ```
 
 ### Agent registration workflow
@@ -284,16 +284,16 @@ culture agent migrate
 cd /path/to/myproject
 
 # 2. Register with the server manifest
-culture agent register .
+culture agents register .
 # Registered myagent → /path/to/myproject
 
 # 3. Start the agent
-culture agent start spark-myagent
+culture agents start spark-myagent
 
 # 4. Unregister when done
-culture agent unregister myagent
+culture agents unregister myagent
 ```
 
-`culture agent register [path]` defaults to the current working directory.
-`culture agent unregister` accepts either the suffix (`myagent`) or the full
+`culture agents register [path]` defaults to the current working directory.
+`culture agents unregister` accepts either the suffix (`myagent`) or the full
 nick (`spark-myagent`).

@@ -51,7 +51,7 @@ agents:
     acp_command: ["opencode", "acp"]
 """)
 
-    from culture.cli.agent import _cmd_migrate
+    from culture.cli.agents import _cmd_migrate
 
     args = argparse.Namespace(config=str(agents_yaml))
     _cmd_migrate(args)
@@ -99,7 +99,7 @@ agents:
     channels: ["#general"]
 """)
 
-    from culture.cli.agent import _cmd_migrate
+    from culture.cli.agents import _cmd_migrate
 
     args = argparse.Namespace(config=str(agents_yaml))
     _cmd_migrate(args)
@@ -120,7 +120,7 @@ agents:
   culture: /tmp/project
 """)
 
-    from culture.cli.agent import _cmd_migrate
+    from culture.cli.agents import _cmd_migrate
 
     args = argparse.Namespace(config=str(server_yaml))
     with pytest.raises(SystemExit) as exc_info:

@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-The `culture/cli/` package is the unified CLI entry point for the `culture` command. It uses argparse with noun-based command groups (e.g., `culture agent start`, `culture server stop`). The entry point is `culture.cli:main` registered in `pyproject.toml`.
+The `culture/cli/` package is the unified CLI entry point for the `culture` command. It uses argparse with noun-based command groups (e.g., `culture agents start`, `culture server stop`). The entry point is `culture.cli:main` registered in `pyproject.toml`.
 
 ## Architecture
 
 ```text
 cli/
 ├── __init__.py          # Parser construction, main(), dispatches to groups
-├── agent.py             # culture agent {create,join,start,stop,status,rename,...}
+├── agents.py            # culture agents {create,join,start,stop,status,rename,...}
 ├── server.py            # culture server {start,stop,status,default,rename,archive,...,restart,link,logs,version,serve}
 ├── mesh.py              # culture mesh {overview,setup,update}  (console deprecated → culture console)
 ├── console.py           # culture console — irc-lens passthrough (reactive web console)
@@ -29,9 +29,9 @@ cli/
 
 ### Module Pattern
 
-Each command group module (`agent.py`, `server.py`, etc.) exports:
+Each command group module (`agents.py`, `server.py`, etc.) exports:
 
-- `NAME: str` — the subcommand noun (e.g., `"agent"`)
+- `NAME: str` — the subcommand noun (e.g., `"agents"`)
 - `register(subparsers)` — adds the group's parser and sub-subparsers
 - `dispatch(args)` — routes to the correct handler based on `args.<group>_command`
 

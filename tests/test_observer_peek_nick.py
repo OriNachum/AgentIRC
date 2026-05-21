@@ -1,7 +1,7 @@
 """Unit tests for parent-aware peek nick generation (#329).
 
 The peek client used by `culture channel message`, `culture channel
-read`, and `culture agent message` previously registered as
+read`, and `culture agents message` previously registered as
 ``<server>-_peek<hex>`` — opaque to other agents reading the channel.
 Peek nicks now embed the calling agent when ``parent_nick`` is supplied
 and shares the observer's server prefix:

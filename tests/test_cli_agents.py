@@ -1,19 +1,19 @@
-"""Tests for `culture.cli.agent` — `culture agent {create,join,start,stop,...}`.
+"""Tests for the unified `culture agents` noun (replaces singular `culture agent`).
 
-`cli/agent.py` is the largest CLI module (1,123 LOC, 46 functions). Tests
-focus on the dispatch + handler layer; integration-territory functions
-(`_probe_server_connection`, `_start_foreground`, `_start_background`,
-`_run_single_agent`, `_run_multi_agents`) are NOT exercised here —
+`cli/agents.py` is the largest CLI module. Tests focus on the dispatch + handler
+layer; integration-territory functions (`_probe_server_connection`,
+`_start_foreground`, `_start_background`, `_run_single_agent`,
+`_run_multi_agents`) are NOT exercised here —
 `tests/test_integration_agent_runner.py` runs them against a real
 `agentirc.ircd.IRCd`.
 
 Mocking conventions (matches `tests/test_cli_server.py`):
 
 - `culture.pidfile.{read_pid, write_pid, remove_pid, is_process_alive,
-  rename_pid}` patched on the `culture.cli.agent` module (where they're
+  rename_pid}` patched on the `culture.cli.agents` module (where they're
   imported at module top) or at source (`culture.pidfile.rename_pid` is
   lazy-imported inside `_cmd_rename` / `_cmd_assign`).
-- `culture.config.*` patched on the `agent` module — these are the
+- `culture.config.*` patched on the `agents` module — these are the
   manifest/YAML accessors.
 - `_send_ipc` patched directly when testing the IPC verb wrappers; the
   full `ipc_request` chain is patched only when testing `_send_ipc` itself.
@@ -24,14 +24,63 @@ Mocking conventions (matches `tests/test_cli_server.py`):
 from __future__ import annotations
 
 import argparse
+import subprocess
+import sys
 
 import pytest
 
-from culture.cli import agent as agent_mod
+from culture.cli import agents as agent_mod
 from culture.config import AgentConfig, ServerConfig, ServerConnConfig
 
 # ---------------------------------------------------------------------------
-# Helpers
+# New-noun registration tests (Task 1.1)
+# ---------------------------------------------------------------------------
+
+
+def _top_choices() -> set[str]:
+    from culture.cli import _build_parser
+
+    parser = _build_parser()
+    sub = next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
+    return set(sub.choices)
+
+
+def test_agents_noun_is_registered():
+    assert "agents" in _top_choices()
+
+
+def test_singular_agent_noun_is_removed():
+    assert "agent" not in _top_choices()
+
+
+def test_culture_agent_singular_is_rejected_at_runtime():
+    result = subprocess.run(
+        [sys.executable, "-m", "culture", "agent", "status"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    # argparse rejects the removed noun; tolerate phrasing changes by also
+    # accepting that it listed the valid plural / echoed the bad choice.
+    err = result.stderr.lower()
+    assert "invalid choice" in err or "agents" in err
+
+
+def test_culture_agents_status_parses():
+    # `status` needs no daemon to parse; --help exits 0 after printing usage.
+    result = subprocess.run(
+        [sys.executable, "-m", "culture", "agents", "status", "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert "usage" in result.stdout.lower()
+
+
+# ---------------------------------------------------------------------------
+# Helpers (migrated from test_cli_agent.py)
 # ---------------------------------------------------------------------------
 
 
@@ -78,20 +127,20 @@ def _make_config(*agents, server_name: str = "spark") -> ServerConfig:
 class TestDispatch:
     def test_no_command_exits_with_usage(self, capsys):
         with pytest.raises(SystemExit) as exc:
-            agent_mod.dispatch(_args(agent_command=None))
+            agent_mod.dispatch(_args(agents_command=None))
         assert exc.value.code == 1
-        assert "Usage: culture agent" in capsys.readouterr().err
+        assert "Usage: culture agents" in capsys.readouterr().err
 
     def test_unknown_command_exits(self, capsys):
         with pytest.raises(SystemExit) as exc:
-            agent_mod.dispatch(_args(agent_command="frobnicate"))
+            agent_mod.dispatch(_args(agents_command="frobnicate"))
         assert exc.value.code == 1
         assert "Unknown agent command" in capsys.readouterr().err
 
     def test_routes_to_handler(self, monkeypatch):
         called = []
         monkeypatch.setattr(agent_mod, "_cmd_status", called.append)
-        agent_mod.dispatch(_args(agent_command="status"))
+        agent_mod.dispatch(_args(agents_command="status"))
         assert len(called) == 1
 
 
@@ -206,7 +255,7 @@ class TestCheckExistingAgent:
         assert exc.value.code == 1
         err = capsys.readouterr().err
         assert "already exists" in err
-        assert "culture agent start spark-ada" in err
+        assert "culture agents start spark-ada" in err
 
 
 # ---------------------------------------------------------------------------
@@ -664,7 +713,7 @@ class TestCmdStatus:
         monkeypatch.setattr(agent_mod, "load_config_or_default", lambda _p: _make_config())
         agent_mod._cmd_status(_args(nick=None, full=False, all=False))
         out = capsys.readouterr().out
-        assert out  # NO_AGENTS_MSG was printed (string content varies)
+        assert agent_mod.NO_AGENTS_MSG in out
 
     def test_specific_nick_calls_detail_printer(self, monkeypatch, capsys):
         cfg = _make_config(_make_agent(suffix="ada"))
@@ -891,9 +940,9 @@ class TestResolveIpcTargets:
 class TestArgparseError:
     def test_writes_prog_and_message_to_stderr(self, capsys):
         with pytest.raises(SystemExit) as exc:
-            agent_mod._argparse_error("culture agent sleep", "bad")
+            agent_mod._argparse_error("culture agents sleep", "bad")
         assert exc.value.code == 2
-        assert capsys.readouterr().err == "culture agent sleep: error: bad\n"
+        assert capsys.readouterr().err == "culture agents sleep: error: bad\n"
 
 
 class TestSendIpc:

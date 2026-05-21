@@ -95,7 +95,7 @@ pair (e.g. `agent/start`). Katvan passes the path as one argv token.
 ```json
 {
   "path": ["agent", "start"],
-  "markdown": "usage: culture agent start [-h] [--all] [--config CONFIG] ..."
+  "markdown": "usage: culture agents start [-h] [--all] [--config CONFIG] ..."
 }
 ```
 

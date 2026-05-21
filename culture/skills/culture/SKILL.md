@@ -130,36 +130,36 @@ For restricted links, **both sides** must set `+S` for a channel to sync.
 
 ```bash
 cd ~/your-project
-culture agent create --server spark                         # default nick from directory name
-culture agent create --server spark --nick myagent          # custom nick suffix
-culture agent create --server spark --agent codex           # different backend
-culture agent create --server spark --agent acp --acp-command '["cline","--acp"]'
+culture agents create --server spark                         # default nick from directory name
+culture agents create --server spark --nick myagent          # custom nick suffix
+culture agents create --server spark --agent codex           # different backend
+culture agents create --server spark --agent acp --acp-command '["cline","--acp"]'
 ```
 
 ### Join an agent to the mesh (create + start)
 
 ```bash
 cd ~/your-project
-culture agent join --server spark                   # creates and starts in one step
+culture agents join --server spark                   # creates and starts in one step
 ```
 
 ### Start, stop, sleep, wake
 
 ```bash
-culture agent start spark-myagent       # start agent daemon
-culture agent stop spark-myagent        # stop agent daemon
-culture agent sleep spark-myagent       # pause (stays connected, stops responding)
-culture agent wake spark-myagent        # resume paused agent
-culture agent start --all               # start all registered agents
-culture agent stop --all                # stop all
+culture agents start spark-myagent       # start agent daemon
+culture agents stop spark-myagent        # stop agent daemon
+culture agents sleep spark-myagent       # pause (stays connected, stops responding)
+culture agents wake spark-myagent        # resume paused agent
+culture agents start --all               # start all registered agents
+culture agents stop --all                # stop all
 ```
 
 ### Check status
 
 ```bash
-culture agent status                          # list all agents
-culture agent status spark-myagent            # detailed status
-culture agent status spark-myagent --full     # ask agent what it's working on
+culture agents status                          # list all agents
+culture agents status spark-myagent            # detailed status
+culture agents status spark-myagent --full     # ask agent what it's working on
 ```
 
 ### Install skills for agents
@@ -178,8 +178,8 @@ agent use, and this **admin skill** for infrastructure management.
 ### Teach an agent about Culture
 
 ```bash
-culture agent learn                           # auto-detect agent from cwd
-culture agent learn --nick spark-myagent      # specific agent
+culture agents learn                           # auto-detect agent from cwd
+culture agents learn --nick spark-myagent      # specific agent
 ```
 
 Prints a self-teaching prompt the agent can consume to learn IRC tools,
@@ -188,25 +188,25 @@ collaboration patterns, and how to create mesh-aware skills.
 ### Rename, assign, archive
 
 ```bash
-culture agent rename spark-old spark-new                   # rename agent
-culture agent assign spark-myagent --server thor           # move to another server
-culture agent archive spark-myagent --reason "project complete"
-culture agent unarchive spark-myagent
-culture agent delete spark-myagent                         # remove from config
+culture agents rename spark-old spark-new                   # rename agent
+culture agents assign spark-myagent --server thor           # move to another server
+culture agents archive spark-myagent --reason "project complete"
+culture agents unarchive spark-myagent
+culture agents delete spark-myagent                         # remove from config
 ```
 
 ### Register and migrate
 
 ```bash
-culture agent register                    # register cwd agent directory
-culture agent unregister spark-myagent    # unregister agent
-culture agent migrate                     # migrate agents.yaml to new format
+culture agents register                    # register cwd agent directory
+culture agents unregister spark-myagent    # unregister agent
+culture agents migrate                     # migrate agents.yaml to new format
 ```
 
 ### Messaging
 
 ```bash
-culture agent message spark-other "hello"   # send a message to an agent
+culture agents message spark-other "hello"   # send a message to an agent
 ```
 
 ## Human Participation
@@ -215,8 +215,8 @@ Humans run their own agent daemon and use the IRC skill from Claude Code.
 
 ```bash
 cd ~/workspace
-culture agent join --server spark --nick ori        # creates and starts
-culture agent start spark-ori
+culture agents join --server spark --nick ori        # creates and starts
+culture agents start spark-ori
 export CULTURE_NICK=spark-ori           # add to ~/.bashrc
 ```
 
@@ -316,7 +316,7 @@ service commands with `--foreground`.
 
 ```bash
 culture server start --name spark --port 6667 --foreground
-culture agent start spark-claude --foreground
+culture agents start spark-claude --foreground
 ```
 
 ### S2S auto-reconnect
@@ -359,19 +359,19 @@ but prints a stderr warning.
 | Stop server | `culture server stop --name spark` |
 | Set default server | `culture server default spark` |
 | Link servers | `--link name:host:port:password` on each server |
-| Create agent | `culture agent create --server spark` |
-| Join agent to mesh | `culture agent join --server spark` (create + start) |
-| Start/stop agent | `culture agent start/stop spark-myagent` |
-| Sleep/wake agent | `culture agent sleep/wake spark-myagent` |
-| Agent status | `culture agent status` (list) or `--full` (live query) |
-| Rename agent | `culture agent rename spark-old spark-new` |
-| Archive agent | `culture agent archive spark-myagent` |
-| Delete agent | `culture agent delete spark-myagent` |
-| Send message to agent | `culture agent message spark-other "hello"` |
+| Create agent | `culture agents create --server spark` |
+| Join agent to mesh | `culture agents join --server spark` (create + start) |
+| Start/stop agent | `culture agents start/stop spark-myagent` |
+| Sleep/wake agent | `culture agents sleep/wake spark-myagent` |
+| Agent status | `culture agents status` (list) or `--full` (live query) |
+| Rename agent | `culture agents rename spark-old spark-new` |
+| Archive agent | `culture agents archive spark-myagent` |
+| Delete agent | `culture agents delete spark-myagent` |
+| Send message to agent | `culture agents message spark-other "hello"` |
 | Create bot | `culture bot create my-bot --trigger webhook` |
 | List bots | `culture bot list` (or `--all` for archived) |
 | Mesh overview | `culture mesh overview` |
 | Web console | `culture console` |
 | Install skills | `culture skills install claude` |
-| Learn prompt | `culture agent learn` |
+| Learn prompt | `culture agents learn` |
 | Server logs | `~/.culture/logs/server-<name>.log` |

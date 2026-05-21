@@ -1,7 +1,7 @@
 """Unified CLI entry point for culture.
 
 Commands are organized into noun-based groups:
-    culture agent    {create,join,start,stop,status,rename,assign,sleep,wake,learn,message,read,archive,unarchive,delete}
+    culture agents   {create,join,start,stop,status,rename,assign,sleep,wake,learn,message,read,archive,unarchive,delete}
     culture server   {start,stop,status,default,rename,archive,unarchive,restart,link,logs,version,serve}
     culture console  {...irc-lens verbs and flags...}    # passthrough; reactive web console
     culture mesh     {overview,setup,update,console}     # `console` here is deprecated; use `culture console`
@@ -27,7 +27,7 @@ from typing import NoReturn
 from culture import __version__
 from culture.cli import (
     afi,
-    agent,
+    agents,
     bot,
     channel,
     console,
@@ -40,7 +40,7 @@ from culture.cli import (
 from culture.cli._errors import EXIT_USER_ERROR, CultureError
 from culture.cli._output import emit_error
 
-GROUPS = [agent, server, mesh, channel, bot, skills, devex, afi, console, introspect]
+GROUPS = [agents, server, mesh, channel, bot, skills, devex, afi, console, introspect]
 
 
 def _names_of(group) -> set[str]:
@@ -53,7 +53,7 @@ def _names_of(group) -> set[str]:
 def _json_mode_active(argv: list[str]) -> bool:
     """``--json`` is meaningful only on the three universal verbs.
 
-    Other groups (`agent`, `server`, …) reject ``--json`` themselves; we
+    Other groups (`agents`, `server`, …) reject ``--json`` themselves; we
     only honor the AgentCulture JSON-error contract when the user is
     addressing an introspection verb. This matches what katvan's
     reference-sync actually invokes.

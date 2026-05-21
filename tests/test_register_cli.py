@@ -22,7 +22,7 @@ def test_register_current_dir(tmp_path, monkeypatch):
 
     monkeypatch.chdir(str(proj))
 
-    from culture.cli.agent import _cmd_register
+    from culture.cli.agents import _cmd_register
 
     args = argparse.Namespace(config=str(server_yaml), path=None, suffix=None)
     _cmd_register(args)
@@ -48,7 +48,7 @@ def test_register_explicit_path(tmp_path):
     proj.mkdir()
     (proj / "culture.yaml").write_text("suffix: myagent\nbackend: claude\n")
 
-    from culture.cli.agent import _cmd_register
+    from culture.cli.agents import _cmd_register
 
     args = argparse.Namespace(config=str(server_yaml), path=str(proj), suffix=None)
     _cmd_register(args)
@@ -70,7 +70,7 @@ def test_register_multi_agent_needs_suffix(tmp_path, capsys):
         "agents:\n  - suffix: a\n    backend: claude\n  - suffix: b\n    backend: codex\n"
     )
 
-    from culture.cli.agent import _cmd_register
+    from culture.cli.agents import _cmd_register
 
     args = argparse.Namespace(config=str(server_yaml), path=str(proj), suffix=None)
     with pytest.raises(SystemExit):
@@ -84,7 +84,7 @@ def test_register_no_culture_yaml(tmp_path):
     server_yaml = tmp_path / "server.yaml"
     save_server_config(str(server_yaml), ServerConfig(server=ServerConnConfig(name="spark")))
 
-    from culture.cli.agent import _cmd_register
+    from culture.cli.agents import _cmd_register
 
     args = argparse.Namespace(config=str(server_yaml), path=str(tmp_path / "empty"), suffix=None)
     with pytest.raises(SystemExit):
@@ -106,7 +106,7 @@ def test_unregister_by_suffix(tmp_path):
         ServerConfig(server=ServerConnConfig(name="spark"), manifest={"culture": "/tmp/proj"}),
     )
 
-    from culture.cli.agent import _cmd_unregister
+    from culture.cli.agents import _cmd_unregister
 
     args = argparse.Namespace(config=str(server_yaml), target="culture")
     _cmd_unregister(args)
@@ -130,7 +130,7 @@ def test_unregister_by_nick(tmp_path):
         ServerConfig(server=ServerConnConfig(name="spark"), manifest={"culture": "/tmp/proj"}),
     )
 
-    from culture.cli.agent import _cmd_unregister
+    from culture.cli.agents import _cmd_unregister
 
     args = argparse.Namespace(config=str(server_yaml), target="spark-culture")
     _cmd_unregister(args)

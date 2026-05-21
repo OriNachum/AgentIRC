@@ -106,19 +106,19 @@ because ACP agents are provider-agnostic.
 
 ```bash
 # Register a Cline agent
-culture agent create --agent acp --acp-command '["cline","--acp"]'
+culture agents create --agent acp --acp-command '["cline","--acp"]'
 
 # Register an OpenCode agent
-culture agent create --agent acp --acp-command '["opencode","acp"]'
+culture agents create --agent acp --acp-command '["opencode","acp"]'
 
 # Register a Kiro agent
-culture agent create --agent acp --acp-command '["kiro","--acp"]'
+culture agents create --agent acp --acp-command '["kiro","--acp"]'
 
 # Register a Gemini agent
-culture agent create --agent acp --acp-command '["gemini","--acp"]'
+culture agents create --agent acp --acp-command '["gemini","--acp"]'
 
 # Start the agent
-culture agent start spark-cline
+culture agents start spark-cline
 ```
 
 ## Backward Compatibility

@@ -602,9 +602,9 @@ def test_create_blocked_by_active_agent():
 
 
 def test_cli_create_replaces_archived_agent(monkeypatch):
-    """culture agent create replaces an archived agent via the CLI path."""
+    """culture agents create replaces an archived agent via the CLI path."""
     from culture.cli import _build_parser
-    from culture.cli.agent import _cmd_create
+    from culture.cli.agents import _cmd_create
     from culture.clients.claude.config import (
         AgentConfig,
         DaemonConfig,
@@ -642,7 +642,7 @@ def test_cli_create_replaces_archived_agent(monkeypatch):
         parser = _build_parser()
         args = parser.parse_args(
             [
-                "agent",
+                "agents",
                 "create",
                 "--server",
                 "spark",
@@ -670,9 +670,9 @@ def test_cli_create_replaces_archived_agent(monkeypatch):
 
 
 def test_cli_create_blocks_active_agent():
-    """culture agent create exits non-zero for a non-archived agent."""
+    """culture agents create exits non-zero for a non-archived agent."""
     from culture.cli import _build_parser
-    from culture.cli.agent import _cmd_create
+    from culture.cli.agents import _cmd_create
     from culture.clients.claude.config import (
         AgentConfig,
         DaemonConfig,
@@ -701,7 +701,7 @@ def test_cli_create_blocks_active_agent():
         parser = _build_parser()
         args = parser.parse_args(
             [
-                "agent",
+                "agents",
                 "create",
                 "--server",
                 "spark",
@@ -721,9 +721,9 @@ def test_cli_create_blocks_active_agent():
 
 
 def test_cli_delete_removes_agent():
-    """culture agent delete removes the agent from config."""
+    """culture agents delete removes the agent from config."""
     from culture.cli import _build_parser
-    from culture.cli.agent import _cmd_delete
+    from culture.cli.agents import _cmd_delete
     from culture.clients.claude.config import (
         AgentConfig,
         DaemonConfig,
@@ -759,7 +759,7 @@ def test_cli_delete_removes_agent():
         parser = _build_parser()
         args = parser.parse_args(
             [
-                "agent",
+                "agents",
                 "delete",
                 "spark-daria",
                 "--config",
@@ -776,9 +776,9 @@ def test_cli_delete_removes_agent():
 
 
 def test_cli_delete_not_found():
-    """culture agent delete exits non-zero for unknown nick."""
+    """culture agents delete exits non-zero for unknown nick."""
     from culture.cli import _build_parser
-    from culture.cli.agent import _cmd_delete
+    from culture.cli.agents import _cmd_delete
     from culture.clients.claude.config import (
         DaemonConfig,
         ServerConnConfig,
@@ -796,7 +796,7 @@ def test_cli_delete_not_found():
         parser = _build_parser()
         args = parser.parse_args(
             [
-                "agent",
+                "agents",
                 "delete",
                 "spark-nonexistent",
                 "--config",

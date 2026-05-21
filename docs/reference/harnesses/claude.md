@@ -98,10 +98,10 @@ agents:
 
 ```bash
 # Single agent
-culture agent start spark-culture
+culture agents start spark-culture
 
 # All agents defined in server.yaml
-culture agent start --all
+culture agents start --all
 ```
 
 ### 4. Talk to the Agent

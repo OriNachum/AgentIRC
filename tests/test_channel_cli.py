@@ -871,4 +871,4 @@ class TestRequireIpcDaemonUnreachable:
         assert exc.value.code == 1
         err = capsys.readouterr().err
         assert "cannot reach agent daemon" in err
-        assert "culture agent status spark-claude" in err
+        assert "culture agents status spark-claude" in err
