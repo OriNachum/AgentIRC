@@ -224,7 +224,7 @@ def test_resolve_uses_mesh_yaml_when_name_matches(tmp_path):
 # pin --config <workdir>/.culture/agents.yaml — a layout culture
 # migrated away from. On a real machine the units crashed 38000+ times
 # under systemd's restart-on-failure policy because the path didn't
-# exist. The fix drops --config so `culture agent start` falls through
+# exist. The fix drops --config so `culture agents start` falls through
 # to its argparse default (~/.culture/server.yaml).
 
 
@@ -246,7 +246,7 @@ def _captured_install_calls(install_mock) -> list:
 def test_install_mesh_services_omits_legacy_config_path():
     """Generated agent unit ExecStart must not pin <workdir>/.culture/agents.yaml.
 
-    The systemd unit body should only carry `culture agent start <nick>
+    The systemd unit body should only carry `culture agents start <nick>
     --foreground`; any --config token would re-introduce the crashloop
     when the legacy per-workdir layout doesn't exist.
     """

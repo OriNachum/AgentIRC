@@ -507,7 +507,7 @@ def audit_dir(tmp_path):
 # ---------------------------------------------------------------------------
 # Repo-root mutation guard (closes #351)
 #
-# PR #346 found that `culture agent create` regressions could rewrite the
+# PR #346 found that `culture agents create` regressions could rewrite the
 # tracked `culture.yaml` at the project root because helpers default
 # `directory=os.getcwd()` in `culture/cli/agent.py:285-310`. Any test that
 # calls `_cmd_create` without `monkeypatch.chdir(tmpdir)` is similarly

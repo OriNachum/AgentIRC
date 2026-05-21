@@ -59,7 +59,7 @@ def test_root_explain_mentions_culture_and_namespaces():
     for ns in (
         "devex",
         "server",
-        "agent",
+        "agents",
         "mesh",
         "bot",
         "channel",
@@ -72,7 +72,7 @@ def test_root_explain_mentions_culture_and_namespaces():
     # `devex` and `afi` self-register via their own modules' import-time
     # _passthrough.register_topic() calls — those modules aren't imported
     # in this unit test, so we don't assert on them here.
-    for ns in ("agent", "server", "mesh", "channel", "bot", "skills"):
+    for ns in ("agents", "server", "mesh", "channel", "bot", "skills"):
         assert (
             f"`culture {ns}`  (coming soon)" not in stdout
         ), f"shipped namespace {ns!r} still rendered as (coming soon)"
@@ -146,7 +146,7 @@ def test_culture_explain_shipped_namespace_returns_real_content():
     # Each shipped namespace (#330) registers an explain handler so
     # `culture explain <ns>` returns a real description rather than the
     # legacy "coming soon" stub.
-    for ns in ("agent", "server", "mesh", "channel", "bot", "skills"):
+    for ns in ("agents", "server", "mesh", "channel", "bot", "skills"):
         result = subprocess.run(
             [sys.executable, "-m", "culture", "explain", ns],
             capture_output=True,
@@ -195,7 +195,7 @@ def test_learn_json_emits_required_keys():
     assert payload["json_support"] is True
     assert payload["explain_pointer"] == "culture explain <path>"
     # Native nouns katvan should recurse into — passthroughs go in a separate key.
-    assert set(payload["nouns"]) == {"agent", "server", "mesh", "channel", "bot", "skills"}
+    assert set(payload["nouns"]) == {"agents", "server", "mesh", "channel", "bot", "skills"}
     assert {p["binary"] for p in payload["passthroughs"]} == {"agex", "afi", "irc-lens"}
     assert payload["verbs"] == ["explain", "overview", "learn"]
     assert set(payload["exit_codes"].keys()) >= {"0", "1", "2"}
@@ -210,30 +210,30 @@ def test_explain_root_json_has_path_and_nouns():
         assert result.stderr == ""
         payload = json.loads(result.stdout)
         assert payload["path"] == []
-        assert "agent" in payload["nouns"]
+        assert "agents" in payload["nouns"]
         assert "Culture" in payload["markdown"]
 
 
 def test_explain_native_noun_json_has_verbs():
     """`culture explain <noun> --json` exposes the noun's verbs (what katvan
     recurses into)."""
-    result = _run_cli("explain", "agent", "--json")
+    result = _run_cli("explain", "agents", "--json")
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
-    assert payload["path"] == ["agent"]
-    # Cross-check against the live argparse registration in agent.py.
+    assert payload["path"] == ["agents"]
+    # Cross-check against the live argparse registration in agents.py.
     assert {"start", "stop", "status", "create"}.issubset(set(payload["verbs"]))
-    assert "culture agent" in payload["markdown"]
+    assert "culture agents" in payload["markdown"]
 
 
 def test_explain_noun_verb_json_has_argparse_markdown():
     """`culture explain <noun>/<verb> --json` exposes argparse-derived help."""
-    result = _run_cli("explain", "agent/start", "--json")
+    result = _run_cli("explain", "agents/start", "--json")
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
-    assert payload["path"] == ["agent", "start"]
+    assert payload["path"] == ["agents", "start"]
     assert payload["markdown"].startswith("usage:")
-    assert "culture agent start" in payload["markdown"]
+    assert "culture agents start" in payload["markdown"]
 
 
 def test_explain_passthrough_noun_json_does_not_list_verbs():
@@ -266,7 +266,7 @@ def test_overview_json_has_path_and_nouns():
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["path"] == []
-    assert "agent" in payload["nouns"]
+    assert "agents" in payload["nouns"]
 
 
 def test_stdout_and_stderr_never_mixed_on_success():
@@ -274,8 +274,8 @@ def test_stdout_and_stderr_never_mixed_on_success():
     for argv in (
         ("learn", "--json"),
         ("explain", "--json"),
-        ("explain", "agent", "--json"),
-        ("explain", "agent/start", "--json"),
+        ("explain", "agents", "--json"),
+        ("explain", "agents/start", "--json"),
         ("overview", "--json"),
     ):
         result = _run_cli(*argv)
@@ -315,7 +315,7 @@ def test_split_path_normalises_topic_arg():
 
 
 def test_collect_verbs_returns_sorted_subcommands():
-    verbs = introspect._collect_verbs("agent")
+    verbs = introspect._collect_verbs("agents")
     assert verbs == sorted(verbs)
     assert "start" in verbs
     assert "stop" in verbs
@@ -328,9 +328,9 @@ def test_collect_verbs_empty_for_unknown_and_passthrough_nouns():
 
 
 def test_format_verb_help_returns_argparse_text():
-    md = introspect._format_verb_help("agent", "start")
+    md = introspect._format_verb_help("agents", "start")
     assert md.startswith("usage:")
-    assert "culture agent start" in md
+    assert "culture agents start" in md
 
 
 def test_format_verb_help_raises_culture_error_for_unknown_noun():
@@ -349,7 +349,7 @@ def test_format_verb_help_raises_culture_error_for_unknown_verb():
     from culture.cli._errors import CultureError
 
     try:
-        introspect._format_verb_help("agent", "nope-verb-xyz")
+        introspect._format_verb_help("agents", "nope-verb-xyz")
     except CultureError as err:
         assert "nope-verb-xyz" in err.message
         assert "agent" in err.remediation
@@ -361,25 +361,25 @@ def test_learn_root_payload_structure():
     payload = introspect._learn_root_payload()
     assert payload["tool"] == "culture"
     assert payload["json_support"] is True
-    assert set(payload["nouns"]) == {"agent", "server", "mesh", "channel", "bot", "skills"}
+    assert set(payload["nouns"]) == {"agents", "server", "mesh", "channel", "bot", "skills"}
     assert {p["binary"] for p in payload["passthroughs"]} == {"agex", "afi", "irc-lens"}
 
 
 def test_explain_payload_branches():
     root = introspect._explain_payload([])
     assert root["path"] == []
-    assert "agent" in root["nouns"]
+    assert "agents" in root["nouns"]
     assert "Culture" in root["markdown"]
     # Culture alias resolves to root
     root_alias = introspect._explain_payload(["culture"])
     assert root_alias["path"] == []
     # Native noun
-    agent = introspect._explain_payload(["agent"])
-    assert agent["path"] == ["agent"]
+    agent = introspect._explain_payload(["agents"])
+    assert agent["path"] == ["agents"]
     assert "start" in agent["verbs"]
     # Noun/verb leaf
-    leaf = introspect._explain_payload(["agent", "start"])
-    assert leaf["path"] == ["agent", "start"]
+    leaf = introspect._explain_payload(["agents", "start"])
+    assert leaf["path"] == ["agents", "start"]
     assert leaf["markdown"].startswith("usage:")
     # Passthrough noun
     devex = introspect._explain_payload(["devex"])
@@ -402,7 +402,7 @@ def test_explain_payload_too_deep_raises():
     from culture.cli._errors import CultureError
 
     try:
-        introspect._explain_payload(["agent", "start", "extra"])
+        introspect._explain_payload(["agents", "start", "extra"])
     except CultureError as err:
         assert "too deep" in err.message
     else:
@@ -412,9 +412,9 @@ def test_explain_payload_too_deep_raises():
 def test_overview_payload_root_and_drops_verbs():
     root = introspect._overview_payload([])
     assert root["path"] == []
-    assert "agent" in root["nouns"]
-    noun = introspect._overview_payload(["agent"])
-    assert noun["path"] == ["agent"]
+    assert "agents" in root["nouns"]
+    noun = introspect._overview_payload(["agents"])
+    assert noun["path"] == ["agents"]
     assert "verbs" not in noun
 
 

@@ -32,12 +32,12 @@ def test_learn_prompt_has_bot_management():
     assert "culture bot start" in output
 
 
-def test_learn_prompt_has_extended_agent_commands():
+def test_learn_prompt_has_extended_agents_commands():
     """Issue #183: learn prompt should include rename, archive, delete."""
     output = generate_learn_prompt(nick="spark-claude", server="spark")
-    assert "agent rename" in output
-    assert "agent archive" in output
-    assert "agent delete" in output
+    assert "agents rename" in output
+    assert "agents archive" in output
+    assert "agents delete" in output
 
 
 def test_learn_prompt_has_mesh_observability():

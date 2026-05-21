@@ -288,7 +288,7 @@ def test_resolve_agents_warning_message_includes_unregister_hint(tmp_path, caplo
         resolve_agents(config)
 
     messages = [r.getMessage() for r in caplog.records]
-    assert any("culture agent unregister ghost" in m for m in messages)
+    assert any("culture agents unregister ghost" in m for m in messages)
 
 
 def test_resolve_agents_warns_once_per_process(tmp_path, caplog):
@@ -343,7 +343,7 @@ def test_resolve_agents_suffix_mismatch_warns_with_unregister_hint(tmp_path, cap
         resolve_agents(config)
 
     messages = [r.getMessage() for r in caplog.records]
-    assert any("culture agent unregister expected" in m for m in messages)
+    assert any("culture agents unregister expected" in m for m in messages)
     assert config.agents == []
 
 

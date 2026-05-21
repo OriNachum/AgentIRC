@@ -57,7 +57,7 @@ def test_claude_daemon_factory_resolves_via_cultureagent(
     cultureagent and returns an instance of that class."""
     from cultureagent.clients.claude.daemon import AgentDaemon
 
-    from culture.cli.agent import _create_claude_daemon
+    from culture.cli.agents import _create_claude_daemon
 
     daemon = _create_claude_daemon(minimal_daemon_config, minimal_agent_config)
     assert isinstance(daemon, AgentDaemon)
@@ -70,7 +70,7 @@ def test_codex_daemon_factory_resolves_via_cultureagent(
     cultureagent and returns an instance of that class."""
     from cultureagent.clients.codex.daemon import CodexDaemon
 
-    from culture.cli.agent import _create_codex_daemon
+    from culture.cli.agents import _create_codex_daemon
 
     daemon = _create_codex_daemon(minimal_daemon_config, minimal_agent_config)
     assert isinstance(daemon, CodexDaemon)
@@ -84,7 +84,7 @@ def test_copilot_daemon_factory_resolves_via_cultureagent(
     pytest.importorskip("copilot")
     from cultureagent.clients.copilot.daemon import CopilotDaemon
 
-    from culture.cli.agent import _create_copilot_daemon
+    from culture.cli.agents import _create_copilot_daemon
 
     daemon = _create_copilot_daemon(minimal_daemon_config, minimal_agent_config)
     assert isinstance(daemon, CopilotDaemon)
@@ -97,7 +97,7 @@ def test_acp_daemon_factory_resolves_via_cultureagent(minimal_daemon_config, min
     ACPAgentConfig as well."""
     from cultureagent.clients.acp.daemon import ACPDaemon
 
-    from culture.cli.agent import _create_acp_daemon
+    from culture.cli.agents import _create_acp_daemon
 
     daemon = _create_acp_daemon(minimal_daemon_config, minimal_agent_config)
     assert isinstance(daemon, ACPDaemon)
