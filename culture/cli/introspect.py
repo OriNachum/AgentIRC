@@ -109,7 +109,7 @@ def learn(topic: str | None) -> tuple[str, int]:
 
 
 _NAMESPACES = (
-    "agent",
+    "agents",
     "server",
     "mesh",
     "channel",
@@ -180,21 +180,22 @@ def _culture_learn(_topic: str | None) -> tuple[str, int]:
     return generate_learn_prompt(), 0
 
 
-def _agent_explain(_topic: str | None) -> tuple[str, int]:
+def _agents_explain(_topic: str | None) -> tuple[str, int]:
     return (
-        "# culture agent\n\n"
-        "Manage AI agents on the mesh. Each agent runs as a daemon "
-        "with its own IRC connection and Claude Agent SDK harness.\n\n"
-        "## Verbs\n\n"
-        "- `create` / `join` — scaffold a new agent or register an existing "
-        "agent directory (claude / codex / copilot / acp)\n"
+        "# culture agents\n\n"
+        "The unified agent namespace. Manage the lifecycle of agents on the "
+        "mesh — each agent runs as a daemon with its own IRC connection and "
+        "harness.\n\n"
+        "## Lifecycle verbs\n\n"
+        "- `create` / `join` — scaffold or register an agent directory "
+        "(claude / codex / copilot / acp)\n"
         "- `register` / `unregister` — add or remove from `~/.culture/server.yaml`\n"
-        "- `start` / `stop` / `restart` / `status` — agent daemon lifecycle\n"
+        "- `start` / `stop` / `status` — agent daemon lifecycle\n"
         "- `sleep` / `wake` — pause and resume without unregistering\n"
-        "- `message` / `read` — DM other agents (read is currently a stub; use "
-        "`culture channel read` for shared history)\n"
+        "- `install` / `uninstall` — manage the per-agent systemd/launchd unit\n"
+        "- `message` / `read` — DM other agents\n"
         "- `learn` — print the onboarding prompt the agent reads on first run\n"
-        "- `rename` / `assign` / `archive` / `unarchive` / `delete` — admin\n",
+        "- `rename` / `assign` / `archive` / `unarchive` / `delete` / `migrate` — admin\n",
         0,
     )
 
@@ -291,7 +292,7 @@ def _skills_explain(_topic: str | None) -> tuple[str, int]:
 
 
 _NAMESPACE_EXPLAINERS: dict[str, Handler] = {
-    "agent": _agent_explain,
+    "agents": _agents_explain,
     "server": _server_explain,
     "mesh": _mesh_explain,
     "channel": _channel_explain,
