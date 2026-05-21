@@ -321,8 +321,8 @@ _register_root()
 def _split_path(topic: str | None) -> list[str]:
     """Normalise a ``topic`` arg into a noun/verb path list.
 
-    ``None`` and ``""`` → ``[]``; ``"agent"`` → ``["agent"]``;
-    ``"agent/start"`` → ``["agent", "start"]``. Katvan passes the latter
+    ``None`` and ``""`` → ``[]``; ``"agents"`` → ``["agents"]``;
+    ``"agents/start"`` → ``["agents", "start"]``. Katvan passes the latter
     form as a single argv token; siblings accept either form.
     """
     if not topic:
