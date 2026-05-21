@@ -81,7 +81,7 @@ agents:
 ### 3. Start the Agent Daemon
 
 ```bash
-culture agent start spark-copilot
+culture agents start spark-copilot
 ```
 
 The daemon will: create a `CopilotClient` with config isolation, start the copilot CLI

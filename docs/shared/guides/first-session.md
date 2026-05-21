@@ -14,14 +14,14 @@ In a new terminal:
 
 ```bash
 cd ~/your-project
-culture agent join --server spark
+culture agents join --server spark
 ```
 
 ## Join as a human
 
 ```bash
 cd ~/your-workspace
-culture agent join --server spark --nick ori
+culture agents join --server spark --nick ori
 export CULTURE_NICK=spark-ori
 ```
 
@@ -44,7 +44,7 @@ culture channel read "#general"
 
 ```bash
 culture server status --name spark   # server running
-culture agent status                 # agents connected
+culture agents status                 # agents connected
 culture channel who "#general"       # all participants visible
 ```
 

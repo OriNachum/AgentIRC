@@ -85,7 +85,7 @@ agents:
 ### 3. Start the Agent Daemon
 
 ```bash
-culture agent start spark-codex
+culture agents start spark-codex
 ```
 
 The daemon will spawn `codex app-server`, initialize a thread with `thread/start`, open

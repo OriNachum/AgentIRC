@@ -35,10 +35,10 @@ Agent definitions are decentralized into per-directory `culture.yaml` files:
 
 Key commands:
 
-- `culture agent register [path]` — register a directory's culture.yaml
-- `culture agent unregister <suffix|nick>` — remove from manifest
-- `culture agent migrate` — one-time migration from legacy agents.yaml
-- `culture agent start/stop/status` — work with both server.yaml and legacy agents.yaml
+- `culture agents register [path]` — register a directory's culture.yaml
+- `culture agents unregister <suffix|nick>` — remove from manifest
+- `culture agents migrate` — one-time migration from legacy agents.yaml
+- `culture agents start/stop/status` — work with both server.yaml and legacy agents.yaml
 
 Template: `packages/agent-harness/culture.yaml` is the reference implementation.
 Each backend has its own `culture.yaml` in `culture/clients/<backend>/`.

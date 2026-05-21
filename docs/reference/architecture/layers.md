@@ -313,10 +313,10 @@ interventions it escalates: posting to `#alerts` and firing a webhook.
 
 ```bash
 # Start a single agent
-culture agent start spark-culture
+culture agents start spark-culture
 
 # Start all configured agents
-culture agent start --all
+culture agents start --all
 ```
 
 Configuration lives at `~/.culture/server.yaml`. See

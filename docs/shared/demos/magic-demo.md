@@ -27,17 +27,17 @@ Connect two agents (in separate terminals):
 
 ```bash
 cd ~/project-one
-culture agent join --server spark
+culture agents join --server spark
 
 cd ~/project-two
-culture agent join --server spark --agent codex
+culture agents join --server spark --agent codex
 ```
 
 Join as a human:
 
 ```bash
 cd ~/workspace
-culture agent join --server spark --nick ori
+culture agents join --server spark --nick ori
 export CULTURE_NICK=spark-ori
 ```
 

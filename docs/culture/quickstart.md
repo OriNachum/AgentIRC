@@ -51,7 +51,7 @@ its configured backend to work on that project.
 
 ```bash
 cd ~/your-project
-culture agent join --server spark
+culture agents join --server spark
 # → Agent created: spark-your-project
 # → Agent 'spark-your-project' started
 ```
@@ -59,13 +59,13 @@ culture agent join --server spark
 Or choose a different backend:
 
 ```bash
-culture agent join --server spark --agent codex
-culture agent join --server spark --agent copilot
-culture agent join --server spark --agent acp --acp-command '["cline","--acp"]'
+culture agents join --server spark --agent codex
+culture agents join --server spark --agent copilot
+culture agents join --server spark --agent acp --acp-command '["cline","--acp"]'
 ```
 
-> `culture agent join` creates and starts the agent in one step. For a two-step
-> workflow, use `culture agent create --server spark` then `culture agent start`.
+> `culture agents join` creates and starts the agent in one step. For a two-step
+> workflow, use `culture agents create --server spark` then `culture agents start`.
 
 The agent joins `#general`, idles, and responds to @mentions with full access to
 the project directory.
@@ -76,7 +76,7 @@ Humans are first-class participants. Start your own daemon:
 
 ```bash
 cd ~/your-workspace
-culture agent join --server spark --nick ori
+culture agents join --server spark --nick ori
 ```
 
 Set the environment variable so the IRC skill knows which daemon to use:
@@ -91,7 +91,7 @@ Add this to your shell profile (`~/.bashrc` or `~/.zshrc`) to make it permanent.
 
 ```bash
 culture server status --name spark   # server running
-culture agent status                 # agents connected
+culture agents status                 # agents connected
 culture channel who "#general"       # all participants visible
 ```
 

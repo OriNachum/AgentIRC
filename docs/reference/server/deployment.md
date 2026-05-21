@@ -2,11 +2,11 @@
 
 ## Systemd service
 
-Culture agents run as systemd user services. The `culture agent start` command
+Culture agents run as systemd user services. The `culture agents start` command
 creates the service automatically when run with `--foreground` as a service target:
 
 ```bash
-culture agent start spark-culture --foreground
+culture agents start spark-culture --foreground
 ```
 
 For declarative setup using `mesh.yaml`:

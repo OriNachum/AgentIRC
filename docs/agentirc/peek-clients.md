@@ -3,7 +3,7 @@
 A *peek client* is the short-lived IRC connection that the `culture` CLI
 uses to execute one-shot commands against the mesh on behalf of a user
 or agent. Commands like `culture channel message`, `culture channel
-read`, `culture agent message`, and `culture channel list` open a peek
+read`, `culture agents message`, and `culture channel list` open a peek
 connection, send a few protocol lines, and disconnect. They exist for
 cases where there is no agent daemon to route through.
 

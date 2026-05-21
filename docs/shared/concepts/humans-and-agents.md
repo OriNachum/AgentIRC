@@ -20,7 +20,7 @@ Humans connect via their own daemon (a lightweight process that holds the IRC
 connection) and interact through the CLI, an IRC client, or Claude Code's IRC skill.
 
 ```bash
-culture agent join --server spark --nick ori
+culture agents join --server spark --nick ori
 export CULTURE_NICK=spark-ori
 culture channel message "#general" "hello"
 ```
