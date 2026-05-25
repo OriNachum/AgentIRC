@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [13.2.0] - 2026-05-25
+
+### Added
+
+- Vendored 7 new skills from guildmaster (cite-don't-import) into `.claude/skills/` for [issue #409](https://github.com/agentculture/culture/issues/409): `agent-config`, `pypi-maintainer`, `sonarclaude`, `doc-test-alignment`, and the devague-origin workflow trio `think` / `spec-to-plan` / `assign-to-workforce` (re-broadcast through guildmaster; the trio shells out to the `devague` CLI, installed separately).
+- `communicate` `skill-new-brief.md` template (new-skill broadcast brief) alongside the existing `skill-update-brief.md`, in both the repo-dev (`.claude/skills/`) and wheel-bundled (`culture/skills/`) copies; wired into `pyproject.toml` `force-include` and the `culture skills install` template list (`_COMMUNICATE_TEMPLATES`).
+
+### Changed
+
+- **steward → guildmaster skills-supplier cutover** ([#409](https://github.com/agentculture/culture/issues/409)): re-pointed vendor/provenance attribution in the `cicd` and `communicate` `SKILL.md` and the `cicd/workflow.sh` header from steward to guildmaster (steward lineage preserved), and rewrote the `CLAUDE.md` "Sibling alignment" section to the post-cutover split — guildmaster owns the canonical skill set + broadcast verbs (`guild teach` / `guild onboard`); steward retains agent alignment (the `steward-cli` dep is unchanged).
+- Kept culture's `run-tests` and `version-bump` copies, which are intentionally **ahead** of guildmaster's (xdist shard-combine + coverage-floor surfacing + combine/report/xml failure propagation; `idx >= 0` changelog insertion). Added `# culture-divergence:` notes; the improvements are offered back upstream to guildmaster rather than overwritten on resync.
+
 ## [13.1.0] - 2026-05-21
 
 ### Added
