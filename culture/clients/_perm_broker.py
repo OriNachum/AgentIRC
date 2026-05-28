@@ -352,14 +352,24 @@ def _now_iso() -> str:
 
 
 def list_pending() -> list[dict[str, Any]]:
-    """Return all pending permission requests (parsed queue files), oldest first."""
+    """Return permission requests still awaiting a decision, oldest first.
+
+    A request whose ``perm-decisions/<id>.json`` already exists is *decided* —
+    it is only waiting for its worker to consume the verdict — so it is excluded.
+    Otherwise an approver (boss CLI or dashboard) would see already-decided
+    requests and re-act on them (hitting :class:`DecisionExistsError`), which is
+    visible whenever a worker is slow or gone.
+    """
     queue_dir = _queue_dir()
+    decisions_dir = _decisions_dir()
     out: list[dict[str, Any]] = []
     try:
         names = sorted(n for n in os.listdir(queue_dir) if n.endswith(".json"))
     except OSError:
         return out
     for name in names:
+        if os.path.exists(os.path.join(decisions_dir, name)):
+            continue  # already decided, awaiting worker consumption
         try:
             with open(os.path.join(queue_dir, name), encoding="utf-8") as handle:
                 out.append(json.load(handle))

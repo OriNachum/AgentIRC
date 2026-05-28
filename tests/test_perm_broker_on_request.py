@@ -49,6 +49,24 @@ def _write_decision(path: str, payload: dict[str, Any]) -> None:
     os.replace(tmp, path)
 
 
+class TestListPendingExcludesDecided:
+    def test_decided_request_excluded_from_pending(self, culture_root):
+        from culture.clients._perm_broker import list_pending
+
+        qdir = os.path.join(str(culture_root), "perm-queue")
+        ddir = os.path.join(str(culture_root), "perm-decisions")
+        os.makedirs(qdir, exist_ok=True)
+        os.makedirs(ddir, exist_ok=True)
+        for rid in ("req-a", "req-b"):
+            with open(os.path.join(qdir, f"{rid}.json"), "w", encoding="utf-8") as f:
+                json.dump({"id": rid, "helper_nick": "local-w", "tool_name": "Edit"}, f)
+        # Decide req-a only.
+        with open(os.path.join(ddir, "req-a.json"), "w", encoding="utf-8") as f:
+            json.dump({"id": "req-a", "verdict": "allow"}, f)
+        ids = [r["id"] for r in list_pending()]
+        assert ids == ["req-b"]  # req-a is decided, awaiting worker consumption
+
+
 class TestOnRequestCallback:
     @pytest.mark.asyncio
     async def test_callback_fires_once_with_payload(self, culture_root):

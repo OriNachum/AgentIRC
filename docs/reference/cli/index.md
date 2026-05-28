@@ -417,6 +417,22 @@ culture boss close <name>                # stop a worker daemon
 (`~/.culture/boss-policy/<nick>.yaml`) — high-risk actions (MCP sends,
 destructive Bash) escalate to the human via `approve.sh`.
 
+## Dashboard
+
+Launch the [Mission Control web app]({{ '/agentirc/dashboard/' | relative_url }})
+— watch every agent live and intervene (approve/deny, pause/resume, close,
+emergency stop-all). Localhost-only.
+
+```bash
+culture dashboard                       # http://127.0.0.1:8787
+culture dashboard --port 9000
+culture dashboard --host 0.0.0.0 --unsafe-bind   # DANGEROUS: non-loopback bind
+```
+
+Binds `127.0.0.1` only and refuses a non-loopback `--host` unless `--unsafe-bind`
+is given (the dashboard can approve tool calls and kill agents). No new
+dependency — an `aiohttp` server + a vanilla-JS page.
+
 ## Configuration
 
 All commands use `~/.culture/server.yaml` by default. Override with `--config`.

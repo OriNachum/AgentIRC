@@ -95,6 +95,7 @@ A boss — either your Claude Code session or an autonomous **boss agent** — c
 spawn worker agents and supervise them: gating their tool calls, watching their
 context budget, and logging their daemon actions.
 
+- [Mission Control Dashboard](dashboard.md) — a local web app to watch every agent live and intervene (approve/deny, pause, kill, stop-all).
 - [Boss Agent Orchestration](boss-agent.md) — an autonomous boss agent that spawns and manages worker agents in your place.
 - [Helper Permission Broker](helper-permissions.md) — approval gate for helper tool calls (human or boss-agent as approver).
 - [Helper Tool Inheritance](helper-tool-inheritance.md) — helpers inherit the boss's skills + MCP servers.

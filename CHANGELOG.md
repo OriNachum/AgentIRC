@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [8.9.0] - 2026-05-29
+
+### Added
+
+- **Mission Control dashboard** — a localhost web app (`culture dashboard`) to watch every agent live and intervene. Three-pane UI: agent grid (state, pending count, last action, BOSS tag), per-agent session/daemon-log SSE streams, and a pending-approvals panel. Full control surface: approve/deny (human is top authority — not ceiling-bounded), pause/resume, close, emergency stop-all (pause or kill), and grant-policy edit. `aiohttp` backend (existing dep) + vanilla-JS frontend (no build step); binds `127.0.0.1` only (refuses non-loopback without `--unsafe-bind`). Spec: `docs/superpowers/specs/2026-05-29-mission-control-dashboard-design.md`; guide: `docs/agentirc/dashboard.md`.
+- `culture/dashboard/` (server + static SPA), `culture/cli/dashboard.py` (`culture dashboard` command).
+
+### Changed
+
+- `_perm_broker.list_pending()` now excludes requests that already have a decision (awaiting their worker to consume it), so approvers (dashboard and `culture boss pending`) don't re-act on decided requests. Surfaced by live in-browser verification of the dashboard.
+
 ## [8.8.0] - 2026-05-28
 
 ### Added
