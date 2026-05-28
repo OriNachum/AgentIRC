@@ -82,6 +82,9 @@ class AgentConfig:
     archived_at: str = ""
     archived_reason: str = ""
     context_watch: ContextWatchConfig = field(default_factory=ContextWatchConfig)
+    # Nick of the boss agent that owns this worker (empty for unmanaged agents).
+    # Used to @mention the boss in permission-request IRC notices.
+    boss: str = ""
 
 
 @dataclass

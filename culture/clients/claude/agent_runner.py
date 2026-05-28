@@ -82,6 +82,7 @@ class AgentRunner:
         on_exit: Callable[[int], Awaitable[None]] | None = None,
         on_message: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
         on_usage: Callable[[int | None], Awaitable[None]] | None = None,
+        on_perm_request: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
         metrics: HarnessMetricsRegistry | None = None,
         nick: str = "",
     ) -> None:
@@ -91,6 +92,7 @@ class AgentRunner:
         self.on_exit = on_exit
         self.on_message = on_message
         self.on_usage = on_usage
+        self.on_perm_request = on_perm_request
         self._metrics = metrics
         self._nick = nick
 
@@ -103,7 +105,9 @@ class AgentRunner:
         # Standalone mesh agents (no policy file) keep today's bypassPermissions
         # semantics: can_use_tool=None and string-prompt path preserved.
         if nick and has_policy_file(nick):
-            self._broker: PermissionBroker | None = PermissionBroker(nick=nick)
+            self._broker: PermissionBroker | None = PermissionBroker(
+                nick=nick, on_request=on_perm_request
+            )
             self._can_use_tool = self._broker.gate
         else:
             self._broker = None

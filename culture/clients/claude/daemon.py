@@ -355,6 +355,7 @@ class AgentDaemon:
             on_exit=self._on_agent_exit,
             on_message=self._on_agent_message,
             on_usage=self._on_agent_usage,
+            on_perm_request=self._on_perm_request,
             metrics=self._metrics,
             nick=self.agent.nick,
         )
@@ -495,6 +496,43 @@ class AgentDaemon:
         # Compact runs as the next queued turn, after the handoff is written.
         await self._agent_runner.send_prompt("/compact")
         await self._daemon_log.record("compact", trigger="context_watermark", pct=round(pct, 3))
+
+    async def _on_perm_request(self, payload: dict) -> None:
+        """Surface a worker permission request to its boss over IRC (best-effort).
+
+        Fired by this worker's PermissionBroker when a tool call routes to the
+        boss. DMs the owning boss (``self.agent.boss``) so the boss's activation
+        handler fires and it can approve/deny. If no boss is configured (the
+        human-supervised case from PR #411) we post nothing — the human finds the
+        request via ``pending-perms.sh``.
+        """
+        boss = self.agent.boss
+        if not boss or self._transport is None:
+            return
+        tool = payload.get("tool_name", "?")
+        req_id = payload.get("id", "?")
+        preview = self._perm_input_preview(tool, payload.get("input", {}))
+        notice = (
+            f"[perm] worker {self.agent.nick} wants {tool}: {preview} "
+            f"— id {req_id} (approve/deny)"
+        )
+        await self._transport.send_privmsg(boss, notice)
+
+    @staticmethod
+    def _perm_input_preview(tool: str, input_dict: dict) -> str:
+        """Short one-line preview of a tool's input for the perm notice."""
+        if tool == "Bash":
+            value = input_dict.get("command", "")
+        elif tool in ("Edit", "Write"):
+            value = input_dict.get("file_path", "")
+        else:
+            try:
+                import json as _json
+
+                value = _json.dumps(input_dict)
+            except (TypeError, ValueError):
+                value = repr(input_dict)
+        return str(value)[:80]
 
     def _maybe_prepend_reminder(self, prompt: str) -> str:
         """Prepend a post-compact handoff reminder when one is owed."""

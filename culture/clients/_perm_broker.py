@@ -17,6 +17,7 @@ import os
 import re
 import secrets
 import tempfile
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -270,6 +271,67 @@ def match_policy(
 
 
 # ---------------------------------------------------------------------------
+# Boss grant ceiling (human-over-boss gate)
+# ---------------------------------------------------------------------------
+
+# Tools a boss agent MAY NOT auto-grant to a worker; these escalate to the human.
+# Structurally a denylist, matched by reusing ``match_policy`` (as auto_deny).
+DEFAULT_BOSS_CEILING: list[dict[str, Any]] = [
+    {"tool": "mcp__.*"},  # any MCP server — external side effects
+    {
+        "tool": "Bash",
+        "input_regex": (
+            r"(^|\s|;|&&|\|\|)(rm\s+-rf|git\s+push|gh\s+(pr|release)\s+(create|merge)|"
+            r"kubectl|terraform|drop\s+table|truncate)"
+        ),
+    },
+]
+
+
+def _boss_policy_dir() -> str:
+    return os.path.join(culture_home(), "boss-policy")
+
+
+def boss_policy_path_for(nick: str) -> str:
+    """Path to a boss agent's grant-ceiling file."""
+    return os.path.join(_boss_policy_dir(), f"{nick}.yaml")
+
+
+def write_default_boss_ceiling(nick: str) -> str:
+    """Seed a boss agent's grant-ceiling file if missing. Idempotent."""
+    dest = boss_policy_path_for(nick)
+    if os.path.exists(dest):
+        return dest
+    _atomic_write_yaml(dest, {"grant_ceiling": DEFAULT_BOSS_CEILING})
+    return dest
+
+
+def load_boss_ceiling(nick: str) -> list[dict[str, Any]]:
+    """Load a boss agent's ceiling rules (empty list if no file)."""
+    path = boss_policy_path_for(nick)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = yaml.safe_load(handle) or {}
+    except (OSError, yaml.YAMLError):
+        return []
+    if not isinstance(data, dict):
+        return []
+    rules = data.get("grant_ceiling", []) or []
+    return [r for r in rules if isinstance(r, dict)]
+
+
+def is_above_ceiling(tool_name: str, input_dict: dict[str, Any], boss_nick: str) -> bool:
+    """True iff a tool call is above the boss's grant ceiling (→ escalate to human).
+
+    Reuses ``match_policy`` by treating the ceiling as an ``auto_deny`` denylist.
+    """
+    ceiling = load_boss_ceiling(boss_nick)
+    if not ceiling:
+        return False
+    return match_policy(tool_name, input_dict, {"auto_deny": ceiling}) == "deny"
+
+
+# ---------------------------------------------------------------------------
 # Broker
 # ---------------------------------------------------------------------------
 
@@ -298,11 +360,18 @@ class PermissionBroker:
     The broker's ``gate`` method is the ``can_use_tool`` callback.
     """
 
-    def __init__(self, nick: str) -> None:
+    def __init__(
+        self,
+        nick: str,
+        on_request: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    ) -> None:
         if not nick:
             raise ValueError("PermissionBroker requires a non-empty nick")
         self._nick = nick
         self._cache: _PolicyCache | None = None
+        # Optional best-effort notification fired when a request is routed to the
+        # boss (e.g. the worker daemon posts an IRC notice). Never blocks gating.
+        self._on_request = on_request
 
     @property
     def nick(self) -> str:
@@ -372,6 +441,22 @@ class PermissionBroker:
             "created_at": _now_iso(),
         }
         _atomic_write_json(queue_path, payload)
+
+        # Best-effort notify the boss (e.g. an IRC post). A failure here must
+        # never block or fail the gate — the file queue is the source of truth
+        # and the boss can still find the request by polling.
+        if self._on_request is not None:
+            try:
+                await self._on_request(dict(payload))
+            except asyncio.CancelledError:
+                self._best_effort_unlink(queue_path)
+                raise
+            except Exception:  # noqa: BLE001 — notification is advisory
+                logger.warning(
+                    "on_request notification failed for %s; boss must poll",
+                    request_id,
+                    exc_info=True,
+                )
 
         try:
             decision = await self._await_decision(decision_path)
