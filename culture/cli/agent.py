@@ -688,10 +688,41 @@ def _resolve_agents_to_stop(config, args) -> list:
     sys.exit(1)
 
 
+def _close_block_reason(caller: str, target_nick: str, config) -> str | None:
+    """Return why `caller` may NOT close `target_nick`, or None if allowed.
+
+    Only a parent may close its children: the human (no CULTURE_NICK) is root and
+    may close anyone; an agent may close a child whose ``boss`` is the caller; no
+    agent may close itself or a non-child. Single source of truth for the
+    no-self-close / one-parent invariant — `culture boss close` and the dashboard
+    route their stops through here.
+    """
+    if not caller:
+        return None  # human / operator / dashboard = root authority
+    if caller == target_nick:
+        return "an agent cannot close itself"
+    agent = config.get_agent(target_nick)
+    parent = (getattr(agent, "boss", "") or "") if agent else ""
+    if caller == parent:
+        return None  # caller is the target's boss (its parent)
+    return f"{target_nick} is not your child — only its parent may close it"
+
+
 def _cmd_stop(args: argparse.Namespace) -> None:
     config = load_config_or_default(args.config)
+    caller = os.environ.get("CULTURE_NICK", "")
     agents = _resolve_agents_to_stop(config, args)
+    allowed = []
     for agent in agents:
+        reason = _close_block_reason(caller, agent.nick, config)
+        if reason is None:
+            allowed.append(agent)
+        elif not args.all:
+            # An explicit single-target stop that's disallowed fails loudly;
+            # a broad --all just skips the agents the caller can't close.
+            print(f"REFUSED: {reason}.", file=sys.stderr)
+            sys.exit(2)
+    for agent in allowed:
         stop_agent(agent.nick)
 
 

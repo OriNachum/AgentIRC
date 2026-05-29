@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [8.12.0] - 2026-05-29
+
+### Added
+
+- **Close authority — only a parent can close its children.** `culture agent stop`
+  now refuses (exit 2) unless the caller (`CULTURE_NICK`) is the target's parent
+  (its `boss:` field) or the human (no `CULTURE_NICK`). So no agent can close
+  itself, a boss can close only its own workers (not another boss's, not itself),
+  and a worker can close nothing. `culture boss close` refuses self / another
+  boss's worker with a clear message, and the dashboard runs stops as the human
+  (root) — it may close any agent as a safeguard. For a fully unsupervised boss
+  this is a cooperative guard on the sanctioned commands (raw `kill` is still
+  possible — no broker sits in front of the boss).
+
 ## [8.11.0] - 2026-05-29
 
 ### Added

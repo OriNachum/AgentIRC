@@ -465,7 +465,19 @@ def _record_worker_boss(cwd: str, suffix: str, boss: str) -> None:
 
 
 def _cmd_close(args: argparse.Namespace) -> None:
-    worker_nick = f"{_server_of(_boss_nick())}-{_require_worker_suffix(args.name)}"
+    boss = _boss_nick()
+    worker_nick = f"{_server_of(boss)}-{_require_worker_suffix(args.name)}"
+    # Only a parent closes its children: a boss can't close itself or another
+    # boss's worker. (The underlying `culture agent stop` enforces this too.)
+    if worker_nick == boss:
+        print("Error: a boss cannot close itself", file=sys.stderr)
+        sys.exit(2)
+    if _foreign_worker(worker_nick, boss):
+        print(
+            f"REFUSED: {worker_nick} is not your worker (owned by another boss).",
+            file=sys.stderr,
+        )
+        sys.exit(2)
     subprocess.run([sys.executable, "-m", "culture", "agent", "stop", worker_nick], check=False)
     print(f"closed {worker_nick}")
 

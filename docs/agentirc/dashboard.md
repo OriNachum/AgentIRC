@@ -63,7 +63,7 @@ the existing levers:
 |---|---|
 | Approve / Deny | writes `perm-decisions/<id>.json` (`decided_by: dashboard`) |
 | Pause / Resume | daemon IPC (`pause`/`resume`) |
-| Close | `culture agent stop <nick>` |
+| Close | `culture agent stop <nick>` (dashboard runs as the human/root — may close any agent) |
 | Stop all | `pause` every agent, or `culture agent stop --all` (kill) |
 | Edit policy | read/write `perm-policy/<nick>.yaml` |
 | Send message | observer PRIVMSG to the agent's channel, nick-prefixed (mention fires) |

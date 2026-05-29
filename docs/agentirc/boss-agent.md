@@ -85,6 +85,25 @@ The ceiling lives at `~/.culture/boss-policy/<boss-nick>.yaml` and is editable.
 > behavior (the tool refuses + the system prompt says to escalate); it does not
 > defend against an adversarial or malfunctioning boss. Don't over-trust it.
 
+## Close authority (only a parent closes its children)
+
+Agent shutdown follows the spawn hierarchy — **no agent can close itself, and a
+boss can close only its own workers**:
+
+- The **human is root** and may close any agent (e.g. the [dashboard](dashboard.md)
+  Close / emergency stop-all is a safeguard that kills anything).
+- A **boss** may close its **own** workers (`culture boss close <name>`), never
+  another boss's worker and never itself.
+- A **worker** has no children, so it can close nothing — and nothing can close
+  itself.
+
+Enforced in `culture agent stop`: a stop is refused (exit 2) unless the caller
+(`CULTURE_NICK`) is the target's parent — i.e. the target's `boss:` field — or the
+caller is the human (no `CULTURE_NICK`). `culture boss close` and the dashboard
+route through the same guard. (For a fully unsupervised boss this is a cooperative
+guard on the sanctioned commands; a determined boss could still raw-`kill` its own
+process, since no broker sits in front of it — same posture as the grant ceiling.)
+
 ## Deadlock invariant
 
 A boss must **not** be permission-supervised — it has no

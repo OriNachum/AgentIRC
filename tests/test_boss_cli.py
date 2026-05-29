@@ -33,6 +33,22 @@ def _run(args, culture_home, nick="local-boss", **kw):
     )
 
 
+def _run_agent(args, culture_home, nick="local-boss", **kw):
+    env = dict(os.environ)
+    env["CULTURE_HOME"] = str(culture_home)
+    if nick is not None:
+        env["CULTURE_NICK"] = nick
+    elif "CULTURE_NICK" in env:
+        del env["CULTURE_NICK"]
+    return subprocess.run(
+        [sys.executable, "-m", "culture", "agent", *args],
+        env=env,
+        capture_output=True,
+        text=True,
+        **kw,
+    )
+
+
 @pytest.fixture
 def home(tmp_path):
     return tmp_path
@@ -232,6 +248,54 @@ class TestMultiBossIsolation:
         res = _run(["approve", "req-w1"], home, nick="local-boss1")
         assert res.returncode == 0, res.stderr
         assert _decision(home, "req-w1")["verdict"] == "allow"
+
+
+class TestCloseAuthority:
+    # "Only a parent can close its children": no self-close, a boss closes only
+    # its own workers, a worker closes nothing, the human (no CULTURE_NICK) is root.
+    def _cfg(self, home):
+        return os.path.join(str(home), "server.yaml")
+
+    def test_agent_cannot_stop_itself(self, home):
+        _register_worker(home, "w1", "local-boss1")
+        res = _run_agent(["stop", "local-w1", "--config", self._cfg(home)], home, nick="local-w1")
+        assert res.returncode == 2, (res.returncode, res.stderr)
+        assert "cannot close itself" in res.stderr
+
+    def test_parent_boss_can_stop_its_worker(self, home):
+        _register_worker(home, "w1", "local-boss1")
+        res = _run_agent(
+            ["stop", "local-w1", "--config", self._cfg(home)], home, nick="local-boss1"
+        )
+        assert res.returncode == 0, res.stderr  # not running → no-op, but allowed
+
+    def test_foreign_boss_cannot_stop_worker(self, home):
+        _register_worker(home, "w1", "local-boss1")
+        res = _run_agent(
+            ["stop", "local-w1", "--config", self._cfg(home)], home, nick="local-boss2"
+        )
+        assert res.returncode == 2, (res.returncode, res.stderr)
+        assert "not your child" in res.stderr
+
+    def test_human_no_nick_can_stop_anything(self, home):
+        _register_worker(home, "w1", "local-boss1")
+        res = _run_agent(["stop", "local-w1", "--config", self._cfg(home)], home, nick=None)
+        assert res.returncode == 0, res.stderr  # root authority
+
+    def test_boss_close_foreign_worker_refused(self, home):
+        _register_worker(home, "w1", "local-boss1")
+        res = _run(["close", "w1"], home, nick="local-boss2")
+        assert res.returncode == 2, (res.returncode, res.stderr)
+        assert "not your worker" in res.stderr
+
+    def test_agent_stop_all_skips_non_children_without_error(self, home):
+        # `--all` by a boss stops only its own children; self/foreign are skipped
+        # (not refused), so the command still succeeds.
+        _register_worker(home, "w1", "local-boss1")
+        _register_worker(home, "w2", "local-boss2")
+        res = _run_agent(["stop", "--all", "--config", self._cfg(home)], home, nick="local-boss1")
+        assert res.returncode == 0, (res.returncode, res.stderr)
+        assert "REFUSED" not in res.stderr
 
 
 class TestCleanup:

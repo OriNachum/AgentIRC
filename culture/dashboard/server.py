@@ -479,11 +479,17 @@ async def _handle_resume(request: web.Request) -> web.Response:
 
 
 def _agent_stop(*args: str) -> subprocess.CompletedProcess:
+    # The dashboard is the human/root authority — it may close ANY agent as a
+    # safeguard. Strip CULTURE_NICK so the agent-stop guard treats this as the
+    # human (root), never as an agent bound by the only-a-parent-closes rule.
+    env = dict(os.environ)
+    env.pop("CULTURE_NICK", None)
     return subprocess.run(
         [sys.executable, "-m", "culture", "agent", "stop", *args],
         check=False,
         capture_output=True,
         text=True,
+        env=env,
     )
 
 
