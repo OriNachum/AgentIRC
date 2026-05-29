@@ -109,6 +109,23 @@ converse with a Codex/ACP worker over IRC — but those workers are audit-only (
 synchronous tool gate), so the boss oversees them by reading their audit logs and
 conversing, not by approving individual tool calls.
 
+## Multiple teams
+
+More than one boss can run on the same mesh, each managing its own team. Bosses
+are ordinary agents with globally-unique nicks; `culture boss init --nick boss1`
+and `--nick boss2` create independent identities, each with its own grant ceiling
+(`boss-policy/<nick>.yaml`), cwd, and boss channel. Each worker records its owner
+in its `culture.yaml` `boss:` field at spawn (the **one worker, one boss**
+invariant), so a worker's permission request routes to *its* boss.
+
+**Team-scoped approvals.** The permission queue lives in one place
+(`perm-queue/`), but the boss CLI is team-aware: `culture boss pending` lists only
+the calling boss's own workers, and `culture boss approve`/`deny` **refuse**
+(exit 2) a request from a worker owned by another boss. A worker with no recorded
+owner (legacy/standalone) stays visible to every boss rather than vanishing. The
+[Mission Control dashboard](dashboard.md) is the human/all-teams view and is
+**not** team-scoped — it sees and can act on every team's requests.
+
 **Single mesh (v1).** The worker→boss permission DM addresses the boss by nick on
-the same `local` server; one boss and its workers live on one mesh. Cross-mesh /
-multi-machine boss coordination is out of scope for v1.
+the same `local` server; teams live on one mesh. Cross-mesh / multi-machine boss
+coordination is out of scope for v1.

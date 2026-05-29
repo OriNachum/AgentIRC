@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [8.10.0] - 2026-05-29
+
+### Added
+
+- **Talk to agents from the dashboard.** Mission Control gains a **Chat** tab: it
+  shows the recent conversation in the selected agent's channel (both sides) and a
+  message box to talk to the agent directly. Sent text is posted to the agent's
+  channel prefixed with `@<nick>` so its mention detector fires (same as
+  `culture boss brief`), over a transient observer connection — no boss daemon
+  required. New endpoints: `GET /api/channel/<nick>` (recent messages) and
+  `POST /api/message` (`{nick, text}`). The target channel is the agent's private
+  `#task-*` channel when it has one, else its first configured channel.
+
+### Changed
+
+- **Per-team isolation for multiple bosses.** The `culture boss` CLI is now
+  team-aware so several bosses can share one mesh: `culture boss pending` lists
+  only the calling boss's own workers, and `culture boss approve`/`deny` refuse
+  (exit 2) a request from a worker owned by another boss (ownership read from each
+  worker's `culture.yaml` `boss:` field via the manifest). A worker with no
+  recorded owner stays visible to every boss. The dashboard remains the
+  human/all-teams view and is intentionally not team-scoped.
+
 ## [8.9.1] - 2026-05-29
 
 ### Added

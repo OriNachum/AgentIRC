@@ -36,6 +36,7 @@ from culture.clients._perm_broker import (
     write_decision,
     write_default_boss_ceiling,
 )
+from culture.config import load_config_or_default
 
 from .shared.constants import DEFAULT_CONFIG
 from .shared.ipc import agent_socket_path, ipc_request
@@ -193,6 +194,33 @@ def _task_channel(name: str) -> str:
     return f"#task-{name}"
 
 
+def _owner_map() -> dict[str, str]:
+    """Map of worker nick -> owning boss nick ('' if unowned), from the manifest.
+
+    Each worker records its boss in its ``culture.yaml`` (``boss:`` field, written
+    at spawn). The fallback is pinned to the same path so an absent manifest does
+    not leak into the real ``~/.culture`` during tests.
+    """
+    server_yaml = os.path.join(culture_home(), "server.yaml")
+    try:
+        config = load_config_or_default(server_yaml, fallback=server_yaml)
+    except Exception:  # noqa: BLE001 — unreadable manifest → treat as no ownership
+        return {}
+    return {a.nick: (getattr(a, "boss", "") or "") for a in config.agents}
+
+
+def _foreign_worker(worker_nick: str, boss: str, owners: dict[str, str] | None = None) -> bool:
+    """True iff ``worker_nick`` is explicitly owned by a boss other than ``boss``.
+
+    A worker with no recorded owner (legacy/standalone, or an unreadable
+    manifest) is NOT foreign — it stays visible so single-boss setups and
+    orphaned requests aren't hidden. Only a worker owned by a *different* boss is
+    filtered out, which isolates one team's queue from another's.
+    """
+    owner = (owners if owners is not None else _owner_map()).get(worker_nick, "")
+    return bool(owner) and owner != boss
+
+
 def _boss_irc(msg_type: str, **kwargs) -> dict | None:
     """Route an IRC op through the boss daemon's own socket."""
     sock = agent_socket_path(_boss_nick())
@@ -236,7 +264,13 @@ def _input_preview(tool: str, input_dict: dict) -> str:
 
 
 def _cmd_pending(args: argparse.Namespace) -> None:
+    # A boss sees only its own team's requests. Without CULTURE_NICK (e.g. a bare
+    # operator invocation) we don't filter — the dashboard is the all-teams view.
+    boss = os.environ.get("CULTURE_NICK", "")
     reqs = list_pending()
+    if boss:
+        owners = _owner_map()
+        reqs = [r for r in reqs if not _foreign_worker(r.get("helper_nick", ""), boss, owners)]
     if not reqs:
         return
     print(f"{'ID':<34}  {'WORKER':<16}  {'TOOL':<10}  INPUT")
@@ -253,6 +287,14 @@ def _cmd_approve(args: argparse.Namespace) -> None:
     if req is None:
         print(f"Error: no pending request {args.id}", file=sys.stderr)
         sys.exit(1)
+    worker = req.get("helper_nick", "")
+    if _foreign_worker(worker, boss):
+        print(
+            f"REFUSED: {worker} is not your worker (owned by another boss). "
+            "Each boss manages only its own team.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
     tool = req.get("tool_name", "")
     if is_above_ceiling(tool, req.get("input", {}), boss):
         print(
@@ -277,6 +319,14 @@ def _cmd_approve(args: argparse.Namespace) -> None:
 
 def _cmd_deny(args: argparse.Namespace) -> None:
     boss = _boss_nick()
+    req = read_request(args.id)
+    if req is not None and _foreign_worker(req.get("helper_nick", ""), boss):
+        print(
+            f"REFUSED: {req.get('helper_nick', '?')} is not your worker "
+            "(owned by another boss). Each boss manages only its own team.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
     reason = " ".join(args.reason) if args.reason else ""
     try:
         write_decision(args.id, verdict="deny", scope="once", reason=reason, decided_by=boss)
@@ -421,7 +471,6 @@ def _cmd_close(args: argparse.Namespace) -> None:
 
 
 def _cmd_cleanup(args: argparse.Namespace) -> None:
-    from culture.config import load_config_or_default
     from culture.pidfile import is_process_alive, read_pid
 
     config = load_config_or_default(args.config)

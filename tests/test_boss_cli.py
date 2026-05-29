@@ -62,6 +62,25 @@ def _seed_ceiling(culture_home, nick="local-boss"):
         yaml.safe_dump({"grant_ceiling": DEFAULT_BOSS_CEILING}, f)
 
 
+def _register_worker(culture_home, suffix, boss, server="local"):
+    """Register a worker in the manifest owned by `boss` (its culture.yaml boss field)."""
+    wdir = os.path.join(str(culture_home), "helpers", suffix)
+    os.makedirs(wdir, exist_ok=True)
+    with open(os.path.join(wdir, "culture.yaml"), "w", encoding="utf-8") as f:
+        yaml.safe_dump({"suffix": suffix, "backend": "claude", "boss": boss}, f)
+    server_yaml = os.path.join(str(culture_home), "server.yaml")
+    try:
+        with open(server_yaml, encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+    except OSError:
+        data = {}
+    data.setdefault("server", {"name": server, "host": "127.0.0.1", "port": 6667})
+    data.setdefault("agents", {})
+    data["agents"][suffix] = wdir
+    with open(server_yaml, "w", encoding="utf-8") as f:
+        yaml.safe_dump(data, f)
+
+
 class TestApproveDeny:
     def test_approve_in_ceiling_writes_decision(self, home):
         _seed_ceiling(home)
@@ -176,6 +195,43 @@ class TestPending:
         assert res.returncode == 0
         assert "req-1" in res.stdout and "req-2" in res.stdout
         assert "Edit" in res.stdout and "Bash" in res.stdout
+
+
+class TestMultiBossIsolation:
+    # Each boss manages only its own team: a request from a worker owned by
+    # another boss must be invisible + un-actionable to this boss. The dashboard
+    # (the human) remains the all-teams view.
+    def test_foreign_worker_hidden_from_pending(self, home):
+        _register_worker(home, "w2", "local-boss2")
+        _write_request(home, "req-w2", "Edit", {"file_path": "/a"}, nick="local-w2")
+        _write_request(home, "req-mine", "Edit", {"file_path": "/b"}, nick="local-w1")
+        res = _run(["pending"], home, nick="local-boss1")
+        assert res.returncode == 0, res.stderr
+        assert "req-mine" in res.stdout
+        assert "req-w2" not in res.stdout
+
+    def test_foreign_worker_approve_refused(self, home):
+        _register_worker(home, "w2", "local-boss2")
+        _write_request(home, "req-w2", "Edit", {"file_path": "/a"}, nick="local-w2")
+        res = _run(["approve", "req-w2"], home, nick="local-boss1")
+        assert res.returncode == 2, (res.returncode, res.stderr)
+        assert "not your worker" in res.stderr
+        assert _decision(home, "req-w2") is None
+
+    def test_foreign_worker_deny_refused(self, home):
+        _register_worker(home, "w2", "local-boss2")
+        _write_request(home, "req-w2", "Bash", {"command": "ls"}, nick="local-w2")
+        res = _run(["deny", "req-w2", "no"], home, nick="local-boss1")
+        assert res.returncode == 2, (res.returncode, res.stderr)
+        assert "not your worker" in res.stderr
+        assert _decision(home, "req-w2") is None
+
+    def test_own_worker_still_approvable(self, home):
+        _register_worker(home, "w1", "local-boss1")
+        _write_request(home, "req-w1", "Edit", {"file_path": "/a"}, nick="local-w1")
+        res = _run(["approve", "req-w1"], home, nick="local-boss1")
+        assert res.returncode == 0, res.stderr
+        assert _decision(home, "req-w1")["verdict"] == "allow"
 
 
 class TestCleanup:

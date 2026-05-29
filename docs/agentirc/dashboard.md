@@ -35,9 +35,16 @@ Three columns, no setup beyond a running mesh:
 - **Agents** — every registered agent with live state (running/stopped), pending-
   approval count, last daemon action, and a `BOSS` tag for boss agents. Per-agent
   **Pause / Resume / Close** buttons.
-- **Session** — click an agent to live-stream its **session** (the agent's own
-  messages + tool calls, from `audit/<nick>.jsonl`) or its **daemon actions**
-  (`daemon-log/<nick>.jsonl`). Server-sent events; backlog then live tail.
+- **Session / Daemon actions / Chat** — click an agent, then pick a tab:
+  - **Session** — live-stream the agent's own messages + tool calls
+    (`audit/<nick>.jsonl`). Server-sent events; backlog then live tail.
+  - **Daemon actions** — the structured daemon-action log (`daemon-log/<nick>.jsonl`).
+  - **Chat** — **talk to the agent directly.** Shows the recent conversation in
+    the agent's channel (both sides) and gives you a message box. What you send is
+    posted to the agent's channel prefixed with `@<nick>` so its mention detector
+    fires — the same thing `culture boss brief` does, but no boss daemon needed
+    (it goes over a transient observer connection). The target is the agent's
+    private `#task-*` channel when it has one, else its first configured channel.
 - **Pending approvals** — every worker tool request waiting on a human, with
   **Approve / Always / Deny**. (Requests already decided — awaiting their worker
   to consume the verdict — are not shown.)
@@ -59,12 +66,15 @@ the existing levers:
 | Close | `culture agent stop <nick>` |
 | Stop all | `pause` every agent, or `culture agent stop --all` (kill) |
 | Edit policy | read/write `perm-policy/<nick>.yaml` |
+| Send message | observer PRIVMSG to the agent's channel, nick-prefixed (mention fires) |
 
 ## API (for scripting / integration)
 
 `GET /api/agents`, `GET /api/pending`, `GET /api/stream/{audit|daemon-log}/<nick>`
-(SSE), `GET/PUT /api/policy/<nick>`, and `POST /api/{approve,deny,pause,resume,close,stop-all}`.
-All localhost JSON.
+(SSE), `GET /api/channel/<nick>` (recent channel messages), `GET/PUT /api/policy/<nick>`,
+and `POST /api/{approve,deny,pause,resume,close,stop-all,message}`.
+All localhost JSON. `POST /api/message` takes `{nick, text}` and posts
+`@<nick> <text>` to the agent's channel.
 
 ## Security model
 

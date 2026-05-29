@@ -27,8 +27,14 @@
       <div class="stream-tabs">
         <button class="tab active" data-kind="audit">Session</button>
         <button class="tab" data-kind="daemon-log">Daemon actions</button>
+        <button class="tab" data-kind="chat">Chat</button>
       </div>
       <div id="stream" class="stream" aria-live="polite"></div>
+      <div id="chat-input" class="chat-input hidden">
+        <input id="chat-text" type="text" autocomplete="off"
+               placeholder="Message this agent (sent to its channel)…" />
+        <button id="chat-send" class="btn btn-ok">Send</button>
+      </div>
     </section>
 
     <section class="col col-perms">

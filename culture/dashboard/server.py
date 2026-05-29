@@ -23,7 +23,7 @@ import sys
 import yaml
 from aiohttp import web
 
-from culture.cli.shared.ipc import agent_socket_path, ipc_request
+from culture.cli.shared.ipc import agent_socket_path, get_observer, ipc_request
 from culture.cli.shared.process import is_process_alive
 from culture.clients._audit import audit_path_for
 from culture.clients._daemon_log import daemon_log_path_for
@@ -44,6 +44,8 @@ _STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 _SSE_POLL_SECONDS = 0.25
 _SSE_BACKLOG_LINES = 200
 _KEEPALIVE_SECONDS = 15
+_CHANNEL_READ_MAX = 200
+_CHANNEL_READ_DEFAULT = 50
 
 # Typed app key for the optional server-config path.
 _CONFIG_PATH: web.AppKey[str | None] = web.AppKey("config_path", object)  # type: ignore[arg-type]
@@ -118,13 +120,35 @@ def _agent_state(nick: str) -> str:
     return "stopped"
 
 
+def _config_path_or_default(config_path: str | None) -> str:
+    return config_path or os.path.join(culture_home(), "server.yaml")
+
+
+def _agent_channel(nick: str, config_path: str | None) -> str:
+    """The channel to talk to an agent on.
+
+    Prefer the agent's private ``#task-*`` channel (the 1:1 the boss briefs in),
+    else its first configured channel, else the ``#task-<suffix>`` convention.
+    The result is an IRC target only — never a filesystem path — so the
+    ``_require_nick`` guard on the caller is sufficient.
+    """
+    config = load_config_or_default(_config_path_or_default(config_path))
+    for agent in config.agents:
+        if agent.nick == nick:
+            channels = [c for c in (getattr(agent, "channels", []) or []) if isinstance(c, str)]
+            for channel in channels:
+                if channel.startswith("#task-"):
+                    return channel
+            if channels:
+                return channels[0]
+            break
+    suffix = nick.split("-", 1)[1] if "-" in nick else nick
+    return f"#task-{suffix}"
+
+
 def list_agents(config_path: str | None = None) -> list[dict]:
     """Programmatic agent grid (no CLI-text parsing)."""
-    config = (
-        load_config_or_default(config_path)
-        if config_path
-        else load_config_or_default(os.path.join(culture_home(), "server.yaml"))
-    )
+    config = load_config_or_default(_config_path_or_default(config_path))
     pending = _pending_counts()
     rows = []
     for agent in config.agents:
@@ -159,6 +183,54 @@ async def _handle_agents(request: web.Request) -> web.Response:
 
 async def _handle_pending(request: web.Request) -> web.Response:
     return web.json_response({"pending": list_pending()})
+
+
+async def _handle_channel_read(request: web.Request) -> web.Response:
+    """Recent messages in an agent's channel (both sides of the conversation)."""
+    nick = _require_nick(request.match_info["nick"])
+    try:
+        limit = int(request.query.get("limit", str(_CHANNEL_READ_DEFAULT)))
+    except (TypeError, ValueError):
+        limit = _CHANNEL_READ_DEFAULT
+    limit = max(1, min(limit, _CHANNEL_READ_MAX))
+    config_path = request.app.get(_CONFIG_PATH)
+    channel = _agent_channel(nick, config_path)
+    try:
+        observer = get_observer(_config_path_or_default(config_path))
+        messages = await observer.read_channel(channel, limit)
+    except Exception as exc:  # noqa: BLE001 — mesh unreachable → empty, not a 500
+        logger.warning("channel read failed for %s (%s): %s", nick, channel, exc)
+        messages = []
+    return web.json_response({"nick": nick, "channel": channel, "messages": messages})
+
+
+async def _handle_message(request: web.Request) -> web.Response:
+    """Send a message to an agent's channel, prefixed so its mention fires.
+
+    Mirrors ``culture boss brief``: the agent nick is prepended so the agent's
+    mention detector triggers. Goes out over a transient observer connection, so
+    no boss daemon is required — this session (or any operator) can talk to an
+    agent straight from the dashboard.
+    """
+    body = await _json_body(request)
+    nick = body.get("nick")
+    if not nick:
+        return web.json_response({"error": "missing nick"}, status=400)
+    if not _valid_nick(nick):
+        return web.json_response({"error": "invalid nick"}, status=400)
+    text = str(body.get("text", "")).strip()
+    if not text:
+        return web.json_response({"error": "missing text"}, status=400)
+    config_path = request.app.get(_CONFIG_PATH)
+    channel = _agent_channel(nick, config_path)
+    payload = f"@{nick} {text}"
+    try:
+        observer = get_observer(_config_path_or_default(config_path))
+        await observer.send_message(channel, payload)
+    except Exception as exc:  # noqa: BLE001 — surface a clean 502, not a 500
+        logger.warning("message send failed for %s (%s): %s", nick, channel, exc)
+        return web.json_response({"error": "could not reach the mesh"}, status=502)
+    return web.json_response({"ok": True, "channel": channel})
 
 
 def _jsonl_path(kind: str, nick: str) -> str | None:
@@ -430,6 +502,8 @@ def build_app(config_path: str | None = None) -> web.Application:
     app.router.add_get("/", _handle_index)
     app.router.add_get("/api/agents", _handle_agents)
     app.router.add_get("/api/pending", _handle_pending)
+    app.router.add_get("/api/channel/{nick}", _handle_channel_read)
+    app.router.add_post("/api/message", _handle_message)
     app.router.add_get("/api/stream/{kind}/{nick}", _handle_stream_jsonl)
     app.router.add_post("/api/approve", _handle_approve)
     app.router.add_post("/api/deny", _handle_deny)

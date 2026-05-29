@@ -99,6 +99,20 @@ body {
 .tab { background: none; border: none; color: var(--muted); cursor: pointer; padding: 4px 8px; font-family: var(--mono); border-bottom: 2px solid transparent; }
 .tab.active { color: var(--text); border-bottom-color: var(--accent); }
 
+.chat-input { display: flex; gap: 6px; margin-top: 8px; }
+.chat-input.hidden { display: none; }
+.chat-input input {
+  flex: 1;
+  background: #0d1117;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.chat-input input:focus { outline: none; border-color: var(--accent); }
+
 .stream { font-size: 12px; line-height: 1.5; }
 .stream-line { padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: pre-wrap; word-break: break-word; }
 .stream-line .ts { color: var(--muted); font-size: 10px; }

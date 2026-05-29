@@ -1,7 +1,7 @@
 "use strict";
 
 // Mission Control SPA — vanilla JS, no build step.
-const state = { selected: null, kind: "audit", es: null };
+const state = { selected: null, kind: "audit", es: null, chatTimer: null };
 
 const $ = (sel) => document.querySelector(sel);
 const el = (tag, cls, text) => {
@@ -110,8 +110,18 @@ function selectAgent(nick) {
 
 function openStream() {
   if (state.es) { state.es.close(); state.es = null; }
+  if (state.chatTimer) { clearInterval(state.chatTimer); state.chatTimer = null; }
   const box = $("#stream");
   box.replaceChildren();
+  const chatInput = $("#chat-input");
+  if (state.kind === "chat") {
+    chatInput.classList.remove("hidden");
+    if (!state.selected) return;
+    refreshChat();
+    state.chatTimer = setInterval(refreshChat, 2500);
+    return;
+  }
+  chatInput.classList.add("hidden");
   if (!state.selected) return;
   const url = `/api/stream/${state.kind}/${encodeURIComponent(state.selected)}`;
   const es = new EventSource(url);
@@ -121,6 +131,32 @@ function openStream() {
     appendStreamLine(box, ev.data);
   };
   es.onerror = () => { /* EventSource auto-reconnects */ };
+}
+
+// ---- Chat (talk to an agent in its channel) --------------------------------
+
+async function refreshChat() {
+  if (!state.selected || state.kind !== "chat") return;
+  let data;
+  try { data = await api(`/api/channel/${encodeURIComponent(state.selected)}`); }
+  catch (_) { return; }
+  const box = $("#stream");
+  box.replaceChildren();
+  if (!data.messages || !data.messages.length) {
+    box.appendChild(el("div", "empty", `No messages in ${data.channel} yet.`));
+  } else {
+    for (const m of data.messages) box.appendChild(el("div", "stream-line", m));
+  }
+  box.scrollTop = box.scrollHeight;
+}
+
+function sendChat() {
+  const input = $("#chat-text");
+  const text = input.value.trim();
+  if (!text || !state.selected) return;
+  post("/api/message", { nick: state.selected, text })
+    .then((r) => { input.value = ""; toast(`Sent to ${r.channel}`); refreshChat(); })
+    .catch((e) => toast(e.message, true));
 }
 
 function appendStreamLine(box, raw) {
@@ -224,6 +260,11 @@ document.querySelectorAll(".tab").forEach((tab) => {
     openStream();
   };
 });
+
+// ---- Chat input ------------------------------------------------------------
+
+$("#chat-send").onclick = sendChat;
+$("#chat-text").addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(); });
 
 // ---- Boot ------------------------------------------------------------------
 

@@ -122,6 +122,97 @@ class TestControlEndpoints:
         assert resp.status == 400
 
 
+class _FakeObserver:
+    def __init__(self):
+        self.sent = []
+
+    async def send_message(self, target, text):
+        self.sent.append((target, text))
+
+    async def read_channel(self, channel, limit=50):
+        return [f"[1m ago] <local-w> on it", f"[now] <observer> @local-w hello"]
+
+
+class TestChat:
+    @pytest.mark.asyncio
+    async def test_message_sends_prefixed_to_task_channel(self, client, monkeypatch):
+        from culture.dashboard import server
+
+        fake = _FakeObserver()
+        monkeypatch.setattr(server, "get_observer", lambda cfg: fake)
+        resp = await client.post("/api/message", json={"nick": "local-w", "text": "do the thing"})
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["ok"] is True and data["channel"] == "#task-w"
+        # Nick is prefixed so the agent's mention detector fires (mirrors boss brief).
+        assert fake.sent == [("#task-w", "@local-w do the thing")]
+
+    @pytest.mark.asyncio
+    async def test_message_missing_nick_400(self, client):
+        resp = await client.post("/api/message", json={"text": "x"})
+        assert resp.status == 400
+
+    @pytest.mark.asyncio
+    async def test_message_invalid_nick_400(self, client):
+        resp = await client.post("/api/message", json={"nick": "../etc", "text": "x"})
+        assert resp.status == 400
+
+    @pytest.mark.asyncio
+    async def test_message_empty_text_400(self, client):
+        resp = await client.post("/api/message", json={"nick": "local-w", "text": "   "})
+        assert resp.status == 400
+
+    @pytest.mark.asyncio
+    async def test_message_mesh_unreachable_502(self, client, monkeypatch):
+        from culture.dashboard import server
+
+        class _Boom:
+            async def send_message(self, *a):
+                raise OSError("mesh down")
+
+        monkeypatch.setattr(server, "get_observer", lambda cfg: _Boom())
+        resp = await client.post("/api/message", json={"nick": "local-w", "text": "x"})
+        assert resp.status == 502
+
+    @pytest.mark.asyncio
+    async def test_message_cross_origin_blocked(self, client):
+        resp = await client.post(
+            "/api/message",
+            json={"nick": "local-w", "text": "x"},
+            headers={"Origin": "http://evil.com"},
+        )
+        assert resp.status == 403
+
+    @pytest.mark.asyncio
+    async def test_channel_read_returns_messages(self, client, monkeypatch):
+        from culture.dashboard import server
+
+        monkeypatch.setattr(server, "get_observer", lambda cfg: _FakeObserver())
+        resp = await client.get("/api/channel/local-w")
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["channel"] == "#task-w"
+        assert any("hello" in m for m in data["messages"])
+
+    @pytest.mark.asyncio
+    async def test_channel_read_unreachable_is_empty_not_500(self, client, monkeypatch):
+        from culture.dashboard import server
+
+        class _Boom:
+            async def read_channel(self, *a, **k):
+                raise OSError("mesh down")
+
+        monkeypatch.setattr(server, "get_observer", lambda cfg: _Boom())
+        resp = await client.get("/api/channel/local-w")
+        assert resp.status == 200
+        assert (await resp.json())["messages"] == []
+
+    @pytest.mark.asyncio
+    async def test_channel_read_traversal_nick_400(self, client):
+        resp = await client.get("/api/channel/bad.nick")
+        assert resp.status == 400
+
+
 class TestStream:
     @pytest.mark.asyncio
     async def test_audit_stream_emits_backlog(self, client, home):
