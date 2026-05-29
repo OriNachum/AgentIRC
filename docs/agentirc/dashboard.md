@@ -34,7 +34,9 @@ Three columns, no setup beyond a running mesh:
 
 - **Agents** — every registered agent with live state (running/stopped), pending-
   approval count, last daemon action, and a `BOSS` tag for boss agents. Per-agent
-  **Pause / Resume / Close** buttons.
+  **Pause / Resume / Close** buttons. Agents are **grouped into teams**: each boss
+  heads its own group with its workers nested beneath it, and standalone agents
+  fall under "unassigned" — so a boss and its team read as one unit.
 - **Session / Daemon actions / Chat** — click an agent, then pick a tab:
   - **Session** — live-stream the agent's own messages + tool calls
     (`audit/<nick>.jsonl`). Server-sent events; backlog then live tail.

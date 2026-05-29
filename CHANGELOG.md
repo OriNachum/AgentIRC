@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [8.15.0] - 2026-05-29
+
+### Added
+
+- **Dashboard groups agents into teams.** The agent column now renders each boss
+  as a team header with its workers nested beneath it (derived from each agent's
+  `is_boss` / `boss` fields), and a final "unassigned" group for standalone
+  agents — so a boss and its workers read as one unit. Frontend-only (the
+  `/api/agents` contract already exposes the fields; a test locks it).
+
 ## [8.14.0] - 2026-05-29
 
 ### Added

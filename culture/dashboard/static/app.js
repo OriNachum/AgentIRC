@@ -40,6 +40,60 @@ async function post(path, body) {
 
 // ---- Agents grid -----------------------------------------------------------
 
+// Group agents into teams: a boss heads its own team; an agent's `boss` field
+// places it under that boss (even if the boss is offline); the rest are
+// "unassigned". This mirrors the spawn hierarchy so teams read as units.
+function groupTeams(agents) {
+  const teams = new Map(); // bossNick -> { boss, workers: [] }
+  const unassigned = [];
+  const team = (k) => {
+    if (!teams.has(k)) teams.set(k, { boss: null, workers: [] });
+    return teams.get(k);
+  };
+  for (const a of agents) {
+    if (a.is_boss) team(a.nick).boss = a;
+    else if (a.boss) team(a.boss).workers.push(a);
+    else unassigned.push(a);
+  }
+  return { teams, unassigned };
+}
+
+function teamHeader(text, count, noun) {
+  const li = el("li", "team-header");
+  li.appendChild(el("span", "team-name", text));
+  li.appendChild(el("span", "team-count", `${count} ${noun}${count === 1 ? "" : "s"}`));
+  return li;
+}
+
+function renderAgentItem(a, isWorker) {
+  const item = el("li", "agent-item" + (isWorker ? " team-worker" : ""));
+  if (a.nick === state.selected) item.classList.add("selected");
+  item.onclick = () => selectAgent(a.nick);
+
+  const row = el("div", "agent-row");
+  const nick = el("span", "agent-nick");
+  nick.appendChild(el("span", "dot " + a.state));
+  nick.appendChild(document.createTextNode(a.nick));
+  if (a.is_boss) nick.appendChild(el("span", "boss-tag", "BOSS"));
+  row.appendChild(nick);
+  if (a.pending > 0) row.appendChild(el("span", "agent-pending", a.pending + " ⏳"));
+  item.appendChild(row);
+
+  const meta = el("div", "agent-meta");
+  meta.appendChild(el("span", null, a.state));
+  meta.appendChild(el("span", null, a.last_action || ""));
+  item.appendChild(meta);
+
+  const actions = el("div", "agent-actions");
+  actions.appendChild(ctlBtn("pause", "Pause", a.nick));
+  actions.appendChild(ctlBtn("resume", "Resume", a.nick));
+  const close = el("button", "btn btn-sm btn-danger", "Close");
+  close.onclick = (e) => { e.stopPropagation(); confirmClose(a.nick); };
+  actions.appendChild(close);
+  item.appendChild(actions);
+  return item;
+}
+
 async function refreshAgents() {
   let data;
   try { data = await api("/api/agents"); } catch (e) { return; }
@@ -49,33 +103,16 @@ async function refreshAgents() {
     list.appendChild(el("div", "empty", "No agents registered."));
     return;
   }
-  for (const a of data.agents) {
-    const item = el("li", "agent-item");
-    if (a.nick === state.selected) item.classList.add("selected");
-    item.onclick = () => selectAgent(a.nick);
-
-    const row = el("div", "agent-row");
-    const nick = el("span", "agent-nick");
-    nick.appendChild(el("span", "dot " + a.state));
-    nick.appendChild(document.createTextNode(a.nick));
-    if (a.is_boss) nick.appendChild(el("span", "boss-tag", "BOSS"));
-    row.appendChild(nick);
-    if (a.pending > 0) row.appendChild(el("span", "agent-pending", a.pending + " ⏳"));
-    item.appendChild(row);
-
-    const meta = el("div", "agent-meta");
-    meta.appendChild(el("span", null, a.state));
-    meta.appendChild(el("span", null, a.last_action || ""));
-    item.appendChild(meta);
-
-    const actions = el("div", "agent-actions");
-    actions.appendChild(ctlBtn("pause", "Pause", a.nick));
-    actions.appendChild(ctlBtn("resume", "Resume", a.nick));
-    const close = el("button", "btn btn-sm btn-danger", "Close");
-    close.onclick = (e) => { e.stopPropagation(); confirmClose(a.nick); };
-    actions.appendChild(close);
-    item.appendChild(actions);
-    list.appendChild(item);
+  const { teams, unassigned } = groupTeams(data.agents);
+  for (const [bossNick, t] of teams) {
+    const label = t.boss ? `${bossNick} · team` : `${bossNick} · team (boss offline)`;
+    list.appendChild(teamHeader(label, t.workers.length, "worker"));
+    if (t.boss) list.appendChild(renderAgentItem(t.boss, false));
+    for (const w of t.workers) list.appendChild(renderAgentItem(w, true));
+  }
+  if (unassigned.length) {
+    list.appendChild(teamHeader("unassigned", unassigned.length, "agent"));
+    for (const a of unassigned) list.appendChild(renderAgentItem(a, false));
   }
 }
 

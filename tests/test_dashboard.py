@@ -64,6 +64,33 @@ class TestReadEndpoints:
         assert data == {"agents": []}
 
     @pytest.mark.asyncio
+    async def test_agents_expose_team_fields(self, client, home):
+        # The dashboard groups agents into teams from is_boss + boss; assert the
+        # API contract those rely on (a boss + a worker owned by it).
+        bdir = os.path.join(str(home), "boss")
+        wdir = os.path.join(str(home), "helpers", "w")
+        os.makedirs(bdir, exist_ok=True)
+        os.makedirs(wdir, exist_ok=True)
+        import yaml as _yaml
+
+        with open(os.path.join(bdir, "culture.yaml"), "w", encoding="utf-8") as f:
+            _yaml.safe_dump({"suffix": "boss", "backend": "claude", "tags": ["boss"]}, f)
+        with open(os.path.join(wdir, "culture.yaml"), "w", encoding="utf-8") as f:
+            _yaml.safe_dump({"suffix": "w", "backend": "claude", "boss": "local-boss"}, f)
+        with open(os.path.join(str(home), "server.yaml"), "w", encoding="utf-8") as f:
+            _yaml.safe_dump(
+                {
+                    "server": {"name": "local", "host": "127.0.0.1", "port": 6667},
+                    "agents": {"boss": bdir, "w": wdir},
+                },
+                f,
+            )
+        data = await (await client.get("/api/agents")).json()
+        by_nick = {a["nick"]: a for a in data["agents"]}
+        assert by_nick["local-boss"]["is_boss"] is True
+        assert by_nick["local-w"]["boss"] == "local-boss"  # groups under local-boss's team
+
+    @pytest.mark.asyncio
     async def test_pending_lists_requests(self, client, home):
         _write_request(home, "req-1", "Edit", {"file_path": "/a.py"})
         resp = await client.get("/api/pending")

@@ -75,6 +75,24 @@ body {
 
 .agent-list, .pending-list { list-style: none; margin: 0; padding: 0; }
 
+.team-header {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 4px 3px;
+  margin: 10px 0 6px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.team-header:first-child { margin-top: 0; }
+.team-name { font-weight: 600; color: var(--accent); }
+.team-count { color: var(--muted); }
+.agent-item.team-worker { margin-left: 12px; border-left: 2px solid var(--accent); }
+
 .agent-item {
   border: 1px solid var(--border);
   border-radius: 6px;
