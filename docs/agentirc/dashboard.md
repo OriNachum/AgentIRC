@@ -76,10 +76,45 @@ and `POST /api/{approve,deny,pause,resume,close,stop-all,message}`.
 All localhost JSON. `POST /api/message` takes `{nick, text}` and posts
 `@<nick> <text>` to the agent's channel.
 
+## Remote access (mobile / another machine)
+
+The dashboard is a control plane (it can approve tool calls, kill agents, and
+message agents that hold your MCP credentials), so it is **localhost-only by
+default** and its guard rejects non-loopback `Host`/`Origin`. To reach it
+remotely, do **not** flip `--unsafe-bind` — instead keep the bind on loopback and
+front it with a **private tunnel + a token**:
+
+```bash
+# 1. Run with auth (token auto-generated at ~/.culture/dashboard-token) and
+#    trust your tunnel's hostname:
+culture dashboard --auth --trusted-host mymac.tailXXXX.ts.net
+
+# 2. Publish the loopback dashboard onto your private network (example: Tailscale):
+tailscale serve --bg 8787
+```
+
+On start, `--auth` prints a one-time bootstrap URL
+(`https://<trusted-host>/?token=…`). Open it once per device: the server sets a
+`SameSite=Strict`, HttpOnly cookie, so every later request (including the SSE
+streams) is authenticated. Requests without a valid cookie get `401`; a `Host`/
+`Origin` that is neither loopback nor a `--trusted-host` gets `403`.
+
+Why this is the safe shape:
+
+- **Tailscale** (or any private tunnel) keeps the dashboard off the public
+  internet — only your own devices can route to it.
+- The **token cookie** means even a leaked URL or a compromised device on the
+  tailnet can't drive the control plane without the secret.
+- `SameSite=Strict` + the Origin allow-list keep CSRF / DNS-rebinding defenses
+  intact.
+
+`--auth-token <tok>` sets an explicit token instead of the generated one;
+`--trusted-host` is repeatable.
+
 ## Security model
 
-Same-machine, same-UID, localhost-only. Anyone who can reach the port as this
-user already has shell access and the same powers via the CLI/files — the
-dashboard adds no privilege. There is no auth token in v1; if the host is shared,
-do not run it (or front it with your own auth). Never bind a non-loopback
-interface.
+Same-machine, same-UID, localhost-only **unless** you opt into the remote-access
+setup above. Anyone who can reach the port as this user already has shell access
+and the same powers via the CLI/files — the dashboard adds no privilege locally.
+Without `--auth` there is no token (fine for pure localhost); never bind a
+non-loopback interface directly — use a private tunnel + `--auth` instead.

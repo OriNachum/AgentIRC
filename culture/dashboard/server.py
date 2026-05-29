@@ -13,10 +13,12 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import hmac
 import json
 import logging
 import os
 import re
+import secrets
 import subprocess
 import sys
 
@@ -47,8 +49,13 @@ _KEEPALIVE_SECONDS = 15
 _CHANNEL_READ_MAX = 200
 _CHANNEL_READ_DEFAULT = 50
 
-# Typed app key for the optional server-config path.
+# Typed app keys.
 _CONFIG_PATH: web.AppKey[str | None] = web.AppKey("config_path", object)  # type: ignore[arg-type]
+_AUTH_TOKEN: web.AppKey[str | None] = web.AppKey("auth_token", object)  # type: ignore[arg-type]
+_TRUSTED_HOSTS: web.AppKey[frozenset] = web.AppKey("trusted_hosts", frozenset)
+
+_AUTH_COOKIE = "culture_dash"
+_COOKIE_MAX_AGE = 30 * 24 * 3600  # 30 days — keep a phone logged in across sessions
 
 # Agent nicks are <server>-<agent>: alphanumerics + hyphens only. Validating
 # every nick that reaches a path builder (audit/daemon-log/policy/socket) closes
@@ -70,6 +77,62 @@ def _require_nick(nick: str) -> str:
     if not _valid_nick(nick):
         raise web.HTTPBadRequest(text=f"invalid nick {nick!r}")
     return nick
+
+
+# --- Auth (for remote access via a private tunnel; see docs/agentirc/dashboard.md) ---
+
+
+def default_token_path() -> str:
+    return os.path.join(culture_home(), "dashboard-token")
+
+
+def load_or_create_token(path: str) -> str:
+    """Return the dashboard token at *path*, creating a random one (0600) if absent."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            existing = handle.read().strip()
+        if existing:
+            return existing
+    except OSError:
+        pass
+    token = secrets.token_urlsafe(32)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        # Lost a create race; return the winner's token (regenerate only if the
+        # existing file is empty/corrupt).
+        with open(path, encoding="utf-8") as handle:
+            winner = handle.read().strip()
+        if winner:
+            return winner
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(token + "\n")
+    return token
+
+
+def _bare_host(value: str) -> str:
+    """Host portion of an Origin or Host header (drop scheme + port)."""
+    val = value.split("://", 1)[-1]
+    if val.startswith("["):  # [::1]:port
+        return val[1 : val.index("]")] if "]" in val else val
+    return val.split(":", 1)[0]
+
+
+def _origin_allowed(origin: str, trusted: frozenset) -> bool:
+    # A same-origin GET often omits Origin; absence isn't a CSRF vector (state
+    # changes are POSTs, which carry Origin), so an empty Origin is allowed.
+    return not origin or bool(_LOOPBACK_RE.match(origin)) or _bare_host(origin) in trusted
+
+
+def _host_allowed(host: str, trusted: frozenset) -> bool:
+    # Real browsers always send Host; a missing Host only comes from a raw client.
+    # Tolerate it only in pure-loopback mode — once a trusted host is configured
+    # (remote access), a headerless request must not slip past the host gate.
+    if not host:
+        return not trusted
+    return bool(_LOOPBACK_HOST_RE.match(host)) or _bare_host(host) in trusted
 
 
 # ---------------------------------------------------------------------------
@@ -478,27 +541,66 @@ async def _handle_policy_put(request: web.Request) -> web.Response:
 # ---------------------------------------------------------------------------
 
 
+def _token_cookie_response(request: web.Request, token: str) -> web.Response:
+    """Set the auth cookie from a ``?token=`` bootstrap, then redirect to a clean URL."""
+    resp = web.HTTPFound(request.path)
+    secure = request.secure or request.headers.get("X-Forwarded-Proto", "") == "https"
+    resp.set_cookie(
+        _AUTH_COOKIE,
+        token,
+        httponly=True,
+        samesite="Strict",
+        secure=secure,
+        max_age=_COOKIE_MAX_AGE,
+    )
+    return resp
+
+
 @web.middleware
 async def _loopback_guard(request: web.Request, handler):
-    """Reject cross-origin / non-loopback requests (anti-DNS-rebinding).
+    """Origin/Host gate + optional token auth.
 
-    A direct fetch/curl sends no Origin; a browser page sends its Origin. We
-    allow only loopback origins and a loopback Host header, so a malicious page
-    that rebinds DNS to 127.0.0.1 (sending ``Origin: http://evil.com``) cannot
-    drive the control plane.
+    DNS-rebinding defense: a browser page sends its Origin; we allow only loopback
+    origins (and a loopback Host) so a malicious page that rebinds DNS to
+    127.0.0.1 cannot drive the control plane. For remote access over a private
+    tunnel, a configured *trusted host* (e.g. the Tailscale MagicDNS name) is also
+    allowed — but only paired with a token: every request must then carry a valid
+    ``culture_dash`` cookie (seeded once via ``?token=``), so exposure is safe even
+    if the URL leaks. The cookie is ``SameSite=Strict``, which blocks CSRF.
     """
-    origin = request.headers.get("Origin", "")
-    if origin and not _LOOPBACK_RE.match(origin):
+    trusted = request.app[_TRUSTED_HOSTS]
+    if not _origin_allowed(request.headers.get("Origin", ""), trusted):
         raise web.HTTPForbidden(text="cross-origin requests are not allowed")
-    host = request.headers.get("Host", "")
-    if host and not _LOOPBACK_HOST_RE.match(host):
-        raise web.HTTPForbidden(text="non-loopback Host is not allowed")
+    if not _host_allowed(request.headers.get("Host", ""), trusted):
+        raise web.HTTPForbidden(text="host not allowed")
+
+    token = request.app[_AUTH_TOKEN]
+    if token is not None:
+        bootstrap = request.query.get("token")
+        if bootstrap is not None:
+            if not hmac.compare_digest(bootstrap, token):
+                raise web.HTTPUnauthorized(text="invalid dashboard token")
+            raise _token_cookie_response(request, token)
+        cookie = request.cookies.get(_AUTH_COOKIE, "")
+        if not (cookie and hmac.compare_digest(cookie, token)):
+            if request.path.startswith("/api"):
+                raise web.HTTPUnauthorized(text="missing or invalid dashboard token")
+            raise web.HTTPUnauthorized(
+                text="Unauthorized. Open this dashboard via the ?token=… URL "
+                "printed by `culture dashboard --auth`."
+            )
     return await handler(request)
 
 
-def build_app(config_path: str | None = None) -> web.Application:
+def build_app(
+    config_path: str | None = None,
+    auth_token: str | None = None,
+    trusted_hosts: object = None,
+) -> web.Application:
     app = web.Application(middlewares=[_loopback_guard])
     app[_CONFIG_PATH] = config_path
+    app[_AUTH_TOKEN] = auth_token
+    app[_TRUSTED_HOSTS] = frozenset(trusted_hosts or ())
     app.router.add_get("/", _handle_index)
     app.router.add_get("/api/agents", _handle_agents)
     app.router.add_get("/api/pending", _handle_pending)
@@ -523,14 +625,22 @@ def serve_dashboard(
     port: int = 8787,
     config_path: str | None = None,
     unsafe_bind: bool = False,
+    *,
+    auth_token: str | None = None,
+    trusted_hosts: object = None,
 ) -> None:
-    """Run the dashboard. Refuses a non-loopback host unless unsafe_bind is set."""
+    """Run the dashboard. Refuses a non-loopback host unless unsafe_bind is set.
+
+    For remote access, keep the bind on loopback and put a private tunnel (e.g.
+    ``tailscale serve``) in front; pass ``auth_token`` + the tunnel's hostname as
+    a trusted host. Do NOT use ``unsafe_bind`` to expose it directly.
+    """
     if host not in ("127.0.0.1", "localhost", "::1") and not unsafe_bind:
         raise ValueError(
             f"Refusing to bind dashboard to non-loopback host {host!r}. "
             "The dashboard can approve tool calls and kill agents — keep it on "
             "localhost. Pass unsafe_bind=True only if you understand the risk."
         )
-    app = build_app(config_path)
+    app = build_app(config_path, auth_token=auth_token, trusted_hosts=trusted_hosts)
     logger.info("Mission Control dashboard on http://%s:%d", host, port)
     web.run_app(app, host=host, port=port, print=None)

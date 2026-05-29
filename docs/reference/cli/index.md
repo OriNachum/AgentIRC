@@ -428,12 +428,19 @@ emergency stop-all). Localhost-only.
 ```bash
 culture dashboard                       # http://127.0.0.1:8787
 culture dashboard --port 9000
+culture dashboard --auth --trusted-host mymac.tailXXXX.ts.net   # remote access via a private tunnel
 culture dashboard --host 0.0.0.0 --unsafe-bind   # DANGEROUS: non-loopback bind
 ```
 
 Binds `127.0.0.1` only and refuses a non-loopback `--host` unless `--unsafe-bind`
 is given (the dashboard can approve tool calls and kill agents). No new
 dependency — an `aiohttp` server + a vanilla-JS page.
+
+For remote (mobile) access, keep the loopback bind and front it with a private
+tunnel: `--auth` requires a token (auto-generated at `~/.culture/dashboard-token`,
+seeded into a `SameSite=Strict` cookie via the printed `?token=…` URL) and
+`--trusted-host` allows the tunnel's hostname through the Origin/Host guard. See
+the [dashboard guide]({{ '/agentirc/dashboard/' | relative_url }}#remote-access-mobile--another-machine).
 
 ## Configuration
 

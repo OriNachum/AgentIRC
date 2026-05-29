@@ -30,10 +30,49 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         action="store_true",
         help="DANGEROUS: allow binding a non-loopback host (the dashboard can kill agents and approve tool calls)",
     )
+    p.add_argument(
+        "--auth",
+        action="store_true",
+        help="Require a token (auto-generated at ~/.culture/dashboard-token). Use for remote access.",
+    )
+    p.add_argument(
+        "--auth-token",
+        default=None,
+        help="Explicit dashboard token (implies --auth). Overrides the token file.",
+    )
+    p.add_argument(
+        "--trusted-host",
+        action="append",
+        default=None,
+        metavar="HOST",
+        help="Allow this Host/Origin in addition to loopback (e.g. your Tailscale name). Repeatable.",
+    )
 
 
 def dispatch(args: argparse.Namespace) -> None:
-    from culture.dashboard.server import serve_dashboard
+    from culture.dashboard.server import (
+        default_token_path,
+        load_or_create_token,
+        serve_dashboard,
+    )
+
+    auth_token = None
+    if args.auth_token:
+        auth_token = args.auth_token
+    elif args.auth:
+        auth_token = load_or_create_token(default_token_path())
+
+    trusted = args.trusted_host or []
+    if auth_token:
+        hosts = trusted or ["<your-trusted-host>"]
+        print("Dashboard auth is ON. Open this URL once on each device to log in:")
+        for host in hosts:
+            print(f"  https://{host}/?token={auth_token}")
+        if not trusted:
+            print(
+                "  (no --trusted-host given; add your tunnel hostname, "
+                "e.g. --trusted-host mymac.tailXXduck.ts.net)"
+            )
 
     try:
         serve_dashboard(
@@ -41,6 +80,8 @@ def dispatch(args: argparse.Namespace) -> None:
             port=args.port,
             config_path=args.config,
             unsafe_bind=args.unsafe_bind,
+            auth_token=auth_token,
+            trusted_hosts=trusted,
         )
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)

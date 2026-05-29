@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [8.11.0] - 2026-05-29
+
+### Added
+
+- **Secure remote access for the dashboard.** `culture dashboard --auth` requires
+  a token (auto-generated at `~/.culture/dashboard-token`, or set with
+  `--auth-token`) before any request is served; the token is seeded into a
+  `SameSite=Strict`, HttpOnly cookie via a one-time `?token=…` bootstrap URL
+  (printed on start), so the SSE streams and page loads all authenticate by
+  cookie. `--trusted-host HOST` (repeatable) allows a tunnel's hostname through
+  the Origin/Host guard. Intended shape: keep the loopback bind and front it with
+  a private tunnel (e.g. `tailscale serve`) so the control plane is reachable from
+  a phone without ever being exposed publicly. Auth is off by default — pure
+  localhost behavior is unchanged.
+
 ## [8.10.0] - 2026-05-29
 
 ### Added

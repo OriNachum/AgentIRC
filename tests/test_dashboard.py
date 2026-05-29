@@ -44,6 +44,17 @@ async def client(home):
         yield c
 
 
+@pytest_asyncio.fixture
+async def auth_client(home):
+    app = build_app(
+        config_path=os.path.join(str(home), "server.yaml"),
+        auth_token="s3cret",
+        trusted_hosts=["mymac.ts.net"],
+    )
+    async with TestClient(TestServer(app)) as c:
+        yield c
+
+
 class TestReadEndpoints:
     @pytest.mark.asyncio
     async def test_agents_empty(self, client):
@@ -239,6 +250,57 @@ class TestServeGuard:
     def test_refuses_non_loopback_bind(self):
         with pytest.raises(ValueError):
             serve_dashboard(host="0.0.0.0", port=8787)
+
+
+class TestAuth:
+    @pytest.mark.asyncio
+    async def test_no_token_api_401(self, auth_client):
+        resp = await auth_client.get("/api/agents")
+        assert resp.status == 401
+
+    @pytest.mark.asyncio
+    async def test_bootstrap_sets_cookie_and_redirects(self, auth_client):
+        resp = await auth_client.get("/?token=s3cret", allow_redirects=False)
+        assert resp.status == 302
+        assert "culture_dash=s3cret" in resp.headers.get("Set-Cookie", "")
+
+    @pytest.mark.asyncio
+    async def test_bad_token_401(self, auth_client):
+        resp = await auth_client.get("/?token=wrong", allow_redirects=False)
+        assert resp.status == 401
+
+    @pytest.mark.asyncio
+    async def test_valid_cookie_allows_api(self, auth_client):
+        # Bootstrap sets the cookie on the shared client jar; the next call carries it.
+        await auth_client.get("/?token=s3cret")
+        resp = await auth_client.get("/api/agents")
+        assert resp.status == 200
+
+    @pytest.mark.asyncio
+    async def test_trusted_host_allowed_with_cookie(self, auth_client):
+        await auth_client.get("/?token=s3cret")
+        resp = await auth_client.get("/api/agents", headers={"Host": "mymac.ts.net"})
+        assert resp.status == 200
+
+    @pytest.mark.asyncio
+    async def test_untrusted_host_forbidden(self, auth_client):
+        resp = await auth_client.get("/api/agents", headers={"Host": "evil.com"})
+        assert resp.status == 403
+
+    @pytest.mark.asyncio
+    async def test_auth_disabled_by_default(self, client):
+        # The plain client has no auth token → endpoints work without a cookie.
+        resp = await client.get("/api/agents")
+        assert resp.status == 200
+
+    def test_empty_host_rejected_once_trusted_configured(self):
+        # A headerless request must not bypass the host gate in remote mode.
+        from culture.dashboard.server import _host_allowed
+
+        assert _host_allowed("", frozenset()) is True  # pure-loopback: tolerated
+        assert _host_allowed("", frozenset(["mymac.ts.net"])) is False  # remote: rejected
+        assert _host_allowed("mymac.ts.net", frozenset(["mymac.ts.net"])) is True
+        assert _host_allowed("evil.com", frozenset(["mymac.ts.net"])) is False
 
 
 class TestSecurity:
