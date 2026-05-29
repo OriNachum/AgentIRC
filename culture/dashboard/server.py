@@ -183,16 +183,50 @@ def _agent_state(nick: str) -> str:
     return "stopped"
 
 
-def _is_idle(nick: str, state: str) -> bool:
-    """A running agent that has produced no turns at all (empty/absent audit) —
-    spawned but never engaged. The dashboard badges this so a worker that's doing
-    nothing outs itself regardless of what its boss reports."""
-    if state != "running":
+def _daemon_logged_idle(nick: str) -> bool:
+    """True if the daemon recorded an ``idle_warning`` not superseded by a later
+    restart (``agent_start``) — i.e. the daemon's authoritative idle decision."""
+    path = daemon_log_path_for(nick)
+    try:
+        with open(path, "rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            handle.seek(max(0, size - 8192))
+            tail = handle.read().decode("utf-8", "replace")
+    except OSError:
+        return False
+    seen_idle = False
+    for line in tail.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            action = json.loads(line).get("action", "")
+        except json.JSONDecodeError:
+            continue
+        if action == "idle_warning":
+            seen_idle = True
+        elif action == "agent_start":
+            seen_idle = False  # a (re)start begins a fresh idle evaluation
+    return seen_idle
+
+
+def _is_idle(nick: str, state: str, boss: str) -> bool:
+    """Reflect the daemon's authoritative idle decision: a running, boss-owned
+    worker that has produced no turns and whose daemon recorded an idle_warning.
+
+    Gating on ``boss`` (so bosses/standalone agents aren't flagged) and on the
+    daemon's own signal (not a bare audit-size guess) avoids false positives at
+    startup (the daemon waits the grace window) and on a rotated/truncated audit.
+    """
+    if state != "running" or not boss:
         return False
     try:
-        return os.path.getsize(audit_path_for(nick)) == 0
+        if os.path.getsize(audit_path_for(nick)) > 0:
+            return False  # has engaged
     except OSError:
-        return True  # no audit file yet → no activity
+        pass  # no audit file → possibly idle; defer to the daemon's signal
+    return _daemon_logged_idle(nick)
 
 
 def _config_path_or_default(config_path: str | None) -> str:
@@ -239,7 +273,7 @@ def list_agents(config_path: str | None = None) -> list[dict]:
                 "last_action": _last_action(nick),
                 "is_boss": "boss" in (getattr(agent, "tags", []) or []),
                 "boss": getattr(agent, "boss", "") or "",
-                "idle": _is_idle(nick, state),
+                "idle": _is_idle(nick, state, getattr(agent, "boss", "") or ""),
             }
         )
     return rows

@@ -142,12 +142,19 @@ conversing, not by approving individual tool calls.
 
 A worker that comes up but never produces a turn within ~90s (spawned into the
 wrong channel, never briefed, etc.) would otherwise sit idle while you believe
-it's working. The worker daemon detects "never engaged" and **DMs you an
+it's working. The worker daemon detects "never triggered" and **DMs you an
 `[idle]` notice** (and records an `idle_warning` in its daemon-log), so the truth
 is pushed into your loop — re-drive or re-spawn it rather than reporting it live.
 The [dashboard](dashboard.md) also badges such a worker `IDLE`. Treat a worker as
 working only once you've seen real activity (`culture boss audit <name>`), never
 from the assumption that spawn/brief succeeded.
+
+A worker that *was* briefed but is still grinding on a slow first turn (extended
+thinking, a long first tool call) is **not** flagged — only one that was never
+triggered. **Claude-only:** like the broker and context-watch, idle self-reporting
+lives in the Claude daemon. This covers every boss-owned worker because
+`culture boss spawn` always creates a Claude worker; a non-Claude agent
+hand-placed under a boss (audit-only) will not self-report idleness.
 
 ## Multiple teams
 

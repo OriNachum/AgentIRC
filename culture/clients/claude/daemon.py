@@ -422,12 +422,19 @@ class AgentDaemon:
             "agent_start", model=self.agent.model, directory=self.agent.directory
         )
         # Arm the idle watchdog for boss-owned workers (the ones a boss expects to
-        # be working). It fires once if no turn happens within the grace window.
+        # be working). It fires once if the worker is never even triggered within
+        # the grace window. Re-arming (crash-restart) starts a fresh evaluation:
+        # cancel any prior watchdog and reset engagement/activation so a worker
+        # that engaged-then-crashed-then-went-idle is re-detected.
         if _boss_nick(self.agent):
+            if self._idle_task is not None:
+                self._idle_task.cancel()
+            self._engaged = False
+            self._last_activation = None
             self._idle_task = asyncio.create_task(self._idle_watchdog())
 
     async def _idle_watchdog(self) -> None:
-        """If a boss-owned worker never produces a turn within the grace window,
+        """If a boss-owned worker is never triggered within the grace window,
         record it and DM the boss — so an idle/mis-briefed worker surfaces itself
         instead of the boss falsely believing it's working."""
         try:
@@ -435,6 +442,11 @@ class AgentDaemon:
         except asyncio.CancelledError:
             return
         if self._engaged or self._paused or self._agent_runner is None:
+            return
+        # A worker that WAS triggered (mentioned/briefed) but hasn't finished its
+        # first turn yet (slow model, extended thinking, long first tool call) is
+        # busy, not idle — only flag one that was never even activated.
+        if self._last_activation is not None:
             return
         boss = _boss_nick(self.agent)
         await self._daemon_log.record("idle_warning", detail={"since_seconds": IDLE_GRACE_SECONDS})

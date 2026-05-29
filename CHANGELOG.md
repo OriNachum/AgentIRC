@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [8.17.1] - 2026-05-29
+
+### Fixed
+
+Closing residuals an adversarial re-verification found in the 8.17.0 idle watchdog:
+
+- **No false idle for a busy worker.** The daemon only flags a worker that was
+  *never triggered* (`_last_activation is None`) — a worker briefed and grinding
+  on a slow first turn (extended thinking, long first tool call > grace window)
+  is no longer sent a spurious `[idle]` DM telling the boss to re-drive it.
+- **Restart re-evaluates idle.** Re-arming the watchdog (crash-restart) now resets
+  engagement/activation and cancels the prior watchdog task, so a worker that
+  engaged → crashed → restarted → went idle is re-detected (and no orphaned task
+  can fire a stale DM).
+- **Dashboard `IDLE` badge now mirrors the daemon's decision.** `_is_idle` is
+  gated on boss-ownership and the daemon's recorded `idle_warning` (cleared by a
+  later restart), instead of guessing from audit size — so it no longer
+  false-flags a freshly-started worker (startup window), a boss/standalone agent,
+  or a worker whose audit was rotated/truncated.
+- **Docs:** `boss-agent.md` now discloses idle self-reporting is Claude-only
+  (like the broker/context-watch) — every boss-owned worker is Claude, but a
+  hand-placed non-Claude worker won't self-report.
+
 ## [8.17.0] - 2026-05-29
 
 ### Added

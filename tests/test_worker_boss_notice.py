@@ -80,6 +80,20 @@ class TestIdleWatchdog:
         d._transport.send_privmsg.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_no_dm_when_activated_but_slow_first_turn(self, tmp_path, monkeypatch):
+        # A worker that WAS triggered/briefed but hasn't finished a slow first turn
+        # (extended thinking / long first tool call) must NOT be flagged idle.
+        monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
+        monkeypatch.setattr(daemon_mod, "IDLE_GRACE_SECONDS", 0)
+        d = _daemon(boss="local-boss")
+        d._transport = AsyncMock()
+        d._agent_runner = AsyncMock()
+        d._engaged = False
+        d._last_activation = 12345.0  # was activated (mentioned/briefed), still working
+        await d._idle_watchdog()
+        d._transport.send_privmsg.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_no_dm_when_paused(self, tmp_path, monkeypatch):
         monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
         monkeypatch.setattr(daemon_mod, "IDLE_GRACE_SECONDS", 0)
