@@ -53,10 +53,14 @@ for the boss.
 ## Boss workflow
 
 ```bash
-daemon-log.sh <name> [limit]   # tail + pretty-print (default limit 30)
+culture boss log <name> [--limit N]   # tail + pretty-print (default limit 30)
 ```
 
-`status.sh` also prints the most recent action per supervised helper.
+`culture boss status` also surfaces supervised workers and their pending-perm
+count. The [Mission Control dashboard](dashboard.md) streams the action log live.
+
+> **Legacy:** the out-of-repo `daemon-log.sh` / `status.sh` bash scripts are
+> superseded by the `culture boss` CLI + dashboard.
 
 ## Writing semantics
 

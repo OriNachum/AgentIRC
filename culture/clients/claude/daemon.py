@@ -530,7 +530,7 @@ class AgentDaemon:
         boss. DMs the owning boss (``self.agent.boss``) so the boss's activation
         handler fires and it can approve/deny. If no boss is configured (the
         human-supervised case from PR #411) we post nothing — the human finds the
-        request via ``pending-perms.sh``.
+        request via ``culture boss pending`` or the Mission Control dashboard.
         """
         boss = _boss_nick(self.agent)
         if not boss or self._transport is None:

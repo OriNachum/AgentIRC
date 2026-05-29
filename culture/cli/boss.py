@@ -26,6 +26,7 @@ from culture.clients._daemon_log import daemon_log_path_for
 from culture.clients._perm_broker import (
     DecisionExistsError,
     InvalidRequestIdError,
+    cleanup_stale,
     culture_home,
     has_policy_file,
     is_above_ceiling,
@@ -41,7 +42,7 @@ from .shared.ipc import agent_socket_path, ipc_request
 
 NAME = "boss"
 
-_ALL_CMDS = "init|spawn|brief|read|pending|approve|deny|audit|log|status|close"
+_ALL_CMDS = "init|spawn|brief|read|pending|approve|deny|audit|log|status|close|cleanup"
 
 _MANAGER_PROMPT = """\
 You are {nick}, a manager agent on the culture mesh. A human briefs you in your
@@ -119,6 +120,11 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     close_p = sub.add_parser("close", help="Stop a worker daemon")
     close_p.add_argument("name", help="Worker suffix")
 
+    cleanup_p = sub.add_parser(
+        "cleanup", help="GC stale permission requests (dead helpers) + orphan decisions"
+    )
+    cleanup_p.add_argument("--config", default=DEFAULT_CONFIG)
+
 
 def dispatch(args: argparse.Namespace) -> None:
     if not getattr(args, "boss_command", None):
@@ -136,6 +142,7 @@ def dispatch(args: argparse.Namespace) -> None:
         "log": _cmd_log,
         "status": _cmd_status,
         "close": _cmd_close,
+        "cleanup": _cmd_cleanup,
     }
     handler = handlers.get(args.boss_command)
     if not handler:
@@ -250,8 +257,9 @@ def _cmd_approve(args: argparse.Namespace) -> None:
     if is_above_ceiling(tool, req.get("input", {}), boss):
         print(
             f"REFUSED: {tool} is above your grant ceiling. Do not retry — escalate "
-            f"to your human in your boss channel and let them run "
-            f"`approve.sh {args.id}` (or `culture boss` with a widened ceiling).",
+            f"to your human in your boss channel and let them approve request "
+            f"{args.id} from the Mission Control dashboard (the human is the top "
+            f"authority and can grant above-ceiling tools).",
             file=sys.stderr,
         )
         sys.exit(2)
@@ -353,8 +361,8 @@ def _cmd_spawn(args: argparse.Namespace) -> None:
     cwd = args.cwd or os.path.join(culture_home(), "helpers", name)
     os.makedirs(cwd, exist_ok=True)
 
-    # Create + start the worker via the agent CLI (same operations as
-    # spawn-helper.sh), then seed its policy and record its boss.
+    # Create + start the worker via the agent CLI, then seed its policy and
+    # record its boss.
     create = subprocess.run(
         [
             sys.executable,
@@ -410,6 +418,23 @@ def _cmd_close(args: argparse.Namespace) -> None:
     worker_nick = f"{_server_of(_boss_nick())}-{_require_worker_suffix(args.name)}"
     subprocess.run([sys.executable, "-m", "culture", "agent", "stop", worker_nick], check=False)
     print(f"closed {worker_nick}")
+
+
+def _cmd_cleanup(args: argparse.Namespace) -> None:
+    from culture.config import load_config_or_default
+    from culture.pidfile import is_process_alive, read_pid
+
+    config = load_config_or_default(args.config)
+    running = {
+        a.nick
+        for a in config.agents
+        if (pid := read_pid(f"agent-{a.nick}")) and is_process_alive(pid)
+    }
+    result = cleanup_stale(running)
+    print(
+        f"cleanup: removed {result['stale_requests']} stale request(s), "
+        f"{result['orphan_decisions']} orphan decision(s)."
+    )
 
 
 def _cmd_init(args: argparse.Namespace) -> None:

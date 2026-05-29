@@ -69,10 +69,14 @@ need no change.
 ## Visibility
 
 ```bash
-context-status.sh            # last-known context % per helper
-context-status.sh <name>     # one helper
-daemon-log.sh <name>         # full action log incl. handoff_written / compact / handoff_reminder
+culture boss log <name>      # action log incl. handoff_written / compact / handoff_reminder
 ```
+
+The [Mission Control dashboard](dashboard.md) streams each worker's context
+watermark live.
+
+> **Legacy:** the out-of-repo `context-status.sh` / `daemon-log.sh` bash scripts
+> are superseded by the `culture boss` CLI + dashboard.
 
 ## Backend support
 

@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [8.9.1] - 2026-05-29
+
+### Added
+
+- `culture boss cleanup` — garbage-collects stale permission requests (queued by a
+  worker that is no longer running) and orphan decision files (a decision left
+  without a matching request). In-repo replacement for the out-of-repo
+  `cleanup-stale-perms.sh`, so the boss can recover a clean queue after closing
+  workers.
+
+### Changed
+
+- **Single source of truth for boss tooling.** The in-repo `culture boss` CLI +
+  `culture dashboard` are now the canonical boss/permission surface. Living docs
+  (`docs/agentirc/helper-permissions.md`, `helper-daemon-log.md`,
+  `helper-context-handoff.md`, `boss-agent.md`, `docs/reference/cli/index.md`) and
+  the `culture boss approve` above-ceiling escalation message now point at the CLI
+  and the dashboard instead of the legacy out-of-repo bash scripts
+  (`approve.sh`/`pending-perms.sh`/etc.), which are demoted to legacy.
+
 ## [8.9.0] - 2026-05-29
 
 ### Added

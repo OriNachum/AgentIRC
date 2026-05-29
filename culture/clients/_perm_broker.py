@@ -34,10 +34,11 @@ logger = logging.getLogger(__name__)
 # Poll cadence while awaiting a decision file.
 _POLL_INTERVAL_SECONDS = 0.25
 
-# Default permission policy seeded by spawn-helper.sh when a helper has no
-# existing perm-policy/<nick>.yaml.  Mirrors the spec's "pre-seeded safe-read
-# defaults".  Note: ``require_approval`` is informational; anything that does
-# not match ``auto_allow`` or ``auto_deny`` falls through to the boss anyway.
+# Default permission policy seeded by ``culture boss spawn`` (seed_helper_policy)
+# when a helper has no existing perm-policy/<nick>.yaml.  Mirrors the spec's
+# "pre-seeded safe-read defaults".  Note: ``require_approval`` is informational;
+# anything that does not match ``auto_allow`` or ``auto_deny`` falls through to
+# the boss anyway.
 _BASH_SAFE_READ_REGEX = (
     r"^(ls|cat|head|tail|wc|file|stat|pwd|which|rg|grep|find|tree|"
     r"git (status|log|diff|blame|show)|gh (.* )?(list|view))(\s|$)"
@@ -387,6 +388,52 @@ def list_pending() -> list[dict[str, Any]]:
         except (OSError, json.JSONDecodeError):
             continue
     return out
+
+
+def cleanup_stale(running_nicks: set[str]) -> dict[str, int]:
+    """GC permission-queue requests whose helper isn't running + orphan decisions.
+
+    A request from a dead helper lingers forever (no one consumes the verdict);
+    a decision with no matching queue file is an orphan. ``running_nicks`` is the
+    set of currently-alive agent nicks (the caller determines liveness). Returns
+    ``{"stale_requests": n, "orphan_decisions": m}``. Pure I/O — no daemon needed.
+    """
+    queue_dir = _queue_dir()
+    decisions_dir = _decisions_dir()
+    stale = 0
+    orphans = 0
+    try:
+        queue_names = [n for n in os.listdir(queue_dir) if n.endswith(".json")]
+    except OSError:
+        queue_names = []
+    for name in queue_names:
+        path = os.path.join(queue_dir, name)
+        try:
+            with open(path, encoding="utf-8") as handle:
+                nick = json.load(handle).get("helper_nick", "")
+        except (OSError, json.JSONDecodeError):
+            continue
+        # An empty/absent helper_nick is unattributable; skip rather than risk
+        # deleting a request we can't prove is dead (the broker always sets it).
+        if nick and nick not in running_nicks:
+            _best_effort_unlink_path(path)
+            stale += 1
+    try:
+        decision_names = [n for n in os.listdir(decisions_dir) if n.endswith(".json")]
+    except OSError:
+        decision_names = []
+    for name in decision_names:
+        if not os.path.exists(os.path.join(queue_dir, name)):
+            _best_effort_unlink_path(os.path.join(decisions_dir, name))
+            orphans += 1
+    return {"stale_requests": stale, "orphan_decisions": orphans}
+
+
+def _best_effort_unlink_path(path: str) -> None:
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
 
 
 def read_request(request_id: str) -> dict[str, Any] | None:

@@ -32,12 +32,12 @@ All under `CULTURE_HOME` (default `~/.culture`):
 | `perm-queue/<id>.json` | A pending request the helper wrote and is blocking on. |
 | `perm-decisions/<id>.json` | The boss's verdict; the helper consumes it and unblocks. |
 
-`CULTURE_HOME` is honored by both the broker (Python) and the boss scripts. Set
-it consistently if you override it.
+`CULTURE_HOME` is honored by the broker (Python), the `culture boss` CLI, and the
+Mission Control dashboard. Set it consistently if you override it.
 
 ## Policy file
 
-`spawn-helper.sh` seeds a default policy with safe-read auto-allows:
+`culture boss spawn <name>` seeds a default policy with safe-read auto-allows:
 
 ```yaml
 auto_allow:
@@ -62,8 +62,9 @@ otherwise by exact string. `input_regex` (optional) is `re.search` against a
 per-tool projection — `Bash`→command, `Edit`/`Write`→file_path, `mcp__*`→JSON
 of the input. Anything not matched falls through to the boss.
 
-The policy is re-read on every gate call (mtime-checked), so `approve.sh … always`
-takes effect immediately, including after a session resume.
+The policy is re-read on every gate call (mtime-checked), so
+`culture boss approve … --always` takes effect immediately, including after a
+session resume.
 
 ## Lifecycle
 
@@ -74,36 +75,44 @@ takes effect immediately, including after a session resume.
 4. When the boss writes a decision, the helper reads it, deletes both files, and
    returns allow/deny to the SDK. `scope: always` first appends a sticky rule to
    the policy file.
-5. If the helper task is cancelled mid-wait (e.g. `close-helper.sh`), the broker
-   deletes its in-flight request file and re-raises the cancellation.
+5. If the helper task is cancelled mid-wait (e.g. `culture boss close <name>`),
+   the broker deletes its in-flight request file and re-raises the cancellation.
 
 ## Boss workflow
 
+The boss agent resolves requests with the `culture boss` CLI:
+
 ```bash
-pending-perms.sh                 # list all pending requests across helpers
-pending-perms.sh --full <id>     # full request JSON for one id
-approve.sh <id>                  # one-shot allow
-approve.sh <id> always           # sticky allow for this exact tool name
-approve.sh <id> always 'Bash'    # sticky allow for a tool pattern
-deny.sh <id> [reason...]         # deny; reason returned to the model
-watch-perms.sh                   # live tail of new requests (side terminal)
-policy.sh list <name>            # inspect a helper's policy
-policy.sh allow|deny <name> <tool> [input_regex]
-policy.sh reset <name>           # reseed default policy
-cleanup-stale-perms.sh           # GC requests whose helper is gone + orphan decisions
+culture boss pending                     # list pending requests across workers
+culture boss approve <id>                # one-shot allow
+culture boss approve <id> --always       # sticky allow for this exact tool name
+culture boss approve <id> --always --pattern 'Bash'   # sticky allow for a tool pattern
+culture boss deny <id> [reason...]       # deny; reason returned to the model
+culture boss status                      # workers + pending-perm count
+culture boss cleanup                     # GC requests whose helper is gone + orphan decisions
 ```
 
-`status.sh` and `read-replies.sh` surface a `[N pending perms]` count so the boss
-notices requests during its normal flow.
+`culture boss approve` is bounded by the boss's **grant ceiling** — high-risk
+tools (MCP sends, destructive Bash) are refused and escalate to the human. The
+human is the top authority and approves/denies (and edits per-worker policy)
+from the [Mission Control dashboard](dashboard.md), which can grant even
+above-ceiling tools.
+
+> **Legacy:** earlier releases drove this flow with bash scripts in
+> `~/.claude/skills/culture-boss/scripts/` (`pending-perms.sh`, `approve.sh`,
+> `deny.sh`, `watch-perms.sh`, `policy.sh`, `cleanup-stale-perms.sh`). Those are
+> superseded by the in-repo `culture boss` CLI + dashboard, which are the single
+> source of truth.
 
 ## Atomicity and races
 
 - Decision and request files are written via tempfile + `os.replace` — readers
   never see a partial file.
-- `approve.sh`/`deny.sh` use `O_CREAT | O_EXCL` on the destination so two
-  concurrent boss invocations can't both decide one request (first writer wins).
+- The broker's `write_decision` (used by `culture boss approve`/`deny` and the
+  dashboard) opens the destination with `O_CREAT | O_EXCL` so two concurrent
+  decisions can't both land for one request (first writer wins).
 - A decision written after the helper already consumed its verdict becomes an
-  orphan; `cleanup-stale-perms.sh` garbage-collects orphans and requests whose
+  orphan; `culture boss cleanup` garbage-collects orphans and requests whose
   helper daemon is no longer running.
 
 > **Known limitation:** `os.replace` is atomic on local POSIX filesystems

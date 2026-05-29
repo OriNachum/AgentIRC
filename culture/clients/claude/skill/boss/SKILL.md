@@ -43,7 +43,12 @@ culture boss audit <name> [--limit N]    # worker's agent-message log (verify cl
 culture boss log   <name> [--limit N]    # worker's daemon-action log
 culture boss status                      # workers + pending perms
 culture boss close <name>                # stop a worker daemon
+culture boss cleanup                     # GC stale perm requests (dead workers) + orphan decisions
 ```
+
+Run `culture boss cleanup` if `pending` shows requests from workers you've
+already closed — it drops queue entries whose helper is no longer running and any
+decision files left without a matching request.
 
 ## Grant ceiling (you are not the final authority on risky actions)
 

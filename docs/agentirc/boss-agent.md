@@ -75,7 +75,8 @@ The boss can `--always`-grant routine tools (Edit/Write/Bash) freely, but a
 denylist of high-risk actions — external MCP sends (Gmail/Drive/…), destructive
 Bash (`rm -rf`, `git push`, `kubectl`, …) — is **above its grant ceiling**.
 `culture boss approve` refuses those (exit 2) and tells the boss to escalate; you
-grant them with the human `approve.sh <id>` from the [permission broker](helper-permissions.md).
+grant them from the [Mission Control dashboard](dashboard.md), where the human is
+the top authority and can approve even above-ceiling tools.
 The ceiling lives at `~/.culture/boss-policy/<boss-nick>.yaml` and is editable.
 
 > **This is a cooperative guardrail, not a hard boundary.** The boss is an LLM

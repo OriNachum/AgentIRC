@@ -411,11 +411,13 @@ culture boss audit <name> [--limit N]    # worker's agent-message log (verify cl
 culture boss log   <name> [--limit N]    # worker's daemon-action log
 culture boss status                      # workers + pending-perm count
 culture boss close <name>                # stop a worker daemon
+culture boss cleanup                     # GC stale perm requests (dead workers) + orphan decisions
 ```
 
 `culture boss approve` refuses tools above the boss's **grant ceiling**
 (`~/.culture/boss-policy/<nick>.yaml`) — high-risk actions (MCP sends,
-destructive Bash) escalate to the human via `approve.sh`.
+destructive Bash) escalate to the human, who is the top authority and can grant
+them from the [Mission Control dashboard]({{ '/agentirc/dashboard/' | relative_url }}).
 
 ## Dashboard
 

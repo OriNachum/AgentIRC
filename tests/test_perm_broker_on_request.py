@@ -72,6 +72,33 @@ class TestRequestIdValidation:
         assert read_request("../../etc/passwd") is None
 
 
+class TestCleanupStale:
+    def test_removes_dead_helper_requests_and_orphan_decisions(self, culture_root):
+        from culture.clients._perm_broker import cleanup_stale
+
+        qdir = os.path.join(str(culture_root), "perm-queue")
+        ddir = os.path.join(str(culture_root), "perm-decisions")
+        os.makedirs(qdir, exist_ok=True)
+        os.makedirs(ddir, exist_ok=True)
+        # alive helper request (keep), dead helper request (stale), orphan decision.
+        for rid, nick in (("req-alive", "local-alive"), ("req-dead", "local-dead")):
+            with open(os.path.join(qdir, f"{rid}.json"), "w", encoding="utf-8") as f:
+                json.dump({"id": rid, "helper_nick": nick, "tool_name": "Edit"}, f)
+        with open(os.path.join(ddir, "req-orphan.json"), "w", encoding="utf-8") as f:
+            json.dump({"id": "req-orphan", "verdict": "allow"}, f)
+
+        result = cleanup_stale(running_nicks={"local-alive"})
+        assert result == {"stale_requests": 1, "orphan_decisions": 1}
+        assert os.path.exists(os.path.join(qdir, "req-alive.json"))
+        assert not os.path.exists(os.path.join(qdir, "req-dead.json"))
+        assert not os.path.exists(os.path.join(ddir, "req-orphan.json"))
+
+    def test_empty_dirs_no_error(self, culture_root):
+        from culture.clients._perm_broker import cleanup_stale
+
+        assert cleanup_stale(running_nicks=set()) == {"stale_requests": 0, "orphan_decisions": 0}
+
+
 class TestListPendingExcludesDecided:
     def test_decided_request_excluded_from_pending(self, culture_root):
         from culture.clients._perm_broker import list_pending

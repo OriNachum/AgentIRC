@@ -178,6 +178,22 @@ class TestPending:
         assert "Edit" in res.stdout and "Bash" in res.stdout
 
 
+class TestCleanup:
+    def test_cleanup_removes_dead_helper_request_and_orphan_decision(self, home):
+        # No server manifest → no running agents → every queued request is stale.
+        _write_request(home, "req-dead", "Edit", {"file_path": "/a.py"}, nick="local-ghost")
+        ddir = os.path.join(str(home), "perm-decisions")
+        os.makedirs(ddir, exist_ok=True)
+        with open(os.path.join(ddir, "req-orphan.json"), "w", encoding="utf-8") as f:
+            json.dump({"id": "req-orphan", "verdict": "allow"}, f)
+
+        res = _run(["cleanup", "--config", os.path.join(str(home), "no-server.yaml")], home)
+        assert res.returncode == 0, res.stderr
+        assert "1 stale request" in res.stdout and "1 orphan decision" in res.stdout
+        assert not os.path.exists(os.path.join(str(home), "perm-queue", "req-dead.json"))
+        assert not os.path.exists(os.path.join(ddir, "req-orphan.json"))
+
+
 class TestInit:
     def test_init_creates_boss_identity(self, home):
         res = _run(["init", "--nick", "boss", "--server", "local", "--channel", "#boss"], home)
