@@ -81,12 +81,21 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     init_p.add_argument("--server", default=None, help="Server name (default: from config)")
     init_p.add_argument("--channel", default="#boss", help="Boss channel (default: #boss)")
     init_p.add_argument("--cwd", default=None, help="Boss working directory")
+    init_p.add_argument(
+        "--model",
+        default="",
+        help="Boss model (workers inherit it). Set this to your own model so the "
+        "team runs on the parent model.",
+    )
     init_p.add_argument("--config", default=DEFAULT_CONFIG)
 
     spawn_p = sub.add_parser("spawn", help="Create + start a worker under this boss")
     spawn_p.add_argument("name", help="Worker suffix (becomes <server>-<name>)")
     spawn_p.add_argument("--cwd", default=None, help="Worker working directory")
     spawn_p.add_argument("--server", default=None)
+    spawn_p.add_argument(
+        "--model", default="", help="Worker model (default: inherit the boss's model)"
+    )
     spawn_p.add_argument("--config", default=DEFAULT_CONFIG)
 
     brief_p = sub.add_parser("brief", help="Send a task to a worker's channel")
@@ -462,7 +471,9 @@ def _cmd_spawn(args: argparse.Namespace) -> None:
         print(f"Error creating worker: {create.stderr or create.stdout}", file=sys.stderr)
         sys.exit(1)
     seed_helper_policy(worker_nick)
-    _record_worker_boss(cwd, name, boss)
+    # A worker inherits its parent (boss)'s model unless one is given explicitly.
+    model = args.model or _boss_model()
+    _record_worker_boss(cwd, name, boss, model=model)
     subprocess.run([sys.executable, "-m", "culture", "agent", "register", cwd], check=False)
     subprocess.run([sys.executable, "-m", "culture", "agent", "start", worker_nick], check=False)
     # Boss joins the worker's task channel so it sees replies + perm DMs.
@@ -470,8 +481,22 @@ def _cmd_spawn(args: argparse.Namespace) -> None:
     print(f"spawned {worker_nick} (boss={boss}, cwd={cwd}); channel {_task_channel(name)}")
 
 
-def _record_worker_boss(cwd: str, suffix: str, boss: str) -> None:
-    """Write boss/suffix/channels into the worker's culture.yaml."""
+def _boss_model() -> str:
+    """The calling boss's own model from the manifest ('' if unknown)."""
+    server_yaml = os.path.join(culture_home(), "server.yaml")
+    try:
+        config = load_config_or_default(server_yaml, fallback=server_yaml)
+    except Exception:  # noqa: BLE001 — unreadable manifest → no inherited model
+        return ""
+    boss = _boss_nick()
+    for agent in config.agents:
+        if agent.nick == boss:
+            return getattr(agent, "model", "") or ""
+    return ""
+
+
+def _record_worker_boss(cwd: str, suffix: str, boss: str, model: str = "") -> None:
+    """Write boss/suffix/channels (and model, if given) into the worker's culture.yaml."""
     import yaml
 
     path = os.path.join(cwd, "culture.yaml")
@@ -486,6 +511,8 @@ def _record_worker_boss(cwd: str, suffix: str, boss: str) -> None:
     data.setdefault("backend", "claude")
     data["boss"] = boss
     data["channels"] = ["#team", _task_channel(suffix)]
+    if model:
+        data["model"] = model
     with open(path, "w", encoding="utf-8") as handle:
         yaml.safe_dump(data, handle, sort_keys=False)
 
@@ -537,7 +564,7 @@ def _cmd_init(args: argparse.Namespace) -> None:
         print(f"warning: removed stray perm-policy for boss {nick}", file=sys.stderr)
 
     write_default_boss_ceiling(nick)
-    _write_boss_yaml(cwd, args.nick, nick, args.channel)
+    _write_boss_yaml(cwd, args.nick, nick, args.channel, model=args.model)
     _copy_boss_skill(cwd)
     subprocess.run([sys.executable, "-m", "culture", "agent", "register", cwd], check=False)
     print(
@@ -552,7 +579,7 @@ def _perm_policy_path(nick: str) -> str:
     return policy_path_for(nick)
 
 
-def _write_boss_yaml(cwd: str, suffix: str, nick: str, channel: str) -> None:
+def _write_boss_yaml(cwd: str, suffix: str, nick: str, channel: str, model: str = "") -> None:
     import yaml
 
     path = os.path.join(cwd, "culture.yaml")
@@ -563,6 +590,8 @@ def _write_boss_yaml(cwd: str, suffix: str, nick: str, channel: str) -> None:
         "system_prompt": _MANAGER_PROMPT.format(nick=nick, channel=channel),
         "tags": ["boss"],
     }
+    if model:
+        data["model"] = model
     with open(path, "w", encoding="utf-8") as handle:
         yaml.safe_dump(data, handle, sort_keys=False)
 

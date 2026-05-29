@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [8.14.0] - 2026-05-29
+
+### Added
+
+- **Model inheritance for spawned workers.** `culture boss spawn` now writes the
+  **boss's model** into the worker's `culture.yaml` by default, so a worker runs on
+  its parent's model instead of the hardcoded agent default. `culture boss spawn
+  --model <m>` overrides per worker; `culture boss init --model <m>` sets the
+  boss's own model (its parent — the human/session — chooses it) so the whole team
+  runs on the parent's model. Any parent may set a child's model; the default is
+  the parent's. No model anywhere → the existing agent default still applies (so
+  no change for standalone agents).
+
 ## [8.13.0] - 2026-05-29
 
 ### Changed

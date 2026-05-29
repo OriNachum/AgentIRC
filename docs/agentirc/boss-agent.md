@@ -85,6 +85,16 @@ The ceiling lives at `~/.culture/boss-policy/<boss-nick>.yaml` and is editable.
 > behavior (the tool refuses + the system prompt says to escalate); it does not
 > defend against an adversarial or malfunctioning boss. Don't over-trust it.
 
+## Model inheritance
+
+A spawned worker runs on its **parent (boss)'s model** by default — `culture boss
+spawn` writes the boss's model into the worker's `culture.yaml` unless you pass
+`--model`. The boss's own model is whatever its parent (the human/session) gives
+it via `culture boss init --model <model>`; set that to your own model so the
+whole team runs on the parent's model. Any parent may override a child's model;
+the default is simply the parent's. (If no model is set anywhere, the agent
+default applies.)
+
 ## Close authority (only a parent closes its children)
 
 Agent shutdown follows the spawn hierarchy — **no agent can close itself, and a

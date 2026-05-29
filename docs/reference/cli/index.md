@@ -400,8 +400,8 @@ agents. See [Boss Agent Orchestration]({{ '/agentirc/boss-agent/' | relative_url
 The boss's own nick comes from `CULTURE_NICK` (set by the daemon).
 
 ```bash
-culture boss init [--nick boss] [--channel '#boss'] [--cwd PATH]   # create the boss identity
-culture boss spawn <name> [--cwd PATH]   # create + start a worker under this boss
+culture boss init [--nick boss] [--channel '#boss'] [--cwd PATH] [--model M]   # create the boss identity
+culture boss spawn <name> [--cwd PATH] [--model M]   # create + start a worker (inherits the boss's model by default)
 culture boss brief <name> "<task>"       # send a task (refuses if the worker isn't in its #task channel)
 culture boss read  <name> [--limit N]    # read a worker's recent replies
 culture boss pending                     # list pending worker permission requests
@@ -413,6 +413,11 @@ culture boss status                      # workers + pending-perm count
 culture boss close <name>                # stop a worker daemon
 culture boss cleanup                     # GC stale perm requests (dead workers) + orphan decisions
 ```
+
+**Model inheritance:** a spawned worker uses the **boss's model** by default
+(`culture boss spawn --model` overrides per worker). Set the boss's own model with
+`culture boss init --model <your-model>` so the whole team runs on the parent's
+model; without it the boss falls back to the agent default.
 
 `culture boss approve` refuses tools above the boss's **grant ceiling**
 (`~/.culture/boss-policy/<nick>.yaml`) — high-risk actions (MCP sends,
