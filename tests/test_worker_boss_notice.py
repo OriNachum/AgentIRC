@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock  # noqa: E402
 
 import pytest  # noqa: E402
 
+import culture.clients.claude.daemon as daemon_mod  # noqa: E402
 from culture.clients.claude.config import AgentConfig, DaemonConfig  # noqa: E402
 from culture.clients.claude.daemon import AgentDaemon  # noqa: E402
 
@@ -50,6 +51,54 @@ class TestOnPermRequest:
         d._transport = None
         # Must not raise even though there's a boss but no transport yet.
         await d._on_perm_request({"id": "req-3", "tool_name": "Bash", "input": {"command": "ls"}})
+
+
+class TestIdleWatchdog:
+    @pytest.mark.asyncio
+    async def test_dms_boss_when_never_engaged(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
+        monkeypatch.setattr(daemon_mod, "IDLE_GRACE_SECONDS", 0)
+        d = _daemon(boss="local-boss")
+        d._transport = AsyncMock()
+        d._agent_runner = AsyncMock()  # simulate a running runner
+        d._engaged = False
+        await d._idle_watchdog()
+        d._transport.send_privmsg.assert_awaited_once()
+        target, text = d._transport.send_privmsg.await_args.args
+        assert target == "local-boss"
+        assert "idle" in text.lower() and "local-worker" in text
+
+    @pytest.mark.asyncio
+    async def test_no_dm_when_engaged(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
+        monkeypatch.setattr(daemon_mod, "IDLE_GRACE_SECONDS", 0)
+        d = _daemon(boss="local-boss")
+        d._transport = AsyncMock()
+        d._agent_runner = AsyncMock()
+        d._engaged = True  # produced a turn → not idle
+        await d._idle_watchdog()
+        d._transport.send_privmsg.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_no_dm_when_paused(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
+        monkeypatch.setattr(daemon_mod, "IDLE_GRACE_SECONDS", 0)
+        d = _daemon(boss="local-boss")
+        d._transport = AsyncMock()
+        d._agent_runner = AsyncMock()
+        d._engaged = False
+        d._paused = True
+        await d._idle_watchdog()
+        d._transport.send_privmsg.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_engagement_flag_set_on_first_turn(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
+        d = _daemon(boss="local-boss")
+        d._supervisor = None
+        assert d._engaged is False
+        await d._on_agent_message({"type": "assistant", "text": "hi", "tool_uses": []})
+        assert d._engaged is True
 
 
 class TestPermInputPreview:

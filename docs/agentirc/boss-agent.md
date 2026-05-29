@@ -138,6 +138,17 @@ converse with a Codex/ACP worker over IRC — but those workers are audit-only (
 synchronous tool gate), so the boss oversees them by reading their audit logs and
 conversing, not by approving individual tool calls.
 
+## Idle-worker detection
+
+A worker that comes up but never produces a turn within ~90s (spawned into the
+wrong channel, never briefed, etc.) would otherwise sit idle while you believe
+it's working. The worker daemon detects "never engaged" and **DMs you an
+`[idle]` notice** (and records an `idle_warning` in its daemon-log), so the truth
+is pushed into your loop — re-drive or re-spawn it rather than reporting it live.
+The [dashboard](dashboard.md) also badges such a worker `IDLE`. Treat a worker as
+working only once you've seen real activity (`culture boss audit <name>`), never
+from the assumption that spawn/brief succeeded.
+
 ## Multiple teams
 
 More than one boss can run on the same mesh, each managing its own team. Bosses

@@ -106,6 +106,23 @@ class TestReadEndpoints:
         assert "mission control" in body.lower()
 
 
+class TestIdleSignal:
+    def test_is_idle_logic(self, home):
+        from culture.clients._audit import audit_path_for
+        from culture.dashboard.server import _is_idle
+
+        # running + no audit file → idle (spawned, never engaged)
+        assert _is_idle("local-w", "running") is True
+        # stopped → never flagged idle
+        assert _is_idle("local-w", "stopped") is False
+        # running + non-empty audit → engaged, not idle
+        path = audit_path_for("local-w2")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write('{"type":"assistant","text":"working"}\n')
+        assert _is_idle("local-w2", "running") is False
+
+
 class TestControlEndpoints:
     @pytest.mark.asyncio
     async def test_approve_writes_decision_no_ceiling(self, client, home):

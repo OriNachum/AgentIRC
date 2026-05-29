@@ -36,7 +36,10 @@ Three columns, no setup beyond a running mesh:
   approval count, last daemon action, and a `BOSS` tag for boss agents. Per-agent
   **Pause / Resume / Close** buttons. Agents are **grouped into teams**: each boss
   heads its own group with its workers nested beneath it, and standalone agents
-  fall under "unassigned" — so a boss and its team read as one unit.
+  fall under "unassigned" — so a boss and its team read as one unit. A running
+  worker that has produced **no activity** (empty audit — spawned but never
+  engaged) gets a loud **`IDLE`** badge, so a worker that's doing nothing outs
+  itself regardless of what its boss reports.
 - **Session / Daemon actions / Chat** — click an agent, then pick a tab:
   - **Session** — live-stream the agent's own messages + tool calls
     (`audit/<nick>.jsonl`). Server-sent events; backlog then live tail.

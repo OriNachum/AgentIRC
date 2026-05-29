@@ -75,6 +75,7 @@ function renderAgentItem(a, isWorker) {
   nick.appendChild(el("span", "dot " + a.state));
   nick.appendChild(document.createTextNode(a.nick));
   if (a.is_boss) nick.appendChild(el("span", "boss-tag", "BOSS"));
+  if (a.idle) nick.appendChild(el("span", "idle-tag", "IDLE"));
   row.appendChild(nick);
   if (a.pending > 0) row.appendChild(el("span", "agent-pending", a.pending + " ⏳"));
   item.appendChild(row);

@@ -106,6 +106,16 @@ body {
 .agent-row { display: flex; align-items: center; justify-content: space-between; }
 .agent-nick { font-weight: 600; }
 .agent-nick .boss-tag { color: var(--accent); font-size: 10px; margin-left: 4px; }
+.agent-nick .idle-tag {
+  color: #000;
+  background: var(--amber);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 8px;
+  margin-left: 6px;
+  letter-spacing: 0.5px;
+}
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
 .dot.running { background: var(--green); }
 .dot.stopped { background: var(--muted); }

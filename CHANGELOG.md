@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [8.17.0] - 2026-05-29
+
+### Added
+
+- **Idle-worker detection that closes the loop.** A boss-owned worker that comes
+  up but never produces a turn within `IDLE_GRACE_SECONDS` (90s) — e.g. spawned
+  into the wrong channel or never briefed — now surfaces itself instead of sitting
+  silently while the boss believes it's working:
+  - the worker daemon **DMs its parent boss** an `[idle]` notice (reusing the
+    same worker→boss path as permission requests) and records an `idle_warning`
+    in its daemon-log, so the boss gets the truth pushed into its loop and can
+    re-drive the worker — no human needed;
+  - the **Mission Control dashboard** badges any running worker with no activity
+    (empty audit) as **IDLE** (`/api/agents` gains an `idle` field), so a
+    mis-reported worker outs itself at a glance.
+  This makes the system — not the operator or the agent's self-report — the
+  watchdog: agent narration becomes a hint, the idle signal is ground truth.
+
 ## [8.16.2] - 2026-05-29
 
 ### Fixed

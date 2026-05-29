@@ -183,6 +183,18 @@ def _agent_state(nick: str) -> str:
     return "stopped"
 
 
+def _is_idle(nick: str, state: str) -> bool:
+    """A running agent that has produced no turns at all (empty/absent audit) —
+    spawned but never engaged. The dashboard badges this so a worker that's doing
+    nothing outs itself regardless of what its boss reports."""
+    if state != "running":
+        return False
+    try:
+        return os.path.getsize(audit_path_for(nick)) == 0
+    except OSError:
+        return True  # no audit file yet → no activity
+
+
 def _config_path_or_default(config_path: str | None) -> str:
     return config_path or os.path.join(culture_home(), "server.yaml")
 
@@ -218,14 +230,16 @@ def list_agents(config_path: str | None = None) -> list[dict]:
         if getattr(agent, "archived", False):
             continue
         nick = agent.nick
+        state = _agent_state(nick)
         rows.append(
             {
                 "nick": nick,
-                "state": _agent_state(nick),
+                "state": state,
                 "pending": pending.get(nick, 0),
                 "last_action": _last_action(nick),
                 "is_boss": "boss" in (getattr(agent, "tags", []) or []),
                 "boss": getattr(agent, "boss", "") or "",
+                "idle": _is_idle(nick, state),
             }
         )
     return rows

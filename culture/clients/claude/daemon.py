@@ -37,6 +37,9 @@ logger = logging.getLogger(__name__)
 MAX_CRASH_COUNT = 3
 CRASH_WINDOW_SECONDS = 300
 CRASH_RESTART_DELAY = 5
+# A worker that produces no turn within this window after start has never
+# engaged (wrong channel / never briefed) — flag it back to the boss.
+IDLE_GRACE_SECONDS = 90
 
 # IPC validation error messages
 _ERR_MISSING_CHANNEL = "Missing 'channel'"
@@ -131,6 +134,13 @@ class AgentDaemon:
         # Crash-recovery state
         self._crash_times: list[float] = []
         self._circuit_open = False
+
+        # Idle watchdog: a worker that comes up but never produces a turn (e.g.
+        # spawned into the wrong channel / never briefed) would silently sit idle
+        # while its boss believes it's working. We detect "never engaged" and push
+        # the truth back to the boss instead of relying on anyone to notice.
+        self._engaged: bool = False
+        self._idle_task: asyncio.Task | None = None
 
         # Pause/sleep state
         self._paused: bool = False
@@ -246,6 +256,11 @@ class AgentDaemon:
 
     async def stop(self) -> None:
         """Cleanly shut down all components."""
+        if self._idle_task is not None:
+            self._idle_task.cancel()
+            await asyncio.gather(self._idle_task, return_exceptions=True)
+            self._idle_task = None
+
         if hasattr(self, "_poll_task") and self._poll_task:
             self._poll_task.cancel()
             await asyncio.gather(self._poll_task, return_exceptions=True)
@@ -406,6 +421,30 @@ class AgentDaemon:
         await self._daemon_log.record(
             "agent_start", model=self.agent.model, directory=self.agent.directory
         )
+        # Arm the idle watchdog for boss-owned workers (the ones a boss expects to
+        # be working). It fires once if no turn happens within the grace window.
+        if _boss_nick(self.agent):
+            self._idle_task = asyncio.create_task(self._idle_watchdog())
+
+    async def _idle_watchdog(self) -> None:
+        """If a boss-owned worker never produces a turn within the grace window,
+        record it and DM the boss — so an idle/mis-briefed worker surfaces itself
+        instead of the boss falsely believing it's working."""
+        try:
+            await asyncio.sleep(IDLE_GRACE_SECONDS)
+        except asyncio.CancelledError:
+            return
+        if self._engaged or self._paused or self._agent_runner is None:
+            return
+        boss = _boss_nick(self.agent)
+        await self._daemon_log.record("idle_warning", detail={"since_seconds": IDLE_GRACE_SECONDS})
+        if boss and self._transport is not None:
+            await self._transport.send_privmsg(
+                boss,
+                f"[idle] worker {self.agent.nick} has produced no activity "
+                f"{IDLE_GRACE_SECONDS}s after start — it may not be in its "
+                f"#task channel or was never briefed. Check and re-drive it.",
+            )
 
     def _on_mention(self, target: str, sender: str, text: str) -> None:
         """Called by IRCTransport when the agent is @mentioned or DM'd.
@@ -498,6 +537,7 @@ class AgentDaemon:
 
     async def _on_agent_message(self, msg: dict) -> None:
         """Feed agent activity to the supervisor for observation."""
+        self._engaged = True  # a real turn happened → no longer "never engaged"
         await self._audit.write(msg)
 
         if self._supervisor:
