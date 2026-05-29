@@ -39,7 +39,7 @@ from culture.clients._perm_broker import (
 from culture.config import load_config_or_default
 
 from .shared.constants import DEFAULT_CONFIG
-from .shared.ipc import agent_socket_path, ipc_request
+from .shared.ipc import agent_socket_path, get_observer, ipc_request
 
 NAME = "boss"
 
@@ -364,10 +364,36 @@ def _cmd_log(args: argparse.Namespace) -> None:
         print(f"{r.get('ts', '')}  {r.get('action', '?'):<18}  {detail_str}")
 
 
+def _channel_members(channel: str) -> list[str]:
+    """Nicks currently in a channel (via a transient observer WHO)."""
+    return asyncio.run(get_observer(DEFAULT_CONFIG).who(channel))
+
+
 def _cmd_brief(args: argparse.Namespace) -> None:
     name = _require_worker_suffix(args.name)
     nick = f"{_server_of(_boss_nick())}-{name}"
     channel = _task_channel(name)
+    # Honesty check: a brief is only "delivered" if the worker is actually in the
+    # channel to hear it. Without this, briefing a worker that never joined
+    # #task-<name> (e.g. one started ad-hoc into #general, not via `culture boss
+    # spawn`) silently succeeds and the boss wrongly believes work has begun.
+    try:
+        members = _channel_members(channel)
+    except Exception as exc:  # noqa: BLE001 — can't verify → don't claim delivery
+        print(
+            f"Error: could not verify {channel} membership ({exc}); brief NOT sent. "
+            "Is the mesh server running?",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if nick not in members:
+        print(
+            f"Error: {nick} is not in {channel} — brief NOT delivered. Spawn it with "
+            f"`culture boss spawn {name}` (which joins it to {channel}) and confirm it "
+            "is running before briefing.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     # Prefix the worker nick so its mention detector fires.
     text = f"@{nick} {args.task}"
     resp = _boss_irc("irc_send", channel=channel, message=text)

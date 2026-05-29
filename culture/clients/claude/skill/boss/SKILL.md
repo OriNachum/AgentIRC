@@ -26,8 +26,12 @@ Drive a worker exactly like a human drives a Claude Code session:
 4. **Approve tools as they arrive**: when a worker needs a tool it can't auto-run,
    you get a DM. Resolve it: `culture boss approve <id>` (or `--always` for tools
    you trust it with), or `culture boss deny <id> <reason>`.
-5. **Verify claims**: never take "done" on faith. Read the worker's actual
-   activity with `culture boss audit <name>` and challenge discrepancies.
+5. **Verify claims**: never take "done" — or even "started" — on faith.
+   `culture boss brief` refuses if the worker isn't in its `#task-<name>` channel,
+   so a brief that returns success really landed. But confirm the worker actually
+   *engaged*: read its activity (`culture boss audit <name>`) or watch its Session
+   in the dashboard before you report it as live/working. An empty audit means it
+   has done nothing — don't report "boss flow is live" until you see real turns.
 6. **Report** progress/blockers to your human in your channel.
 
 ## Commands

@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [8.13.0] - 2026-05-29
+
+### Changed
+
+- **`culture boss brief` verifies delivery.** Before claiming a worker was
+  briefed, it checks (via a transient observer WHO) that the worker is actually in
+  its `#task-<name>` channel; if not — or if membership can't be verified — it
+  refuses (exit 1) instead of silently "succeeding." This closes the
+  false-"boss flow is live" failure mode where a worker started ad-hoc into
+  `#general` (not via `culture boss spawn`) never receives the brief, yet the boss
+  believes work began. The boss skill now also tells the boss to confirm the
+  worker actually *engaged* (non-empty audit / Session activity) before reporting
+  it live.
+
 ## [8.12.0] - 2026-05-29
 
 ### Added
