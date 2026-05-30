@@ -21,12 +21,9 @@ from culture.clients._context_watch import (
     take_reminder,
 )
 from culture.clients._daemon_log import DaemonLog
-from culture.clients._perm_broker import handoff_path_for
-<<<<<<< HEAD
-from culture.clients._socket_link import ensure_socket_symlink, remove_socket_symlink
-=======
 from culture.clients import _mission as _mission_persistence
->>>>>>> 6be346d (feat(boss): persistent boss mission across daemon restarts (v8.19.3))
+from culture.clients._perm_broker import handoff_path_for
+from culture.clients._socket_link import ensure_socket_symlink, remove_socket_symlink
 from culture.clients.claude.agent_runner import AgentRunner
 from culture.clients.claude.config import AgentConfig, DaemonConfig
 from culture.clients.claude.ipc import make_response

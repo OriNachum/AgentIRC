@@ -97,17 +97,16 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         "--model", default="", help="Worker model (default: inherit the boss's model)"
     )
     spawn_p.add_argument(
-<<<<<<< HEAD
         "--channels",
         default="",
         help="Extra channels for the worker to join (comma-separated, e.g. '#joint-fixes,#design')",
-=======
+    )
+    spawn_p.add_argument(
         "--role",
         default="",
         help='Worker role declaration, e.g. --role "qa-runner" or --role "stack-dev". '
         "Free-text; written to culture.yaml and surfaced on the dashboard. "
         "Optional — when omitted the worker has no role tag.",
->>>>>>> 47142f2 (feat(agent): add role: field for orchestrator who-does-what tracking (v8.19.4))
     )
     spawn_p.add_argument("--config", default=DEFAULT_CONFIG)
 
@@ -585,11 +584,8 @@ def _cmd_spawn(args: argparse.Namespace) -> None:
         model=model,
         thinking=thinking,
         overwrite_model=explicit_model,
-<<<<<<< HEAD
         extra_channels=extra_channels,
-=======
         role=args.role,
->>>>>>> 47142f2 (feat(agent): add role: field for orchestrator who-does-what tracking (v8.19.4))
     )
     subprocess.run([sys.executable, "-m", "culture", "agent", "register", cwd], check=False)
     subprocess.run([sys.executable, "-m", "culture", "agent", "start", worker_nick], check=False)
@@ -683,11 +679,8 @@ def _record_worker_boss(
     model: str = "",
     thinking: str = "",
     overwrite_model: bool = False,
-<<<<<<< HEAD
     extra_channels: list[str] | None = None,
-=======
     role: str = "",
->>>>>>> 47142f2 (feat(agent): add role: field for orchestrator who-does-what tracking (v8.19.4))
 ) -> None:
     """Write boss/suffix/channels (and model+thinking+role, if given) into the worker's culture.yaml.
 
