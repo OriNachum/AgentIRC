@@ -11,7 +11,7 @@ shape; the code is the realization.
 
 ## TL;DR
 
-```
+```text
 Human                                                          ← business level
   │  briefs the orchestrator in chat
   ▼
@@ -119,7 +119,7 @@ treat them as goal-bearing.
 
 ### State transitions
 
-```
+```text
 spawn  ─→  active  ─stop─→  stopped  ─start─→ active
                                 │
                                archive
