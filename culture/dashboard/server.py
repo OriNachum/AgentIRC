@@ -393,11 +393,26 @@ def list_channels(config_path=None):
     # Sort each channel's members: boss first, then by nick.
     for ch in seen.values():
         ch["members"].sort(key=lambda m: (not m["is_boss"], m["nick"]))
+    # Filter: a `#task-<x>` channel whose ONLY members are stopped
+    # workers is stale clutter (the worker was closed but its yaml
+    # still names the channel). Hide from the active Channels tab —
+    # they live in Archived if explicitly archived, otherwise just
+    # filtered out here. Joint / shared / boss channels always show
+    # regardless of member state (they're cross-team coordination
+    # surfaces; a dormant joint channel is still meaningful).
+    def _has_active_member(ch_entry):
+        return any(m["state"] == "running" for m in ch_entry["members"])
+
+    filtered = [
+        ch
+        for ch in seen.values()
+        if ch["category"] != "task" or _has_active_member(ch)
+    ]
     # Sort channels: joint coordination first (cross-team focus), then
     # task channels, then shared, then boss, then other.
     category_order = {"joint": 0, "task": 1, "shared": 2, "boss": 3, "other": 4}
     return sorted(
-        seen.values(),
+        filtered,
         key=lambda c: (category_order.get(c["category"], 9), c["channel"]),
     )
 

@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [8.19.10] - 2026-05-31
+
+Hotfix after first dashboard restart with the channels-first UI.
+
+### Fixed
+
+- **Welcome-bot spam on peek connections** — every `culture channel
+  read` and every dashboard channels refresh opens a short-lived
+  `local-_peekXXXX` connection; the welcome bot was greeting each one
+  in #team, flooding the channel with `Welcome local-_peekXXXX to
+  #team` lines. Filter updated to exclude any nick containing
+  `_peek`.
+- **Stale `#task-*` channels lingering in the active Channels tab** —
+  channels whose only members are stopped workers (e.g. closed
+  verify-* / qfix-* / fix-* nicks from the v8.19 fleet) cluttered
+  the Channels view despite no live activity. `list_channels` now
+  filters out `#task-*` channels with no `running` member. Joint /
+  shared / boss channels always show regardless of member state.
+
 ## [8.19.9] - 2026-05-31
 
 Consolidation bump after the v8.18.7 → v8.19.8 fleet merge cycle.

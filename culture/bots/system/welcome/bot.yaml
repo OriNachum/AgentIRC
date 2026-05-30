@@ -5,7 +5,11 @@ bot:
 
 trigger:
   type: event
-  filter: "type == 'user.join'"
+  # Exclude peek-client connections — `culture channel read` and every
+  # dashboard channels refresh opens a short-lived `local-_peekXXXX`
+  # connection that joins, reads, and disconnects. Welcoming them on
+  # every poll floods #team with noise (observed live on v8.19.9).
+  filter: "type == 'user.join' and not ('_peek' in event.nick)"
 
 output:
   template: "Welcome {event.nick} to {event.channel}"
