@@ -52,19 +52,19 @@ class TestEnsureSocketSymlink:
             "culture.clients._socket_link._cli_runtime_dir",
             lambda: str(tmp_path),
         )
-        sock_path = str(tmp_path / "culture-agent.sock")
+        sock_path = str(tmp_path / "culture-local-agent.sock")
         with open(sock_path, "w") as f:
             f.write("")
 
-        link = ensure_socket_symlink(sock_path, "agent")
+        link = ensure_socket_symlink(sock_path, "local-agent")
         assert link is None
 
     def test_replaces_stale_symlink(self, tmp_dirs):
         """An existing stale symlink is atomically replaced."""
         sock_dir, cli_dir = tmp_dirs
         old_target = str(sock_dir / "old.sock")
-        new_target = str(sock_dir / "culture-worker.sock")
-        link_path = str(cli_dir / "culture-worker.sock")
+        new_target = str(sock_dir / "culture-local-worker.sock")
+        link_path = str(cli_dir / "culture-local-worker.sock")
 
         # Create a stale symlink
         os.symlink(old_target, link_path)
@@ -74,15 +74,15 @@ class TestEnsureSocketSymlink:
         with open(new_target, "w") as f:
             f.write("")
 
-        result = ensure_socket_symlink(new_target, "worker")
+        result = ensure_socket_symlink(new_target, "local-worker")
         assert result == link_path
         assert os.readlink(link_path) == new_target
 
     def test_replaces_regular_file(self, tmp_dirs):
         """A regular file at the link path is replaced."""
         sock_dir, cli_dir = tmp_dirs
-        sock_path = str(sock_dir / "culture-agent.sock")
-        link_path = str(cli_dir / "culture-agent.sock")
+        sock_path = str(sock_dir / "culture-local-agent.sock")
+        link_path = str(cli_dir / "culture-local-agent.sock")
 
         with open(sock_path, "w") as f:
             f.write("")
@@ -90,7 +90,7 @@ class TestEnsureSocketSymlink:
         with open(link_path, "w") as f:
             f.write("stale")
 
-        result = ensure_socket_symlink(sock_path, "agent")
+        result = ensure_socket_symlink(sock_path, "local-agent")
         assert result == link_path
         assert os.path.islink(link_path)
         assert os.readlink(link_path) == sock_path

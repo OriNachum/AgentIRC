@@ -40,26 +40,26 @@ def ensure_socket_symlink(socket_path: str, nick: str) -> str | None:
     Returns the symlink path on success, or None if socket_path already
     lives in the CLI directory (no link needed).
     """
-    cli_dir = _cli_runtime_dir()
-    sock_name = f"culture-{nick}.sock"
-    link_path = os.path.join(cli_dir, sock_name)
-
-    if os.path.abspath(socket_path) == os.path.abspath(link_path):
-        return None
-
+    link_path = None
     tmp_path = None
     try:
+        cli_dir = _cli_runtime_dir()
+        sock_name = f"culture-{nick}.sock"
+        link_path = os.path.join(cli_dir, sock_name)
+
+        if os.path.abspath(socket_path) == os.path.abspath(link_path):
+            return None
         fd, tmp_path = tempfile.mkstemp(dir=cli_dir, prefix=f".{sock_name}.")
         os.close(fd)
         os.unlink(tmp_path)
         os.symlink(socket_path, tmp_path)
-        os.rename(tmp_path, link_path)
+        os.replace(tmp_path, link_path)
         logger.debug("Symlinked %s -> %s", link_path, socket_path)
         return link_path
     except OSError:
         logger.warning(
             "Failed to create socket symlink %s -> %s",
-            link_path,
+            link_path or "<unknown>",
             socket_path,
             exc_info=True,
         )
