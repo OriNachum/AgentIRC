@@ -4,6 +4,69 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [8.19.9] - 2026-05-31
+
+Consolidation bump after the v8.18.7 → v8.19.8 fleet merge cycle.
+Twelve PRs (#24–#36) merged in under 12 hours via rebase + automated
+conflict resolution; intermediate per-version CHANGELOG entries
+were lost during rebase merges — captured here in aggregate.
+
+### Added (by PR)
+
+- **v8.18.6 / PR #24** — `model_resolved` daemon-log + `_boss_inherits`
+  fallback (closes Qodo latch + orphan-resolved findings).
+- **v8.18.7 / PR #29** — Task-channel ACL at IRC JOIN layer + owner-map
+  TTL cache + federation gate symmetric in `should_relay` /
+  `_check_incoming_trust`. Closes 4 Qodo findings.
+- **v8.18.8 / PR #26** — Socket symlink on bind (`ensure_socket_symlink`),
+  all 4 backends + harness.
+- **v8.19.0 / PR #30** — `--channels` spawn flag + IPC `irc_read`
+  history backfill + **CRLF injection guard** (new
+  `culture/agentirc/irc_targets.py` wired at 4 ingress points; 30 tests).
+- **v8.19.1 / PR #27** — Agent `archived` state + channel `CHANARCHIVE`
+  verb + 5 blocker fixes from review + 2 Qodo Reliability fixes
+  (archived channels persistent, archive-fails-loudly).
+- **v8.19.2 / PR #28** — Dashboard Channels + Archived tabs + 5 endpoints
+  + archive-race fix (refuse if daemon won't stop) + 3 Qodo fixes
+  (perf `to_thread`, channel routing, channel-history JOIN).
+- **v8.19.3 / PR #31** — Boss mission persistence across daemon restarts.
+  Shared `culture/clients/_mission.py` (rotation at 32 KiB, idempotent
+  cleanup, stable prompt-cache format), wired into all 4 backends.
+- **v8.19.4 / PR #32** — `role:` field on AgentConfig + `--role` spawn
+  flag + dashboard render.
+- **v8.19.5 / PR #33** — `culture agent compact <nick> <reason>` command
+  for explicit task-switch compaction. All 4 backends.
+- **v8.19.6 / PR #34** — CI quality gates: mypy strict carve-out on
+  security-sensitive modules, docs-coverage script that fails PRs
+  adding public surface without docs, bandit B606 re-enabled.
+- **v8.19.7 / PR #35** — Channels-first dashboard inversion (Channels
+  default tab; channel cards show member chips with role badges +
+  state dots).
+- **v8.19.8 / PR #36** — Silent-death watchdog: boss daemons detect
+  workers whose PIDs are dead but never wrote `agent_exit`. Closes
+  the reliability gap surfaced by the v8.18.7 fleet ship (4 of 6
+  workers died silently).
+
+### Docs
+
+- **PR #25** — `docs/task-model.md` (channels-are-tasks, three-level
+  hierarchy, Pattern A vs B orchestrators, role + lifecycle).
+- **PR #25** — `docs/dev-policy.md` (quality bar + flow + review).
+
+### Security
+
+- CRLF injection on user-controlled IRC targets → closed.
+- Task-channel ACL federation bypass → closed (symmetric outbound +
+  inbound gate on `#task-*`).
+
+### Findings + dogfood writeups
+
+- 8-reviewer audit fleet + Qodo reviewed every PR; combined finding
+  pool (~30 actionable) closed end-to-end through this cycle. Workers
+  shipped 4 of 6 Qodo-fix passes themselves; orchestrator shipped
+  the rest under the silent-death recovery pattern documented in
+  `docs/dev-policy.md`.
+
 ## [8.19.1] - 2026-05-30
 
 Agent archiving and channel archiving.
