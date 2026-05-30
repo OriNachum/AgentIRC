@@ -611,52 +611,43 @@ def remove_manifest_agent(config_path: str | Path, nick: str) -> None:
 
 
 def archive_manifest_agent(config_path: str | Path, nick: str, reason: str = "") -> None:
-    """Archive an agent: set archived flag in its culture.yaml."""
-    import time as _time
+    """Archive an agent: set state=archived (also flips legacy ``archived`` flag).
 
-    suffix, directory = _nick_to_suffix(config_path, nick)
-    agents = load_culture_yaml(directory)
-    found = False
-    for agent in agents:
-        if agent.suffix == suffix:
-            agent.archived = True
-            agent.archived_at = _time.strftime("%Y-%m-%d")
-            agent.archived_reason = reason
-            found = True
-            break
-    if not found:
-        raise ValueError(f"Agent {nick!r} not found in {directory}/culture.yaml")
-    save_culture_yaml(directory, agents)
+    Delegates to ``set_agent_state`` so the new ``state`` field and the legacy
+    ``archived`` bool stay in lockstep — closes the audit finding that
+    archive_manifest_agent set ``archived=True`` but left ``state=active``,
+    causing in-memory inconsistency until reload triggered ``__post_init__``.
+    """
+    set_agent_state(config_path, nick, AGENT_STATE_ARCHIVED, reason=reason)
 
 
 def unarchive_manifest_agent(config_path: str | Path, nick: str) -> None:
-    """Unarchive an agent: clear archived flag in its culture.yaml."""
+    """Restore an archived agent: set state=active (also clears legacy flag).
+
+    Delegates to ``set_agent_state`` for the same lockstep reason as
+    ``archive_manifest_agent``. Refuses if the agent is not currently
+    archived (per the original semantics).
+    """
     suffix, directory = _nick_to_suffix(config_path, nick)
     agents = load_culture_yaml(directory)
-    found = False
     for agent in agents:
         if agent.suffix == suffix:
-            if not agent.archived:
+            if agent.state != AGENT_STATE_ARCHIVED and not agent.archived:
                 raise ValueError(f"Agent {nick!r} is not archived")
-            agent.archived = False
-            agent.archived_at = ""
-            agent.archived_reason = ""
-            found = True
             break
-    if not found:
-        raise ValueError(f"Agent {nick!r} not found in {directory}/culture.yaml")
-    save_culture_yaml(directory, agents)
+    set_agent_state(config_path, nick, AGENT_STATE_ACTIVE)
 
 
 def set_agent_state(config_path: str | Path, nick: str, new_state: str, reason: str = "") -> None:
     """Set an agent's lifecycle state in its culture.yaml.
 
     Valid transitions:
-        active  -> asleep   (stop daemon, preserve state)
-        active  -> archived (stop daemon, mark historical)
-        asleep  -> active   (wake / restart daemon)
-        asleep  -> archived (mark historical)
-        archived -> asleep  (restore, ready to wake)
+        active   -> archived (stop daemon, mark historical)
+        archived -> active   (restore, ready to start)
+
+    The legacy ``archived`` / ``archived_at`` / ``archived_reason`` fields
+    are kept in lockstep with ``state`` so callers reading either source
+    of truth see the same answer.
     """
     import time as _time
 
@@ -667,8 +658,7 @@ def set_agent_state(config_path: str | Path, nick: str, new_state: str, reason: 
     found = False
     for agent in agents:
         if agent.suffix == suffix:
-            old_state = agent.state
-            if old_state == new_state:
+            if agent.state == new_state:
                 return  # no-op
             agent.state = new_state
             if new_state == AGENT_STATE_ARCHIVED:
@@ -676,10 +666,9 @@ def set_agent_state(config_path: str | Path, nick: str, new_state: str, reason: 
                 agent.archived_at = _time.strftime("%Y-%m-%d")
                 agent.archived_reason = reason
             else:
-                agent.archived = new_state == AGENT_STATE_ARCHIVED
-                if new_state != AGENT_STATE_ARCHIVED:
-                    agent.archived_at = ""
-                    agent.archived_reason = ""
+                agent.archived = False
+                agent.archived_at = ""
+                agent.archived_reason = ""
             found = True
             break
     if not found:

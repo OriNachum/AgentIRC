@@ -124,7 +124,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         "--full", action="store_true", help="Query agents for activity status"
     )
     status_parser.add_argument(
-        "--all", action="store_true", help="Include all agents (active + asleep + archived)"
+        "--all", action="store_true", help="Include all agents (active + archived)"
     )
     status_parser.add_argument("--archived", action="store_true", help="Show only archived agents")
     status_parser.add_argument("--config", default=DEFAULT_CONFIG, help=_CONFIG_HELP)
@@ -1043,19 +1043,26 @@ def _cmd_archive(args: argparse.Namespace) -> None:
     print(f"Agent archived: {args.nick}")
     if args.reason:
         print(f"  Reason: {args.reason}")
-    print(f"\nTo restore: culture agent unarchive {args.nick}")
+    print(f"\nTo restore: culture agent restore {args.nick}")
 
 
 def _cmd_unarchive(args: argparse.Namespace) -> None:
-    """Restore an archived agent."""
+    """Restore an archived agent to active state."""
     try:
         unarchive_manifest_agent(args.config, args.nick)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         sys.exit(1)
 
-    print(f"Agent unarchived: {args.nick}")
+    print(f"Agent restored: {args.nick}")
     print(f"\nStart with: culture agent start {args.nick}")
+
+
+# ``culture agent restore`` is the canonical name for the un-archive transition
+# (matches the doc/task-model.md state diagram). ``culture agent unarchive`` is
+# kept as a synonym for back-compat with the v8.19.1 initial ship and is what
+# the legacy ``archive_manifest_agent`` flow expects.
+_cmd_restore = _cmd_unarchive
 
 
 def _cmd_delete(args: argparse.Namespace) -> None:
