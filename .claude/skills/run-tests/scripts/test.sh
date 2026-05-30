@@ -41,7 +41,7 @@ else
     CMD+=(-v)
 fi
 
-CMD+=("${EXTRA_ARGS[@]}")
+CMD+=(${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"})
 
 echo "Running: ${CMD[*]}"
 exec "${CMD[@]}"
