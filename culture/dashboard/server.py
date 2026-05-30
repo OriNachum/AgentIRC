@@ -37,7 +37,11 @@ from culture.clients._perm_broker import (
     policy_path_for,
     write_decision,
 )
-from culture.config import load_config_or_default
+from culture.config import (
+    archive_manifest_agent,
+    load_config_or_default,
+    unarchive_manifest_agent,
+)
 from culture.pidfile import read_pid
 
 logger = logging.getLogger(__name__)
@@ -255,6 +259,55 @@ def _agent_channel(nick: str, config_path: str | None) -> str:
     return f"#task-{suffix}"
 
 
+def _last_assistant_text(nick, max_chars=80):
+    """Preview of the most recent assistant text from the audit log."""
+    path = audit_path_for(nick)
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            fh.seek(max(0, fh.tell() - 8192))
+            tail = fh.read().decode("utf-8", "replace")
+    except OSError:
+        return ""
+    for ln in reversed(tail.splitlines()):
+        if not ln.strip():
+            continue
+        try:
+            t = json.loads(ln).get("text", "")
+            if t:
+                return t[:max_chars]
+        except json.JSONDecodeError:
+            continue
+    return ""
+
+
+def _last_brief_preview(nick, config_path, max_chars=80):
+    """Preview of the last brief addressed to this agent."""
+    ch = _agent_channel(nick, config_path)
+    p = os.path.join(
+        culture_home(), "data", "channels", ch.lstrip("#") + ".jsonl"
+    )
+    try:
+        with open(p, "rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            fh.seek(max(0, fh.tell() - 8192))
+            tail = fh.read().decode("utf-8", "replace")
+    except OSError:
+        return ""
+    for ln in reversed(tail.splitlines()):
+        if not ln.strip():
+            continue
+        try:
+            rec = json.loads(ln)
+            t = rec.get("text", "") or rec.get("message", "")
+            s = rec.get("nick", "") or rec.get("sender", "")
+            if t and s != nick and f"@{nick}" in t:
+                return t[:max_chars]
+        except json.JSONDecodeError:
+            continue
+    return ""
+
+
 def list_agents(config_path: str | None = None) -> list[dict]:
     """Programmatic agent grid (no CLI-text parsing)."""
     config = load_config_or_default(_config_path_or_default(config_path))
@@ -264,23 +317,70 @@ def list_agents(config_path: str | None = None) -> list[dict]:
         if getattr(agent, "archived", False):
             continue
         nick = agent.nick
-        state = _agent_state(nick)
-        rows.append(
-            {
-                "nick": nick,
-                "state": state,
-                "pending": pending.get(nick, 0),
-                "last_action": _last_action(nick),
-                "is_boss": "boss" in (getattr(agent, "tags", []) or []),
-                "boss": getattr(agent, "boss", "") or "",
-                "idle": _is_idle(nick, state, getattr(agent, "boss", "") or ""),
-                # role: free-text declaration of who-does-what — surfaced on
-                # the agent card so the orchestrator can disambiguate at
-                # a glance in a multi-agent channel (v8.19.4).
-                "role": getattr(agent, "role", "") or "",
-            }
-        )
+        st = _agent_state(nick)
+        chs = [c for c in (getattr(agent, "channels", []) or [])
+               if isinstance(c, str)]
+        rows.append({
+            "nick": nick, "state": st,
+            "pending": pending.get(nick, 0),
+            "last_action": _last_action(nick),
+            "is_boss": "boss" in (getattr(agent, "tags", []) or []),
+            "boss": getattr(agent, "boss", "") or "",
+            "idle": _is_idle(nick, st, getattr(agent, "boss", "") or ""),
+            "channels": chs,
+            "last_assistant": _last_assistant_text(nick),
+            "last_brief": _last_brief_preview(nick, config_path),
+        })
     return rows
+
+
+def list_archived_agents(config_path=None):
+    """Archived agents from config."""
+    cfg = load_config_or_default(_config_path_or_default(config_path))
+    return [{
+        "nick": a.nick,
+        "archived_at": getattr(a, "archived_at", "") or "",
+        "archived_reason": getattr(a, "archived_reason", "") or "",
+        "is_boss": "boss" in (getattr(a, "tags", []) or []),
+        "boss": getattr(a, "boss", "") or "",
+        "channels": [c for c in (getattr(a, "channels", []) or [])
+                     if isinstance(c, str)],
+    } for a in cfg.agents if getattr(a, "archived", False)]
+
+
+def list_channels(config_path=None):
+    """Build a channel list from known agents."""
+    cfg = load_config_or_default(_config_path_or_default(config_path))
+    seen = {}
+    for a in cfg.agents:
+        if getattr(a, "archived", False):
+            continue
+        chs = [c for c in (getattr(a, "channels", []) or [])
+               if isinstance(c, str)]
+        boss = getattr(a, "boss", "") or ""
+        ib = "boss" in (getattr(a, "tags", []) or [])
+        for ch in chs:
+            if ch not in seen:
+                seen[ch] = {"channel": ch, "members": [],
+                            "boss": "", "category": _classify_channel(ch)}
+            seen[ch]["members"].append(a.nick)
+            if ib:
+                seen[ch]["boss"] = a.nick
+            elif boss and not seen[ch]["boss"]:
+                seen[ch]["boss"] = boss
+    return list(seen.values())
+
+
+def _classify_channel(ch):
+    if ch.startswith("#task-"):
+        return "task"
+    if ch.startswith("#joint-"):
+        return "joint"
+    if ch in ("#team", "#system", "#general"):
+        return "shared"
+    if ch.startswith("#boss"):
+        return "boss"
+    return "other"
 
 
 # ---------------------------------------------------------------------------
@@ -293,7 +393,13 @@ async def _handle_index(request: web.Request) -> web.StreamResponse:
 
 
 async def _handle_agents(request: web.Request) -> web.Response:
-    return web.json_response({"agents": list_agents(request.app.get(_CONFIG_PATH))})
+    # list_agents() does file-tail reads per agent (last_action,
+    # last_assistant, last_brief). The frontend polls every 2.5s; on a
+    # 20-agent mesh that's ~80 sync file reads per poll on the asyncio
+    # event loop, blocking other requests including SSE streams. Push
+    # to a thread so the loop stays responsive (Qodo PR #28 #5 — Perf).
+    rows = await asyncio.to_thread(list_agents, request.app.get(_CONFIG_PATH))
+    return web.json_response({"agents": rows})
 
 
 async def _handle_pending(request: web.Request) -> web.Response:
@@ -718,6 +824,79 @@ async def _loopback_guard(request: web.Request, handler):
     return await handler(request)
 
 
+
+
+async def _handle_channels(request: web.Request) -> web.Response:
+    return web.json_response(
+        {"channels": list_channels(request.app.get(_CONFIG_PATH))}
+    )
+
+
+async def _handle_archived(request: web.Request) -> web.Response:
+    return web.json_response(
+        {"agents": list_archived_agents(request.app.get(_CONFIG_PATH))}
+    )
+
+
+async def _handle_archive_agent(request: web.Request) -> web.Response:
+    """Archive an agent using the config module's archive function."""
+    body = await _json_body(request)
+    nick = body.get("nick")
+    if not nick:
+        return web.json_response({"error": "missing nick"}, status=400)
+    if not _valid_nick(nick):
+        return web.json_response({"error": "invalid nick"}, status=400)
+    config_path = _config_path_or_default(request.app.get(_CONFIG_PATH))
+    reason = str(body.get("reason", ""))
+    # Stop if running before archiving
+    st = _agent_state(nick)
+    if st == "running":
+        await asyncio.to_thread(_agent_stop, nick)
+    try:
+        archive_manifest_agent(config_path, nick, reason)
+    except (ValueError, OSError) as exc:
+        return web.json_response({"error": str(exc)}, status=404)
+    return web.json_response({"ok": True})
+
+
+async def _handle_unarchive_agent(request: web.Request) -> web.Response:
+    """Restore an archived agent."""
+    body = await _json_body(request)
+    nick = body.get("nick")
+    if not nick:
+        return web.json_response({"error": "missing nick"}, status=400)
+    if not _valid_nick(nick):
+        return web.json_response({"error": "invalid nick"}, status=400)
+    config_path = _config_path_or_default(request.app.get(_CONFIG_PATH))
+    try:
+        unarchive_manifest_agent(config_path, nick)
+    except (ValueError, OSError) as exc:
+        return web.json_response({"error": str(exc)}, status=400)
+    return web.json_response({"ok": True})
+
+
+async def _handle_channel_messages(request: web.Request) -> web.Response:
+    """Read messages from a specific channel by name."""
+    name = request.match_info["name"]
+    # Validate channel name: must start with # and contain safe chars
+    if not name or not re.match(r"^[A-Za-z0-9_-]+$", name):
+        raise web.HTTPBadRequest(text=f"invalid channel name {name!r}")
+    channel = f"#{name}"
+    try:
+        limit = int(request.query.get("limit", str(_CHANNEL_READ_DEFAULT)))
+    except (TypeError, ValueError):
+        limit = _CHANNEL_READ_DEFAULT
+    limit = max(1, min(limit, _CHANNEL_READ_MAX))
+    config_path = request.app.get(_CONFIG_PATH)
+    try:
+        observer = get_observer(_config_path_or_default(config_path))
+        messages = await observer.read_channel(channel, limit)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("channel read for %s failed: %s", channel, exc)
+        messages = []
+    return web.json_response({"channel": channel, "messages": messages})
+
+
 def build_app(
     config_path: str | None = None,
     auth_token: str | None = None,
@@ -743,6 +922,11 @@ def build_app(
     app.router.add_post("/api/stop-all", _handle_stop_all)
     app.router.add_get("/api/policy/{nick}", _handle_policy_get)
     app.router.add_put("/api/policy/{nick}", _handle_policy_put)
+    app.router.add_get("/api/channels", _handle_channels)
+    app.router.add_get("/api/archived", _handle_archived)
+    app.router.add_post("/api/archive", _handle_archive_agent)
+    app.router.add_post("/api/unarchive", _handle_unarchive_agent)
+    app.router.add_get("/api/channels/{name}/messages", _handle_channel_messages)
     if os.path.isdir(_STATIC_DIR):
         app.router.add_static("/static/", _STATIC_DIR)
     return app
