@@ -824,11 +824,17 @@ class AgentDaemon:
         # that case the only way for ``_boss_inherits`` to know the real
         # runtime model is to observe it on a live AssistantMessage.
         # ``msg["model"]`` is the resolved model string from the SDK.
+        #
+        # The latch is set AFTER the write, not before — ``DaemonLog.record``
+        # swallows I/O failures (logs + returns) for fault-tolerance, so
+        # setting the latch before the write would permanently mask the leak
+        # if the first write hit a transient filesystem error.
+        # Per Qodo PR #24 #2.
         if not self._resolved_model_recorded:
             observed = msg.get("model") if isinstance(msg, dict) else None
             if isinstance(observed, str) and observed:
-                self._resolved_model_recorded = True
                 await self._daemon_log.record("model_resolved", model=observed)
+                self._resolved_model_recorded = True
         # Drive the stall watchdog: every AssistantMessage resets the "time
         # since last turn" timer. A worker that engaged-then-went-silent is
         # only catchable because we track this.

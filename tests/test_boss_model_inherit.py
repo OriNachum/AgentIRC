@@ -305,3 +305,29 @@ def test_boss_inherits_picks_most_recent_resolved_within_session(tmp_path, monke
         for rec in records:
             f.write(json.dumps(rec) + "\n")
     assert boss._boss_inherits() == ("claude-opus-4-8", "high")
+
+
+def test_boss_inherits_orphan_model_resolved_returns_empty(tmp_path, monkeypatch):
+    # Qodo PR #24 #4: a daemon-log that contains ONLY model_resolved
+    # records (no agent_start anchor — corrupt file, truncated log, or
+    # pre-v8.18.6 instrumentation) must NOT propagate the model. The
+    # docstring contract says no agent_start -> return ("", "").
+    monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
+    monkeypatch.setenv("CULTURE_NICK", "local-boss")
+    log_dir = os.path.join(str(tmp_path), "daemon-log")
+    os.makedirs(log_dir, exist_ok=True)
+    path = os.path.join(log_dir, "local-boss.jsonl")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(
+            json.dumps(
+                {
+                    "ts": "2026-05-30T00:00:01.000Z",
+                    "nick": "local-boss",
+                    "action": "model_resolved",
+                    "detail": {"model": "claude-opus-4-8"},
+                }
+            )
+            + "\n"
+        )
+    # No agent_start anchors the model_resolved → contract says ("", "").
+    assert boss._boss_inherits() == ("", "")

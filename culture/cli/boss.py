@@ -625,6 +625,13 @@ def _boss_inherits() -> tuple[str, str]:
             model = yaml_model if isinstance(yaml_model, str) else ""
             thinking = yaml_thinking if isinstance(yaml_thinking, str) else ""
             break
+    # No ``agent_start`` was found → honor the docstring contract that the
+    # caller gets ("", "") in this case. Any ``model_resolved`` we saw without
+    # an anchoring start record is orphaned (the file is corrupt, truncated,
+    # or pre-dates the v8.18.6 instrumentation) and must NOT propagate. Per
+    # Qodo PR #24 #4.
+    if not saw_agent_start:
+        return ("", "")
     # YAML had no model → fall back to whatever the SDK resolved at runtime.
     if not model and resolved_model_after_start:
         model = resolved_model_after_start
