@@ -269,23 +269,41 @@ class IRCObserver:
     async def archive_channel(self, channel: str) -> bool:
         """Archive a channel by sending CHANARCHIVE.
 
-        Returns True if the server acknowledged the archive.
+        Returns True ONLY if the server explicitly acknowledged the
+        archive. Returns False on permission denial, non-existent
+        channel, server error, or timeout. Per Qodo PR #27 #7
+        (Reliability): the prior implementation joined-first (creating
+        the channel as a side-effect) then returned True regardless of
+        the server reply — callers couldn't distinguish "archived" from
+        "silently failed".
         """
         reader, writer, nick = await self._connect_and_register()
         try:
-            # Must join the channel first to have operator status
+            # We need operator status to archive. JOIN grants it for new
+            # channels we create — but if the channel ALREADY exists and
+            # we're not in it, we can't archive someone else's. The CLI
+            # caller should ensure the channel exists; we don't pre-create
+            # it here (would mask the "no such channel" failure mode).
             writer.write(f"JOIN {channel}\r\n".encode())
             await writer.drain()
+            # Drain JOIN response so it doesn't pollute the CHANARCHIVE reply.
             await self._recv_lines(reader, timeout=1.0)
 
             writer.write(f"CHANARCHIVE {channel}\r\n".encode())
             await writer.drain()
 
-            # Read the NOTICE response
             lines = await self._recv_lines(reader, timeout=2.0)
             for line in lines:
-                if "archived" in line.lower():
+                low = line.lower()
+                if "has been archived" in low:
                     return True
-            return True  # best-effort
+                # Server-side refusal patterns surface as NOTICE: missing
+                # channel, lacking operator, malformed args. None of these
+                # should be reported as success.
+                if "no such channel" in low or "do not have permission" in low:
+                    return False
+            # No explicit ack within the timeout window → treat as failure.
+            # We'd rather a CLI say "unknown" than falsely claim success.
+            return False
         finally:
             await self._disconnect(writer)

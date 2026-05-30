@@ -76,3 +76,28 @@ async def test_chanarchive_nonexistent_channel(server, make_client):
     await client.send("CHANARCHIVE #no-such")
     lines = await client.recv_all()
     assert any("403" in line for line in lines)  # ERR_NOSUCHCHANNEL
+
+
+@pytest.mark.asyncio
+async def test_chanarchive_marks_persistent(server, make_client):
+    """Qodo PR #27 #5 — archived channel must survive going empty.
+
+    Without persistent=True, the server auto-deletes empty
+    non-persistent channels on the last PART, dropping the
+    archived flag. The fix sets persistent=True on archive so
+    the flag survives indefinitely.
+    """
+    client = await make_client(nick="testserv-alice", user="alice")
+    await client.send("JOIN #durability-test")
+    await client.recv_all(timeout=1.0)
+    await client.send("CHANARCHIVE #durability-test")
+    await client.recv_all(timeout=1.0)
+    ch = server.channels.get("#durability-test")
+    assert ch is not None
+    assert ch.archived is True
+    assert ch.persistent is True, "archived channel must be persistent"
+    # PART removes member but does NOT delete the channel.
+    await client.send("PART #durability-test")
+    await client.recv_all(timeout=1.0)
+    assert "#durability-test" in server.channels
+    assert server.channels["#durability-test"].archived is True

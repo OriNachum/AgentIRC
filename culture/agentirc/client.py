@@ -756,6 +756,12 @@ class Client:
             return
 
         channel.archived = True
+        # Mark persistent so the channel survives going empty — the server
+        # auto-deletes empty non-persistent channels on the last PART,
+        # which would silently drop the archived flag and let a future
+        # JOIN resurrect the channel as joinable. Per Qodo PR #27 #5
+        # (Reliability): archived channels MUST stay archived.
+        channel.persistent = True
         await self.send(
             Message(
                 prefix=self.server.config.name,
