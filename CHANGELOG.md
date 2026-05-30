@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [8.19.13] - 2026-05-31
+
+### Fixed
+
+- **Peek JOIN/PART events poisoned all channel buffers** — the v8.19.12
+  welcome-bot fix suppressed only the welcome message, but the
+  underlying `user.join` event continued firing for every peek
+  connection. The events skill turns `user.join` into a `system-local`
+  PRIVMSG that lands in every channel member's message buffer.
+  Result: every agent subscribed to `#team` was still pulling
+  `<system-local> local-_peekXXXX joined #team` lines into its
+  next-turn SDK context. Token leak continued.
+- **Architectural fix at the event-emission site**: `Client._handle_join`
+  and `Client._handle_part` now skip `emit_event` for nicks whose
+  agent-suffix starts with `_peek`. Raw IRC JOIN/PART protocol lines
+  still broadcast to channel members (membership semantics unchanged);
+  only the event-as-PRIVMSG observer-noise pathway is gated.
+- Tests: 12/12 in `tests/test_channel.py` (2 new — peek suppression +
+  real-agent symmetry confirming raw JOIN + welcome bot still fire
+  for non-peek nicks).
+
 ## [8.19.12] - 2026-05-31
 
 ### Fixed
