@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [8.18.7] - 2026-05-30
+
+### Security
+
+- **Task-channel ACL enforcement at the IRC JOIN layer**
+  (`culture/agentirc/client.py`). Workers could previously join any
+  `#task-<suffix>` channel, including channels belonging to other
+  workers. This bypassed the boss CLI's team isolation checks
+  (`boss.py _foreign_worker`). The IRCd now enforces: only the
+  worker whose nick matches the suffix (owner) and that worker's
+  boss (from the manifest) may join `#task-*` channels. All other
+  clients receive `474 ERR_BANNEDFROMCHAN`. System nicks
+  (`system-*`) are always allowed. `#joint-*`, `#team`, and other
+  channels remain unrestricted.
+
+### Added
+
+- `ERR_BANNEDFROMCHAN` (474) numeric reply in
+  `culture/protocol/replies.py`.
+- `_task_channel_acl()` and `_load_owner_map()` helpers in
+  `culture/agentirc/client.py` — manifest-backed ACL for
+  `#task-*` channels.
+- 14 new tests in `tests/test_task_channel_acl.py` (9 unit + 5
+  integration) covering: owner join, foreign refusal, boss join,
+  wrong-boss refusal, joint channels, system nicks, missing manifest.
+
 ## [8.18.6] - 2026-05-30
 
 Surfaced during the in-mesh PRD-authoring dogfood. Spawning `local-prd-w`

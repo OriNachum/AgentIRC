@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import time
 from typing import TYPE_CHECKING
@@ -39,6 +40,142 @@ _ATTR_CHANNEL = "irc.channel"
 
 if TYPE_CHECKING:
     from culture.agentirc.ircd import IRCd
+
+
+# ---------------------------------------------------------------------------
+# Task-channel ACL — enforce team isolation at the JOIN layer (v8.18.7).
+#
+# #task-<suffix> channels are private to the worker whose nick ends with
+# that suffix, plus the worker's boss (from the manifest).  All other
+# clients are refused.  #joint-* / #team / #system are open to everyone.
+# ---------------------------------------------------------------------------
+
+_TASK_PREFIX = "#task-"
+
+# Owner-map cache. _load_owner_map() reads server.yaml AND every agent
+# culture.yaml on every call — ~21 synchronous file reads on a 20-agent
+# mesh. With concurrent JOINs (e.g. boss spawning a fleet) that's a disk
+# I/O storm on the asyncio event loop.
+#
+# Cache the map for OWNER_MAP_TTL_S and refresh past that. The TTL is
+# short enough that manifest hot-reloads (the original design intent)
+# take effect within seconds, but long enough to amortize the cost
+# across burst JOINs. time.monotonic() avoids clock-skew issues.
+#
+# Cache is intentionally module-level (process-wide). If a future
+# multi-process IRCd setup ever runs, each process has its own cache —
+# acceptable, since manifest changes still propagate on TTL expiry.
+import time as _time
+
+OWNER_MAP_TTL_S = 5.0
+_owner_map_cache: dict[str, str] | None = None
+_owner_map_ts: float = 0.0
+_owner_map_key: str | None = None  # resolved server.yaml path for cache validity
+
+
+def _load_owner_map() -> dict[str, str]:
+    """Load worker-nick -> boss-nick from the manifest (server.yaml).
+
+    Returns an empty dict if the manifest is missing or unreadable —
+    fail-closed: only the task-owner nick + system-* may join its
+    task channel; the supervising boss is also refused since we
+    can't verify the relationship.
+
+    Cached for ``OWNER_MAP_TTL_S`` seconds **and** keyed by the
+    resolved ``server.yaml`` path (derived from ``CULTURE_HOME``).
+    If ``CULTURE_HOME`` changes between calls (common in tests),
+    the cache is treated as a miss regardless of TTL.
+    """
+    global _owner_map_cache, _owner_map_ts, _owner_map_key
+    now = _time.monotonic()
+
+    from culture.clients._perm_broker import culture_home
+
+    server_yaml = os.path.join(culture_home(), "server.yaml")
+
+    if (
+        _owner_map_cache is not None
+        and _owner_map_key == server_yaml
+        and (now - _owner_map_ts) < OWNER_MAP_TTL_S
+    ):
+        return _owner_map_cache
+    try:
+        from culture.config import load_config_or_default
+
+        config = load_config_or_default(server_yaml, fallback=server_yaml)
+        _owner_map_cache = {a.nick: (getattr(a, "boss", "") or "") for a in config.agents}
+    except Exception:  # noqa: BLE001 — unreadable manifest -> fail-closed
+        _owner_map_cache = {}
+    _owner_map_ts = now
+    _owner_map_key = server_yaml
+    return _owner_map_cache
+
+
+def _invalidate_owner_map_cache() -> None:
+    """Force the next ``_load_owner_map()`` call to refresh from disk.
+
+    Tests + administrative operations that mutate the manifest can call
+    this to bypass the TTL.
+    """
+    global _owner_map_cache, _owner_map_ts, _owner_map_key
+    _owner_map_cache = None
+    _owner_map_ts = 0.0
+    _owner_map_key = None
+
+
+def _task_channel_acl(nick: str, channel_name: str, server_name: str = "") -> bool:
+    """Return True if *nick* is allowed to join *channel_name*.
+
+    Only gates ``#task-*`` channels.  Everything else returns True.
+
+    *server_name* is the IRCd's configured name (e.g. ``"spark"``).
+    It is used to correctly strip the server prefix from nicks —
+    ``split("-", 1)`` breaks when the server name itself contains
+    hyphens (e.g. ``"my-server"``).  When omitted or empty, falls
+    back to ``split("-", 1)`` for backward compatibility.
+
+    Rules for ``#task-<suffix>``:
+    - The worker whose nick ends with ``-<suffix>`` may join (owner).
+    - That worker's boss (from manifest) may join (supervisor).
+    - The ``system-*`` prefix is always allowed (server bots / system).
+    - Everyone else is refused.
+    """
+    if not channel_name.startswith(_TASK_PREFIX):
+        return True  # Not a task channel — no restriction.
+
+    task_suffix = channel_name[len(_TASK_PREFIX) :]
+    if not task_suffix:
+        return True  # Bare "#task-" — degenerate, allow.
+
+    # Extract the agent suffix from a nick.  When the server name is
+    # known we strip the exact prefix (handles hyphens in server names);
+    # otherwise fall back to the first-hyphen split.
+    def _agent_suffix(n: str) -> str:
+        prefix = f"{server_name}-" if server_name else ""
+        if prefix and n.startswith(prefix):
+            return n[len(prefix) :]
+        return n.split("-", 1)[1] if "-" in n else n
+
+    nick_suffix = _agent_suffix(nick)
+
+    # Owner match: nick suffix == task suffix
+    if nick_suffix == task_suffix:
+        return True
+
+    # System clients (system-*) always allowed — they deliver NOTICEs etc.
+    if nick.startswith(SYSTEM_USER_PREFIX):
+        return True
+
+    # Boss match: look up the manifest to find the task-owner's boss.
+    # The task owner's full nick is <server>-<task_suffix>.  We need to
+    # find it in the manifest and check if the joining nick is its boss.
+    owner_map = _load_owner_map()
+    for worker_nick, boss_nick in owner_map.items():
+        w_suffix = _agent_suffix(worker_nick)
+        if w_suffix == task_suffix and boss_nick == nick:
+            return True
+
+    return False
 
 
 class Client:
@@ -433,6 +570,15 @@ class Client:
                         command="NOTICE",
                         params=[self.nick, f"{channel_name} is archived and cannot be joined"],
                     )
+                )
+                return
+
+            # --- Task-channel ACL (v8.18.7) ---
+            if not _task_channel_acl(self.nick, channel_name, self.server.config.name):
+                await self.send_numeric(
+                    replies.ERR_BANNEDFROMCHAN,
+                    channel_name,
+                    replies.MSG_BANNEDFROMCHAN,
                 )
                 return
 
