@@ -36,7 +36,7 @@ from culture.clients.claude.socket_server import SocketServer
 from culture.clients.claude.supervisor import Supervisor, make_sdk_evaluate_fn
 from culture.clients.claude.telemetry import init_harness_telemetry
 from culture.clients.claude.webhook import AlertEvent, WebhookClient
-from culture.pidfile import remove_pid, write_pid
+from culture.pidfile import is_process_alive, read_pid, remove_pid, write_pid
 
 logger = logging.getLogger(__name__)
 
@@ -169,6 +169,11 @@ class AgentDaemon:
         # the truth back to the boss instead of relying on anyone to notice.
         self._engaged: bool = False
         self._idle_task: asyncio.Task | None = None
+        # Cross-process watchdog for owned worker daemons that died
+        # without writing ``agent_exit`` (v8.19.8 — silent-death after
+        # DONE-FINAL pattern, observed live during v8.18.7 fleet ship).
+        self._silent_death_task: asyncio.Task | None = None
+        self._silent_death_warned: set[str] = set()
         # Last AssistantMessage timestamp — drives the unified stall watchdog
         # (catches "engaged then silent" as well as "activated then silent").
         # None until the first turn lands.
@@ -338,6 +343,11 @@ class AgentDaemon:
             self._idle_task.cancel()
             await asyncio.gather(self._idle_task, return_exceptions=True)
             self._idle_task = None
+
+        if self._silent_death_task is not None:
+            self._silent_death_task.cancel()
+            await asyncio.gather(self._silent_death_task, return_exceptions=True)
+            self._silent_death_task = None
 
         if hasattr(self, "_poll_task") and self._poll_task:
             self._poll_task.cancel()
@@ -549,6 +559,20 @@ class AgentDaemon:
             self._consecutive_failed_turns = 0
             self._idle_task = asyncio.create_task(self._idle_watchdog())
 
+        # Silent-death watchdog (v8.19.8). When THIS agent is a boss,
+        # also start a cross-process watcher for its owned workers:
+        # detects worker daemons whose PIDs are dead but never wrote
+        # ``agent_exit`` to their daemon-log (e.g., SIGKILL, OOM,
+        # uncaught asyncio loop exception from the bundled CLI's
+        # ``Stream closed`` bug). The existing intra-process
+        # _idle_watchdog can't catch this — it only watches the
+        # boss's own SDK state, not its workers' liveness.
+        if "boss" in (getattr(self.agent, "tags", []) or []):
+            if hasattr(self, "_silent_death_task") and self._silent_death_task is not None:
+                self._silent_death_task.cancel()
+            self._silent_death_warned: set[str] = set()
+            self._silent_death_task = asyncio.create_task(self._silent_death_watchdog())
+
     async def _idle_watchdog(self) -> None:
         """Detect three classes of silent boss-owned worker, DM the boss each.
 
@@ -644,6 +668,122 @@ class AgentDaemon:
             reason=new_state,
             since_seconds=since,
         )
+        return False
+
+    async def _silent_death_watchdog(self) -> None:
+        """Detect worker daemons that died without writing ``agent_exit``.
+
+        The intra-process ``_idle_watchdog`` watches the boss's own SDK
+        state — it cannot see worker daemons crash. When the SDK CLI's
+        ``Stream closed`` bug propagates an uncaught exception up to
+        the worker's asyncio loop (observed live during the v8.18.7
+        fleet), the worker's daemon process exits without going through
+        ``daemon.stop()``, so no ``agent_exit`` record lands in its
+        daemon-log. The boss is left believing the worker is healthy.
+
+        This watchdog polls every ``WATCHDOG_POLL_SECONDS`` and for each
+        owned worker (from the manifest):
+
+        1. Reads the worker's PID file.
+        2. Confirms the process is alive.
+        3. If dead AND the daemon-log's last action isn't
+           ``agent_exit`` / ``agent_stop``, surfaces ``idle_warning``
+           with ``reason=silent_death_after_done`` to the boss.
+
+        One-shot per worker per session — the warned set prevents
+        repeated DMs for the same dead worker; cleared on watchdog
+        restart.
+        """
+        # Defer the import so a non-boss daemon never pays the cost.
+        from culture.config import load_config_or_default
+
+        try:
+            while True:
+                await asyncio.sleep(WATCHDOG_POLL_SECONDS)
+                if self._paused:
+                    continue
+                # Re-read the manifest each tick — workers spawned mid-
+                # session need to be picked up. Fail soft on any I/O error
+                # so a transient manifest hiccup never kills the watchdog.
+                try:
+                    # No config-path attribute on DaemonConfig, so resolve
+                    # from CULTURE_HOME (mirrors what culture.cli does).
+                    from culture.clients._perm_broker import culture_home
+
+                    manifest_path = os.path.join(culture_home(), "server.yaml")
+                    cfg = load_config_or_default(manifest_path)
+                    owned = [
+                        a.nick
+                        for a in cfg.agents
+                        if (getattr(a, "boss", "") == self.agent.nick)
+                        and not getattr(a, "archived", False)
+                    ]
+                except Exception:  # noqa: BLE001
+                    continue
+                for nick in owned:
+                    if nick in self._silent_death_warned:
+                        continue
+                    pid = read_pid(f"agent-{nick}")
+                    # No pidfile → worker never started or cleanly stopped;
+                    # no diagnosis to make. Alive PID → still running.
+                    if not pid or is_process_alive(pid):
+                        continue
+                    # Process dead. Check daemon-log for a clean exit
+                    # marker. If the tail is anything other than
+                    # ``agent_exit`` or ``agent_stop``, this was a silent
+                    # death.
+                    if self._daemon_log_indicates_clean_exit(nick):
+                        continue
+                    self._silent_death_warned.add(nick)
+                    await self._notify_boss(
+                        "idle_warning",
+                        f"worker {nick} died without writing agent_exit "
+                        "(silent death — likely SDK CLI Stream-closed "
+                        "or OOM). PID is dead; daemon-log has no exit "
+                        "marker. Investigate or re-spawn.",
+                        reason="silent_death_after_done",
+                        worker=nick,
+                    )
+        except asyncio.CancelledError:
+            return
+
+    def _daemon_log_indicates_clean_exit(self, nick: str) -> bool:
+        """True if *nick*'s daemon-log tail contains a clean exit marker.
+
+        Reads only the last 4 KiB of the file (lifecycle events are
+        small — at most a few hundred bytes per action; 4 KiB is plenty
+        to find the most recent ``agent_exit`` / ``agent_stop``).
+        Returns False on any I/O error — better to false-positive a
+        silent death warning than to silently miss one.
+        """
+        from culture.clients._daemon_log import daemon_log_path_for
+
+        path = daemon_log_path_for(nick)
+        try:
+            with open(path, "rb") as fh:
+                fh.seek(0, os.SEEK_END)
+                size = fh.tell()
+                fh.seek(max(0, size - 4096))
+                tail = fh.read().decode("utf-8", "replace")
+        except OSError:
+            return False
+        # Walk lines in reverse — newest action first.
+        import json as _json
+
+        for line in reversed(tail.splitlines()):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = _json.loads(line)
+            except _json.JSONDecodeError:
+                continue
+            action = rec.get("action")
+            if action in ("agent_exit", "agent_stop"):
+                return True
+            # Stop at the most recent action of any kind — only the tail
+            # matters for "did the process exit cleanly".
+            return False
         return False
 
     async def _rejoin_owned_task_channels(self) -> None:
