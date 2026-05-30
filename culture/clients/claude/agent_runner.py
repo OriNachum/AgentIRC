@@ -89,6 +89,7 @@ class AgentRunner:
         on_usage: Callable[[int | None], Awaitable[None]] | None = None,
         on_perm_request: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
         on_turn_complete: Callable[[], Awaitable[None]] | None = None,
+        on_turn_failed: Callable[[], Awaitable[None]] | None = None,
         metrics: HarnessMetricsRegistry | None = None,
         nick: str = "",
         boss: str = "",
@@ -108,6 +109,13 @@ class AgentRunner:
         # tool-retry loop (e.g. SDK CLI Stream-closed retries that fail
         # repeatedly without crashing the session).
         self.on_turn_complete = on_turn_complete
+        # Companion to on_turn_complete — fires when ``_process_turn`` catches
+        # an exception from the SDK ``query()`` loop (e.g. CLIConnectionError /
+        # Stream closed). Lets the daemon track consecutive failures so the
+        # watchdog can catch intermittent-success retry loops (v8.18.5 finding
+        # from context-watch dogfood: alternating fail/Bash-workaround kept
+        # v8.18.4's stalled_in_retry_loop silent).
+        self.on_turn_failed = on_turn_failed
         self._metrics = metrics
         self._nick = nick
         self._boss = boss
@@ -381,6 +389,17 @@ class AgentRunner:
                 outcome = "error"
                 failed = True
                 logger.exception("SDK session turn error")
+                # Fire the failed-turn callback BEFORE on_exit. on_exit
+                # triggers crash recovery (terminal); on_turn_failed signals
+                # a non-fatal turn error so the daemon's watchdog can track
+                # consecutive failures even when the session keeps running
+                # (e.g. SDK CLI Stream-closed errors that don't propagate
+                # to a crash).
+                if self.on_turn_failed is not None:
+                    try:
+                        await self.on_turn_failed()
+                    except Exception:  # noqa: BLE001 — advisory; never re-raise
+                        logger.exception("on_turn_failed callback raised")
                 if not self._stopping and self.on_exit:
                     await self.on_exit(1)
         duration_ms = (time.perf_counter() - start_perf) * 1000.0

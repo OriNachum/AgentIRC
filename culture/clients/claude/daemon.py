@@ -54,6 +54,16 @@ STALL_GRACE_SECONDS = 300
 # cheap.
 WATCHDOG_POLL_SECONDS = 30
 
+# Threshold for the consecutive-failed-turns watchdog class. The
+# context-watch dogfood showed a pattern where a worker alternates
+# fail (Write → Stream closed) and succeed (Bash workaround); each
+# success refreshed _last_turn_completed_at so v8.18.4's
+# stalled_in_retry_loop stayed silent. This counter resets on every
+# clean turn and increments on every failed turn — exceeding the
+# threshold means the failure rate is elevated even if some turns
+# squeak through.
+CONSECUTIVE_FAILED_TURN_THRESHOLD = 5
+
 # IPC validation error messages
 _ERR_MISSING_CHANNEL = "Missing 'channel'"
 _ERR_MISSING_CHANNEL_THREAD = "Missing 'channel' or 'thread'"
@@ -167,6 +177,14 @@ class AgentDaemon:
         # the turn never completes, so this stays stale. The watchdog's
         # ``stalled_in_retry_loop`` class catches that gap.
         self._last_turn_completed_at: float | None = None
+        # Consecutive failed-turn counter. Drives v8.18.5's
+        # ``stalled_in_failed_retry`` watchdog class: when a worker is
+        # alternating fail/succeed (the SDK CLI Stream-closed-then-Bash-
+        # workaround pattern from the context-watch dogfood), each
+        # successful turn resets _last_turn_completed_at so v8.18.4's
+        # stalled_in_retry_loop stays silent. But the failure rate is
+        # still elevated; this counter catches it.
+        self._consecutive_failed_turns: int = 0
 
         # Pause/sleep state
         self._paused: bool = False
@@ -479,6 +497,7 @@ class AgentDaemon:
             on_usage=self._on_agent_usage,
             on_perm_request=self._on_perm_request,
             on_turn_complete=self._on_turn_complete,
+            on_turn_failed=self._on_turn_failed,
             metrics=self._metrics,
             nick=self.agent.nick,
             boss=_boss_nick(self.agent),
@@ -503,6 +522,7 @@ class AgentDaemon:
             self._last_activation = None
             self._last_assistant_message_at = None
             self._last_turn_completed_at = None
+            self._consecutive_failed_turns = 0
             self._idle_task = asyncio.create_task(self._idle_watchdog())
 
     async def _idle_watchdog(self) -> None:
@@ -581,6 +601,15 @@ class AgentDaemon:
             elif last_msg is not None and now - last_msg >= STALL_GRACE_SECONDS:
                 new_state = "stalled_post_engagement"
                 since_ts = last_msg
+            elif self._consecutive_failed_turns >= CONSECUTIVE_FAILED_TURN_THRESHOLD:
+                # The intermittent-success retry pattern caught here: even
+                # if turns occasionally complete (resetting last_turn_
+                # completed_at and last_msg), a sustained failure rate
+                # means the worker is mostly thrashing. Use last_msg as
+                # the timestamp since we don't track when the failures
+                # started; the boss DM names the failure count.
+                new_state = "stalled_in_failed_retry"
+                since_ts = last_msg if last_msg is not None else now
         if not new_state or new_state == state.get("warned_state"):
             return False
         state["warned_state"] = new_state
@@ -664,6 +693,14 @@ class AgentDaemon:
                 f"likely a tool-retry loop (e.g. SDK CLI 'Stream closed' on "
                 f"every Write). Check its audit for the repeating tool_use, "
                 f"consider re-driving with a different approach."
+            )
+        if reason == "stalled_in_failed_retry":
+            return (
+                f"[stall] worker {nick} has accumulated "
+                f"{self._consecutive_failed_turns} consecutive failed turns "
+                f"(intermittent successes between SDK errors). The work is "
+                f"thrashing — check its audit for the recurring error pattern "
+                f"and consider re-driving with a different tool or approach."
             )
         return (
             f"[stall] worker {nick} engaged but has been silent for {since}s "
@@ -778,6 +815,17 @@ class AgentDaemon:
 
         self._capture_agent_status(msg)
 
+    async def _on_turn_failed(self) -> None:
+        """Track consecutive failed turns. Fires when AgentRunner's
+        _process_turn catches an exception (CLIConnectionError, Stream
+        closed, etc) — non-fatal turn errors that the session recovers
+        from. The watchdog's `stalled_in_failed_retry` class uses this
+        counter to catch intermittent-success retry loops that v8.18.4's
+        stalled_in_retry_loop misses (a Bash-workaround turn between
+        failed Writes keeps that timer fresh).
+        """
+        self._consecutive_failed_turns += 1
+
     async def _on_turn_complete(self) -> None:
         """Record the timestamp of the last cleanly-completed turn.
 
@@ -789,9 +837,11 @@ class AgentDaemon:
         stall watchdog can distinguish "engaged + making progress" from
         "engaged + stuck in a tool-retry loop" (v8.18.4 — observed live
         when a worker hit the SDK CLI's ``Stream closed`` error on every
-        ``Write`` and looped retrying).
+        ``Write`` and looped retrying). Also resets the consecutive-
+        failed-turn counter (v8.18.5).
         """
         self._last_turn_completed_at = time.time()
+        self._consecutive_failed_turns = 0
 
     async def _on_agent_usage(self, input_tokens: int | None) -> None:
         """Evaluate context utilization after a turn; drive the handoff cycle."""

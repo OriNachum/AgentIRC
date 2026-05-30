@@ -362,6 +362,53 @@ class TestIdleWatchdog:
         d._transport.send_privmsg.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_dms_boss_when_stalled_in_failed_retry(self, tmp_path, monkeypatch):
+        # v8.18.5 — intermittent-success retry loop. Failure counter
+        # exceeds threshold (5) even though clean turns happened recently.
+        # Catches the SDK-CLI-Stream-closed + Bash-workaround pattern from
+        # the context-watch dogfood that v8.18.4's stalled_in_retry_loop
+        # missed.
+        import time as _time
+
+        monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
+        monkeypatch.setattr(daemon_mod, "IDLE_GRACE_SECONDS", 0)
+        monkeypatch.setattr(daemon_mod, "STALL_GRACE_SECONDS", 300)
+        monkeypatch.setattr(daemon_mod, "CONSECUTIVE_FAILED_TURN_THRESHOLD", 3)
+        d = _daemon(boss="local-boss")
+        d._transport = AsyncMock()
+        d._agent_runner = AsyncMock()
+        d._engaged = True
+        now = _time.time()
+        d._last_assistant_message_at = now - 1
+        d._last_turn_completed_at = now - 1  # recent — not the v8.18.4 case
+        d._consecutive_failed_turns = 3  # threshold reached
+        await d._watchdog_tick(now - 1, self._wd_state())
+        d._transport.send_privmsg.assert_awaited_once()
+        text = d._transport.send_privmsg.await_args.args[1]
+        assert "failed" in text.lower() or "thrashing" in text.lower()
+
+    @pytest.mark.asyncio
+    async def test_failed_turn_increments_counter(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
+        d = _daemon(boss="local-boss")
+        assert d._consecutive_failed_turns == 0
+        await d._on_turn_failed()
+        await d._on_turn_failed()
+        assert d._consecutive_failed_turns == 2
+
+    @pytest.mark.asyncio
+    async def test_completed_turn_resets_failure_counter(self, tmp_path, monkeypatch):
+        # A clean turn must zero the counter — otherwise intermittent
+        # success would still eventually trip the watchdog, defeating
+        # the v8.18.5 semantics ("alternating fail/succeed is only a
+        # stall if the SUSTAINED rate is bad").
+        monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
+        d = _daemon(boss="local-boss")
+        d._consecutive_failed_turns = 4
+        await d._on_turn_complete()
+        assert d._consecutive_failed_turns == 0
+
+    @pytest.mark.asyncio
     async def test_on_turn_complete_updates_timestamp(self, tmp_path, monkeypatch):
         # The runner's _on_turn_complete callback (fired after a clean
         # async-for query() loop) must update _last_turn_completed_at.
