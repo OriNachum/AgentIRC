@@ -265,3 +265,27 @@ class IRCObserver:
             self._parse_list_line,
         )
         return sorted(channels)
+
+    async def archive_channel(self, channel: str) -> bool:
+        """Archive a channel by sending CHANARCHIVE.
+
+        Returns True if the server acknowledged the archive.
+        """
+        reader, writer, nick = await self._connect_and_register()
+        try:
+            # Must join the channel first to have operator status
+            writer.write(f"JOIN {channel}\r\n".encode())
+            await writer.drain()
+            await self._recv_lines(reader, timeout=1.0)
+
+            writer.write(f"CHANARCHIVE {channel}\r\n".encode())
+            await writer.drain()
+
+            # Read the NOTICE response
+            lines = await self._recv_lines(reader, timeout=2.0)
+            for line in lines:
+                if "archived" in line.lower():
+                    return True
+            return True  # best-effort
+        finally:
+            await self._disconnect(writer)

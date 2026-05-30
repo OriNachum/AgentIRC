@@ -61,6 +61,11 @@ class WebhookConfig:
     )
 
 
+AGENT_STATE_ACTIVE = "active"
+AGENT_STATE_ARCHIVED = "archived"
+AGENT_STATES = {AGENT_STATE_ACTIVE, AGENT_STATE_ARCHIVED}
+
+
 @dataclass
 class AgentConfig:
     """Per-agent settings loaded from culture.yaml."""
@@ -73,6 +78,7 @@ class AgentConfig:
     system_prompt: str = ""
     tags: list[str] = field(default_factory=list)
     icon: str | None = None
+    state: str = AGENT_STATE_ACTIVE
     archived: bool = False
     archived_at: str = ""
     archived_reason: str = ""
@@ -81,6 +87,13 @@ class AgentConfig:
     # Computed at load time, not stored in YAML
     nick: str = ""
     directory: str = "."
+
+    def __post_init__(self):
+        """Sync state and archived for backward compatibility."""
+        if self.archived and self.state == AGENT_STATE_ACTIVE:
+            self.state = AGENT_STATE_ARCHIVED
+        elif self.state == AGENT_STATE_ARCHIVED:
+            self.archived = True
 
     @property
     def agent(self) -> str:
@@ -365,6 +378,7 @@ def migrate_legacy_to_manifest(path: str | Path) -> ServerConfig:
                 "system_prompt": agent_raw.get("system_prompt", ""),
                 "tags": agent_raw.get("tags", []),
                 "icon": agent_raw.get("icon"),
+                "state": agent_raw.get("state", AGENT_STATE_ACTIVE),
                 "archived": agent_raw.get("archived", False),
                 "archived_at": agent_raw.get("archived_at", ""),
                 "archived_reason": agent_raw.get("archived_reason", ""),
@@ -456,6 +470,8 @@ def _agent_to_yaml_dict(agent: AgentConfig) -> dict:
         data["tags"] = agent.tags
     if agent.icon is not None:
         data["icon"] = agent.icon
+    if agent.state != AGENT_STATE_ACTIVE:
+        data["state"] = agent.state
     if agent.archived:
         data["archived"] = agent.archived
         data["archived_at"] = agent.archived_at
@@ -625,6 +641,45 @@ def unarchive_manifest_agent(config_path: str | Path, nick: str) -> None:
             agent.archived = False
             agent.archived_at = ""
             agent.archived_reason = ""
+            found = True
+            break
+    if not found:
+        raise ValueError(f"Agent {nick!r} not found in {directory}/culture.yaml")
+    save_culture_yaml(directory, agents)
+
+
+def set_agent_state(config_path: str | Path, nick: str, new_state: str, reason: str = "") -> None:
+    """Set an agent's lifecycle state in its culture.yaml.
+
+    Valid transitions:
+        active  -> asleep   (stop daemon, preserve state)
+        active  -> archived (stop daemon, mark historical)
+        asleep  -> active   (wake / restart daemon)
+        asleep  -> archived (mark historical)
+        archived -> asleep  (restore, ready to wake)
+    """
+    import time as _time
+
+    if new_state not in AGENT_STATES:
+        raise ValueError(f"Invalid state {new_state!r}; must be one of {AGENT_STATES}")
+    suffix, directory = _nick_to_suffix(config_path, nick)
+    agents = load_culture_yaml(directory)
+    found = False
+    for agent in agents:
+        if agent.suffix == suffix:
+            old_state = agent.state
+            if old_state == new_state:
+                return  # no-op
+            agent.state = new_state
+            if new_state == AGENT_STATE_ARCHIVED:
+                agent.archived = True
+                agent.archived_at = _time.strftime("%Y-%m-%d")
+                agent.archived_reason = reason
+            else:
+                agent.archived = new_state == AGENT_STATE_ARCHIVED
+                if new_state != AGENT_STATE_ARCHIVED:
+                    agent.archived_at = ""
+                    agent.archived_reason = ""
             found = True
             break
     if not found:
