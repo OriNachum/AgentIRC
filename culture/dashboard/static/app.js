@@ -1,7 +1,7 @@
 "use strict";
 
 // Mission Control SPA — vanilla JS, no build step.
-const state = { selected: null, kind: "audit", es: null, chatTimer: null };
+const state = { selected: null, kind: "audit", es: null, chatTimer: null, view: "agents" };
 
 const $ = (sel) => document.querySelector(sel);
 const el = (tag, cls, text) => {
@@ -38,13 +38,29 @@ async function post(path, body) {
   });
 }
 
+// ---- Main tab navigation --------------------------------------------------
+
+function switchView(view) {
+  state.view = view;
+  document.querySelectorAll(".main-tab").forEach((t) => {
+    t.classList.toggle("active", t.dataset.view === view);
+  });
+  document.getElementById("view-agents").classList.toggle("hidden", view !== "agents");
+  document.getElementById("view-channels").classList.toggle("hidden", view !== "channels");
+  document.getElementById("view-archived").classList.toggle("hidden", view !== "archived");
+  if (view === "agents") refreshAgents();
+  else if (view === "channels") refreshChannels();
+  else if (view === "archived") refreshArchived();
+}
+
+document.querySelectorAll(".main-tab").forEach((tab) => {
+  tab.onclick = () => switchView(tab.dataset.view);
+});
+
 // ---- Agents grid -----------------------------------------------------------
 
-// Group agents into teams: a boss heads its own team; an agent's `boss` field
-// places it under that boss (even if the boss is offline); the rest are
-// "unassigned". This mirrors the spawn hierarchy so teams read as units.
 function groupTeams(agents) {
-  const teams = new Map(); // bossNick -> { boss, workers: [] }
+  const teams = new Map();
   const unassigned = [];
   const team = (k) => {
     if (!teams.has(k)) teams.set(k, { boss: null, workers: [] });
@@ -77,8 +93,31 @@ function renderAgentItem(a, isWorker) {
   if (a.is_boss) nick.appendChild(el("span", "boss-tag", "BOSS"));
   if (a.idle) nick.appendChild(el("span", "idle-tag", "IDLE"));
   row.appendChild(nick);
-  if (a.pending > 0) row.appendChild(el("span", "agent-pending", a.pending + " ⏳"));
+  if (a.pending > 0) row.appendChild(el("span", "agent-pending", a.pending + " \u23F3"));
   item.appendChild(row);
+
+  // Channels row
+  if (a.channels && a.channels.length) {
+    const chRow = el("div", "agent-channels");
+    chRow.textContent = a.channels.join(", ");
+    item.appendChild(chRow);
+  }
+
+  // Brief preview
+  if (a.last_brief) {
+    const brief = el("div", "agent-brief");
+    brief.appendChild(el("span", "brief-label", "Brief: "));
+    brief.appendChild(document.createTextNode(a.last_brief));
+    item.appendChild(brief);
+  }
+
+  // Last assistant text
+  if (a.last_assistant) {
+    const asst = el("div", "agent-assistant");
+    asst.appendChild(el("span", "asst-label", "Last: "));
+    asst.appendChild(document.createTextNode(a.last_assistant));
+    item.appendChild(asst);
+  }
 
   const meta = el("div", "agent-meta");
   meta.appendChild(el("span", null, a.state));
@@ -88,6 +127,9 @@ function renderAgentItem(a, isWorker) {
   const actions = el("div", "agent-actions");
   actions.appendChild(ctlBtn("pause", "Pause", a.nick));
   actions.appendChild(ctlBtn("resume", "Resume", a.nick));
+  const archive = el("button", "btn btn-sm btn-archive", "Archive");
+  archive.onclick = (e) => { e.stopPropagation(); confirmArchive(a.nick); };
+  actions.appendChild(archive);
   const close = el("button", "btn btn-sm btn-danger", "Close");
   close.onclick = (e) => { e.stopPropagation(); confirmClose(a.nick); };
   actions.appendChild(close);
@@ -106,7 +148,7 @@ async function refreshAgents() {
   }
   const { teams, unassigned } = groupTeams(data.agents);
   for (const [bossNick, t] of teams) {
-    const label = t.boss ? `${bossNick} · team` : `${bossNick} · team (boss offline)`;
+    const label = t.boss ? `${bossNick} \u00B7 team` : `${bossNick} \u00B7 team (boss offline)`;
     list.appendChild(teamHeader(label, t.workers.length, "worker"));
     if (t.boss) list.appendChild(renderAgentItem(t.boss, false));
     for (const w of t.workers) list.appendChild(renderAgentItem(w, true));
@@ -137,14 +179,166 @@ function confirmClose(nick) {
     .catch((e) => toast(e.message, true));
 }
 
+function confirmArchive(nick) {
+  if (!confirm(`Archive agent ${nick}? It will be stopped and moved to the Archived tab.`)) return;
+  post("/api/archive", { nick })
+    .then((r) => { toast(r.ok ? `Archived ${nick}` : `Archive failed`, !r.ok); refreshAgents(); })
+    .catch((e) => toast(e.message, true));
+}
+
+// ---- Channels tab ----------------------------------------------------------
+
+async function refreshChannels() {
+  let data;
+  try { data = await api("/api/channels"); } catch (e) { return; }
+  const container = document.getElementById("channel-list");
+  container.replaceChildren();
+  if (!data.channels.length) {
+    container.appendChild(el("div", "empty", "No channels found."));
+    return;
+  }
+  // Group by category
+  const groups = { boss: [], task: [], joint: [], shared: [], other: [] };
+  for (const ch of data.channels) {
+    const cat = ch.category || "other";
+    (groups[cat] || groups.other).push(ch);
+  }
+  // Group tasks by boss
+  const tasksByBoss = {};
+  for (const ch of groups.task) {
+    const boss = ch.boss || "unassigned";
+    if (!tasksByBoss[boss]) tasksByBoss[boss] = [];
+    tasksByBoss[boss].push(ch);
+  }
+
+  // Render boss channels
+  if (groups.boss.length) {
+    container.appendChild(sectionHeader("Boss Channels"));
+    for (const ch of groups.boss) container.appendChild(renderChannelCard(ch));
+  }
+
+  // Render task channels grouped by team
+  for (const [boss, channels] of Object.entries(tasksByBoss)) {
+    container.appendChild(sectionHeader(`${boss} \u00B7 tasks`));
+    for (const ch of channels) container.appendChild(renderChannelCard(ch));
+  }
+
+  // Joint channels
+  if (groups.joint.length) {
+    container.appendChild(sectionHeader("Joint Channels"));
+    for (const ch of groups.joint) container.appendChild(renderChannelCard(ch));
+  }
+
+  // Shared channels
+  if (groups.shared.length) {
+    container.appendChild(sectionHeader("Shared"));
+    for (const ch of groups.shared) container.appendChild(renderChannelCard(ch));
+  }
+
+  // Other
+  if (groups.other.length) {
+    container.appendChild(sectionHeader("Other"));
+    for (const ch of groups.other) container.appendChild(renderChannelCard(ch));
+  }
+}
+
+function sectionHeader(text) {
+  const d = el("div", "channel-section-header", text);
+  return d;
+}
+
+function renderChannelCard(ch) {
+  const card = el("div", "channel-card");
+  const title = el("div", "channel-title", ch.channel);
+  card.appendChild(title);
+
+  if (ch.members && ch.members.length) {
+    const members = el("div", "channel-members", ch.members.join(", "));
+    card.appendChild(members);
+  }
+
+  // Click to view channel chat
+  card.onclick = () => {
+    // Find a member agent to read the channel via
+    if (ch.members && ch.members.length) {
+      selectAgent(ch.members[0]);
+      // Switch to chat tab
+      state.kind = "chat";
+      document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+      document.querySelector('.tab[data-kind="chat"]').classList.add("active");
+      openStream();
+      updateStreamTitle();
+    }
+  };
+  card.style.cursor = "pointer";
+
+  return card;
+}
+
+// ---- Archived tab ----------------------------------------------------------
+
+async function refreshArchived() {
+  let data;
+  try { data = await api("/api/archived"); } catch (e) { return; }
+  const container = document.getElementById("archived-list");
+  container.replaceChildren();
+  if (!data.agents || !data.agents.length) {
+    container.appendChild(el("div", "empty", "No archived agents."));
+    return;
+  }
+  container.appendChild(sectionHeader("Archived Agents"));
+  for (const a of data.agents) {
+    const card = el("div", "archived-card");
+    const nick = el("div", "archived-nick", a.nick);
+    if (a.is_boss) nick.appendChild(el("span", "boss-tag", "BOSS"));
+    card.appendChild(nick);
+
+    if (a.archived_at) {
+      card.appendChild(el("div", "archived-date", "Archived: " + localTs(a.archived_at)));
+    }
+    if (a.archived_reason) {
+      card.appendChild(el("div", "archived-reason", a.archived_reason));
+    }
+    if (a.channels && a.channels.length) {
+      card.appendChild(el("div", "archived-channels", "Channels: " + a.channels.join(", ")));
+    }
+
+    // Actions row
+    const actions = el("div", "agent-actions");
+    const restore = el("button", "btn btn-sm btn-ok", "Restore");
+    restore.onclick = (e) => {
+      e.stopPropagation();
+      if (!confirm(`Restore agent ${a.nick} from archive?`)) return;
+      post("/api/unarchive", { nick: a.nick })
+        .then((r) => { toast(r.ok ? `Restored ${a.nick}` : `Restore failed`, !r.ok); refreshArchived(); })
+        .catch((err) => toast(err.message, true));
+    };
+    actions.appendChild(restore);
+    card.appendChild(actions);
+
+    // Click to view daemon log
+    card.onclick = () => {
+      selectAgent(a.nick);
+      state.kind = "daemon-log";
+      document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+      document.querySelector('.tab[data-kind="daemon-log"]').classList.add("active");
+      openStream();
+      updateStreamTitle();
+    };
+    card.style.cursor = "pointer";
+
+    container.appendChild(card);
+  }
+}
+
 // ---- Stream (per-agent session / daemon-log) -------------------------------
 
 const KIND_LABEL = { audit: "Activity", "daemon-log": "Daemon actions", chat: "Chat" };
 
 function updateStreamTitle() {
-  const nick = state.selected || "—";
+  const nick = state.selected || "\u2014";
   const label = KIND_LABEL[state.kind] || state.kind;
-  $("#stream-title").textContent = `${nick} · ${label}`;
+  $("#stream-title").textContent = `${nick} \u00B7 ${label}`;
 }
 
 function selectAgent(nick) {
@@ -215,10 +409,6 @@ function localTs(iso) {
 }
 
 function renderActivityTurn(box, rec) {
-  // One turn from the audit JSONL = one assistant message. Render with the
-  // shape of a regular Claude session: optional thinking (italic gray) →
-  // optional assistant text → tool calls with full inputs → tool results
-  // (collapsed by default; click to expand).
   const card = el("div", "turn");
   card.appendChild(el("div", "ts", localTs(rec.ts)));
   if (rec.thinking) {
@@ -233,7 +423,7 @@ function renderActivityTurn(box, rec) {
   }
   for (const tu of rec.tool_uses || []) {
     const block = el("div", "tool-use");
-    block.appendChild(el("div", "tool-head", "→ " + (tu.name || "(tool)")));
+    block.appendChild(el("div", "tool-head", "\u2192 " + (tu.name || "(tool)")));
     if (tu.input) {
       const pre = el("pre", "tool-input");
       pre.textContent = tu.input;
@@ -243,7 +433,7 @@ function renderActivityTurn(box, rec) {
   }
   for (const tr of rec.tool_results || []) {
     const block = el("div", "tool-result");
-    block.appendChild(el("div", "tool-head", "← " + (tr.name || "(result)")));
+    block.appendChild(el("div", "tool-head", "\u2190 " + (tr.name || "(result)")));
     if (tr.content || tr.preview) {
       const pre = el("pre", "tool-output");
       pre.textContent = tr.content || tr.preview;
@@ -338,7 +528,7 @@ $("#btn-stop-pause").onclick = async () => {
 };
 
 $("#btn-stop-kill").onclick = async () => {
-  if (!confirm("EMERGENCY STOP — kill every agent (including the boss)?")) return;
+  if (!confirm("EMERGENCY STOP \u2014 kill every agent (including the boss)?")) return;
   try { await post("/api/stop-all", { mode: "kill" }); toast("Stopped all agents"); refreshAgents(); }
   catch (e) { toast(e.message, true); }
 };

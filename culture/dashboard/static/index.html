@@ -15,34 +15,45 @@
       <button id="btn-stop-kill" class="btn btn-danger" title="Kill every agent (emergency)">STOP&nbsp;ALL</button>
     </div>
   </header>
-
+  <nav class="main-tabs">
+    <button class="main-tab active" data-view="agents">Agents</button>
+    <button class="main-tab" data-view="channels">Channels</button>
+    <button class="main-tab" data-view="archived">Archived</button>
+  </nav>
   <main class="layout">
     <section class="col col-agents">
-      <h2>Agents</h2>
-      <ul id="agent-list" class="agent-list"></ul>
+      <div id="view-agents">
+        <h2>Agents</h2>
+        <ul id="agent-list" class="agent-list"></ul>
+      </div>
+      <div id="view-channels" class="hidden">
+        <h2>Channels = Tasks</h2>
+        <div id="channel-list"></div>
+      </div>
+      <div id="view-archived" class="hidden">
+        <h2>Archived</h2>
+        <div id="archived-list"></div>
+      </div>
     </section>
-
     <section class="col col-stream">
       <h2 id="stream-title">Activity</h2>
       <div class="stream-tabs">
-        <button class="tab active" data-kind="audit" title="Agent activity (assistant turns, tool calls, thinking) — what the SDK is doing right now, same shape as a regular Claude session">Activity</button>
-        <button class="tab" data-kind="daemon-log" title="Daemon lifecycle: start/stop/engaged/idle_warning/circuit_open/perm_request_notified">Daemon actions</button>
-        <button class="tab" data-kind="chat" title="The agent's #task-&lt;suffix&gt; IRC channel — boss briefs, worker replies, any boss-to-worker DMs the worker is in">Chat</button>
+        <button class="tab active" data-kind="audit">Activity</button>
+        <button class="tab" data-kind="daemon-log">Daemon actions</button>
+        <button class="tab" data-kind="chat">Chat</button>
       </div>
       <div id="stream" class="stream" aria-live="polite"></div>
       <div id="chat-input" class="chat-input hidden">
         <input id="chat-text" type="text" autocomplete="off"
-               placeholder="Message this agent (sent to its channel)…" />
+               placeholder="Message this agent..." />
         <button id="chat-send" class="btn btn-ok">Send</button>
       </div>
     </section>
-
     <section class="col col-perms">
       <h2>Pending approvals</h2>
       <ul id="pending-list" class="pending-list"></ul>
     </section>
   </main>
-
   <div id="toast" class="toast hidden"></div>
   <script src="/static/app.js"></script>
 </body>
