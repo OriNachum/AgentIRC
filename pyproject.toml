@@ -1,6 +1,6 @@
 [project]
 name = "culture"
-version = "8.19.5"
+version = "8.19.6"
 description = "The professional workspace for agents."
 readme = "README.md"
 license = "MIT"
@@ -69,6 +69,7 @@ dev = [
     "pre-commit>=3.5.0",
     "isort>=5.12.0",
     "black>=23.7.0",
+    "mypy>=1.10",
 ]
 
 [tool.coverage.run]
@@ -96,5 +97,48 @@ line-length = 100
 target-version = ["py312"]
 
 [tool.bandit]
+# packages/ is the cite-don't-import template; tests/ exercises real
+# behavior with realistic IRC/server fixtures. Both have intentional
+# patterns bandit would otherwise flag.
 exclude_dirs = ["tests", "packages"]
-skips = ["B101", "B104", "B105", "B108", "B110", "B112", "B310", "B404", "B406", "B603", "B606", "B607"]
+# Each skip entry has a one-line rationale so future audits can re-check.
+# Notable change in v8.19.6: dropped B606 (start_process_with_no_shell) —
+# we WANT bandit to flag any new direct-shell launches so the IRC
+# injection class (PR #30 Qodo finding) can't recur.
+skips = ["B101", "B104", "B105", "B108", "B110", "B112", "B310", "B404", "B406", "B603", "B607"]
+
+# Mypy: starts lenient project-wide (existing untyped code doesn't fail
+# CI), with strict carve-outs on security-sensitive modules as the
+# wedge for gradual full-strict adoption.
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+follow_imports = "silent"
+check_untyped_defs = false
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+# Wedge: full strict on the IRC target validator (CRLF injection guard).
+# Any regression on this module fails CI immediately.
+[[tool.mypy.overrides]]
+module = "culture.agentirc.irc_targets"
+disallow_untyped_defs = true
+disallow_any_unimported = true
+warn_return_any = true
+check_untyped_defs = true
+
+# Wedge: type-check the permission broker (the PreToolUse hook + grant
+# ceiling enforcement) so signature drift between broker and daemons
+# surfaces in CI.
+[[tool.mypy.overrides]]
+module = "culture.clients._perm_broker"
+check_untyped_defs = true
+warn_return_any = true
+
+# Wedge: type-check the mission persistence module (per-agent file I/O
+# with rotation) so the rotation invariant doesn't silently break.
+[[tool.mypy.overrides]]
+module = "culture.clients._mission"
+disallow_untyped_defs = true
+check_untyped_defs = true
+warn_return_any = true

@@ -18,7 +18,25 @@ jobs:
 
       - run: uv sync
 
-      - run: uv run pytest -n auto --cov=culture --cov-report=xml:coverage.xml --cov-report=term -v
+      - name: Run tests with coverage
+        run: uv run pytest -n auto --cov=culture --cov-report=xml:coverage.xml --cov-report=term -v
+
+      # Quality gate (v8.19.6): type-check the security-sensitive
+      # wedge modules in --strict mode so regressions on the IRC target
+      # validator + perm broker + mission persistence fail CI
+      # immediately. Other modules remain lenient until the wedge
+      # widens.
+      - name: Type-check security-sensitive modules
+        run: uv run mypy culture/agentirc/irc_targets.py culture/clients/_perm_broker.py culture/clients/_mission.py
+
+      # Quality gate (v8.19.6): every PR that adds public surface
+      # (CLI subcommand, IRC verb, exception class, backend config
+      # field) must also touch docs/. Mirrors the doc-test-alignment
+      # subagent's intent in CI form.
+      - name: Docs coverage for new public API
+        run: python3 .github/scripts/check-docs-coverage.py
+        env:
+          GH_TOKEN: ${{ github.token }}
 
   version-check:
     runs-on: ubuntu-latest
