@@ -8,8 +8,11 @@ trigger:
   # Exclude peek-client connections — `culture channel read` and every
   # dashboard channels refresh opens a short-lived `local-_peekXXXX`
   # connection that joins, reads, and disconnects. Welcoming them on
-  # every poll floods #team with noise (observed live on v8.19.9).
-  filter: "type == 'user.join' and not ('_peek' in event.nick)"
+  # every poll floods #team with noise (observed live on v8.19.9-10).
+  # Filter context uses FLAT field names (type, nick, channel, data) —
+  # NOT `event.nick` (v8.19.10's first attempt used the wrong path and
+  # silently no-op'd because `event.nick` resolved to MISSING).
+  filter: "type == 'user.join' and not ('_peek' in nick)"
 
 output:
   template: "Welcome {event.nick} to {event.channel}"

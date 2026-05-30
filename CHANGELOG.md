@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [8.19.12] - 2026-05-31
+
+### Fixed
+
+- **Welcome-bot peek filter was a silent no-op** (v8.19.10 regression).
+  Filter referenced `event.nick` but bot_manager passes the event
+  context FLAT (`type`, `nick`, `channel`, `data` at top level).
+  `event.nick` resolved to MISSING → `in` returned False → `not`
+  returned True → welcome fired on every peek connection regardless.
+  Corrected to `not ('_peek' in nick)`. Live-verified the AST
+  evaluates: peek nick → False (skip), real worker → True (welcome),
+  non-join event → False (not a join).
+
 ## [8.19.11] - 2026-05-31
 
 User-requested restructure of the Channels tab: group by TASK (per
