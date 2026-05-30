@@ -174,9 +174,10 @@ class IRCTransport:
     async def join_channel(self, channel: str) -> None:
         if not channel.startswith("#"):
             return
+        if channel in self.channels:
+            return  # already joined — skip duplicate JOIN + HISTORY
         await self._send_raw(f"JOIN {channel}")
-        if channel not in self.channels:
-            self.channels.append(channel)
+        self.channels.append(channel)
         # Backfill: request recent history so the buffer has pre-existing
         # messages.  The HISTORY responses flow through _on_history().
         await self._send_raw(f"HISTORY RECENT {channel} 200")

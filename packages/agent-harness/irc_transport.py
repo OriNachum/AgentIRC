@@ -8,7 +8,9 @@ from contextlib import AbstractContextManager
 from typing import TYPE_CHECKING, Callable
 
 from culture.aio import maybe_await
-from culture.clients.claude.message_buffer import MessageBuffer
+
+# TEMPLATE: replace "claude" below with your backend name
+from culture.clients.claude.message_buffer import MessageBuffer  # noqa: E501
 from culture.constants import SYSTEM_USER_PREFIX
 from culture.protocol.message import Message
 from culture.telemetry.context import (
@@ -21,6 +23,7 @@ from culture.telemetry.context import (
 if TYPE_CHECKING:
     from opentelemetry.trace import Tracer
 
+    # TEMPLATE: replace "claude" below with your backend name
     from culture.clients.claude.telemetry import HarnessMetricsRegistry
 
 logger = logging.getLogger(__name__)
@@ -48,7 +51,7 @@ class IRCTransport:
         icon: str | None = None,
         tracer: Tracer | None = None,
         metrics: HarnessMetricsRegistry | None = None,
-        backend: str = "claude",
+        backend: str = "harness",  # TEMPLATE: replace with your backend name,
     ):
         self.host = host
         self.port = port
@@ -174,9 +177,10 @@ class IRCTransport:
     async def join_channel(self, channel: str) -> None:
         if not channel.startswith("#"):
             return
+        if channel in self.channels:
+            return  # already joined — skip duplicate JOIN + HISTORY
         await self._send_raw(f"JOIN {channel}")
-        if channel not in self.channels:
-            self.channels.append(channel)
+        self.channels.append(channel)
         # Backfill: request recent history so the buffer has pre-existing
         # messages.  The HISTORY responses flow through _on_history().
         await self._send_raw(f"HISTORY RECENT {channel} 200")
