@@ -185,6 +185,17 @@ class AgentDaemon:
         # stalled_in_retry_loop stays silent. But the failure rate is
         # still elevated; this counter catches it.
         self._consecutive_failed_turns: int = 0
+        # Recorded-resolved-model latch. The ``agent_start`` daemon-log entry
+        # carries the YAML's declared model — which is empty by design on
+        # bosses (so workers inherit at spawn time). When YAML omits the
+        # model the SDK picks a default at session start; that resolved
+        # model is only observable in the first AssistantMessage. We latch
+        # it once into a ``model_resolved`` daemon-log action so
+        # ``_boss_inherits`` can fall back to the real runtime model when
+        # ``agent_start.model`` is empty — closing the leak where workers
+        # spawned from a YAML-less boss were inheriting the SDK CLI's
+        # hardcoded default instead of whatever the boss actually runs.
+        self._resolved_model_recorded: bool = False
 
         # Pause/sleep state
         self._paused: bool = False
@@ -510,6 +521,10 @@ class AgentDaemon:
             thinking=self.agent.thinking,
             directory=self.agent.directory,
         )
+        # Reset the resolved-model latch so a restarted session can re-record
+        # if the SDK happens to pick a different default this run (e.g. CLI
+        # version bump between starts).
+        self._resolved_model_recorded = False
         # Arm the idle watchdog for boss-owned workers (the ones a boss expects to
         # be working). It fires once if the worker is never even triggered within
         # the grace window. Re-arming (crash-restart) starts a fresh evaluation:
@@ -804,6 +819,22 @@ class AgentDaemon:
             # (which reads the daemon-log, not audit size) clears authoritatively.
             self._engaged = True
             await self._daemon_log.record("engaged")
+        # Latch the model the SDK actually picked. Only matters when the
+        # YAML omitted ``model`` (so ``agent_start.model`` is empty) — in
+        # that case the only way for ``_boss_inherits`` to know the real
+        # runtime model is to observe it on a live AssistantMessage.
+        # ``msg["model"]`` is the resolved model string from the SDK.
+        #
+        # The latch is set AFTER the write, not before — ``DaemonLog.record``
+        # swallows I/O failures (logs + returns) for fault-tolerance, so
+        # setting the latch before the write would permanently mask the leak
+        # if the first write hit a transient filesystem error.
+        # Per Qodo PR #24 #2.
+        if not self._resolved_model_recorded:
+            observed = msg.get("model") if isinstance(msg, dict) else None
+            if isinstance(observed, str) and observed:
+                await self._daemon_log.record("model_resolved", model=observed)
+                self._resolved_model_recorded = True
         # Drive the stall watchdog: every AssistantMessage resets the "time
         # since last turn" timer. A worker that engaged-then-went-silent is
         # only catchable because we track this.

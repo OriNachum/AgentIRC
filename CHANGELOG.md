@@ -4,6 +4,78 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [8.18.6] - 2026-05-30
+
+Surfaced during the in-mesh PRD-authoring dogfood. Spawning `local-prd-w`
+exposed that workers were inheriting the SDK CLI's hardcoded default
+model (claude-opus-4-6) instead of whatever model the boss was actually
+running with — defeating the YAML-omits-model inheritance pattern the
+boss stack was designed around. The boss daemon-log was recording
+`model: ''` on `agent_start` (because the boss YAML omits model by
+design, so workers inherit), and the SDK-resolved runtime model was
+never written anywhere a spawn could read it.
+
+### Added
+
+- **`model_resolved` daemon-log action**
+  (`culture/clients/claude/daemon.py`). The daemon now latches the
+  SDK-resolved runtime model the moment the first AssistantMessage
+  names a model, writing one `model_resolved` action per session. The
+  latch resets on every `agent_start` so a restarted session can
+  re-record if the SDK happens to pick a different default this run
+  (e.g. between CLI version bumps). Idempotent: subsequent
+  AssistantMessages do not write additional records.
+
+### Fixed
+
+- **`_boss_inherits` fallback to `model_resolved` when YAML omits model**
+  (`culture/cli/boss.py`). The reader now scans for a `model_resolved`
+  action after the most recent `agent_start`. When `agent_start.model`
+  is empty (the inheritance-friendly boss-YAML pattern), the resolved
+  runtime model is used instead — so workers inherit the boss's actual
+  running model, not the SDK CLI's hardcoded default. A `model_resolved`
+  from a PRIOR session is correctly ignored (the reader stops at the
+  most recent `agent_start`). An explicit YAML-pinned model still wins
+  over a later `model_resolved` to honor the operator's choice.
+
+### Notes
+
+- Five new tests in `tests/test_boss_model_inherit.py` cover: YAML-empty
+  → resolved fallback, YAML-pinned vs resolved precedence, prior-session
+  resolved ignored, most-recent within-session wins, plus the existing
+  9 inheritance tests still pass.
+- The PRD-authoring dogfood that surfaced this is documented in
+  `docs/v8.18.6-prd-authoring-dogfood.md` alongside the cross-project
+  + joint-coordination-channel vision the worker incorporated across
+  three correction rounds (V1 factual fixes, V2 three-level hierarchy,
+  V3 cross-project orchestration).
+- `.claude/skills/run-tests/scripts/test.sh` fixed: empty `EXTRA_ARGS`
+  array expansion was tripping `set -u` on macOS bash 3.2.
+
+## [8.18.5] - 2026-05-30
+
+Surfaced + fixed during the context-watch handoff dogfood
+(see `docs/v8.18.4-context-watch-dogfood.md`). A worker hitting the SDK
+CLI's `Stream closed` bug on every `Write` alternated between failed
+turns and Bash-workaround turns that completed cleanly. v8.18.4's
+`stalled_in_retry_loop` watchdog stayed silent because each successful
+Bash turn refreshed `_last_turn_completed_at`, masking the elevated
+failure rate.
+
+### Added
+
+- **`stalled_in_failed_retry` watchdog class**
+  (`culture/clients/claude/daemon.py`,
+  `culture/clients/claude/agent_runner.py`). A fifth class on the
+  unified stall watchdog. `AgentRunner` now also exposes an
+  `on_turn_failed` callback fired from `_process_turn`'s exception
+  branch. The daemon increments a `_consecutive_failed_turns` counter
+  on each failed turn and resets it on each clean turn. When the
+  counter exceeds `CONSECUTIVE_FAILED_TURN_THRESHOLD` (5) the watchdog
+  surfaces `idle_warning {reason: stalled_in_failed_retry,
+  failed_turns: N}` to the boss so it can intervene before the worker
+  burns more API calls in alternating-fail-success patterns.
+
 ## [8.18.4] - 2026-05-30
 
 Surfaced + fixed during an in-mesh multi-worker dogfood. Three workers

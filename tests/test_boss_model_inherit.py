@@ -190,3 +190,144 @@ def test_record_worker_writes_thinking_too(tmp_path):
         data = yaml.safe_load(f)
     assert data["model"] == "claude-opus-4-8"
     assert data["thinking"] == "high"
+
+
+def _append_daemon_log(home, action, detail, boss_nick="local-boss", ts="2026-05-30T00:00:01.000Z"):
+    log_dir = os.path.join(str(home), "daemon-log")
+    os.makedirs(log_dir, exist_ok=True)
+    rec = {"ts": ts, "nick": boss_nick, "action": action, "detail": detail}
+    with open(os.path.join(log_dir, f"{boss_nick}.jsonl"), "a", encoding="utf-8") as f:
+        f.write(json.dumps(rec) + "\n")
+
+
+def test_boss_inherits_falls_back_to_model_resolved_when_yaml_empty(tmp_path, monkeypatch):
+    # YAML omitted model (inheritance-friendly boss config) → agent_start.model=''
+    # → fall back to the model_resolved event the daemon latches on the first
+    # AssistantMessage. This is the fix that stops a YAML-less boss from leaking
+    # the SDK CLI's hardcoded default down to workers.
+    monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
+    monkeypatch.setenv("CULTURE_NICK", "local-boss")
+    _write_boss_daemon_log(tmp_path, model="", thinking="high")
+    _append_daemon_log(tmp_path, "model_resolved", {"model": "claude-opus-4-8"})
+    assert boss._boss_inherits() == ("claude-opus-4-8", "high")
+
+
+def test_boss_inherits_prefers_yaml_model_over_resolved_when_set(tmp_path, monkeypatch):
+    # YAML explicitly pinned a model → agent_start.model is non-empty → we use
+    # IT, even if a later model_resolved event landed (which can happen when
+    # the SDK ignores or remaps the requested model — we still want to honor
+    # the operator's explicit choice in inheritance).
+    monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
+    monkeypatch.setenv("CULTURE_NICK", "local-boss")
+    _write_boss_daemon_log(tmp_path, model="claude-opus-4-7", thinking="high")
+    _append_daemon_log(tmp_path, "model_resolved", {"model": "claude-opus-4-8"})
+    assert boss._boss_inherits() == ("claude-opus-4-7", "high")
+
+
+def test_boss_inherits_ignores_model_resolved_from_prior_session(tmp_path, monkeypatch):
+    # The daemon resets its model_resolved latch on every restart, but if an
+    # OLDER session's resolved event sits in the log BEFORE the latest
+    # agent_start, the current YAML-empty session should not pick it up.
+    monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
+    monkeypatch.setenv("CULTURE_NICK", "local-boss")
+    log_dir = os.path.join(str(tmp_path), "daemon-log")
+    os.makedirs(log_dir, exist_ok=True)
+    path = os.path.join(log_dir, "local-boss.jsonl")
+    # Prior session: started with no YAML model, resolved to 4-6 (stale default).
+    records = [
+        {
+            "ts": "2026-05-29T00:00:00.000Z",
+            "nick": "local-boss",
+            "action": "agent_start",
+            "detail": {"model": "", "thinking": "high"},
+        },
+        {
+            "ts": "2026-05-29T00:00:01.000Z",
+            "nick": "local-boss",
+            "action": "model_resolved",
+            "detail": {"model": "claude-opus-4-6"},
+        },
+        {
+            "ts": "2026-05-29T01:00:00.000Z",
+            "nick": "local-boss",
+            "action": "agent_exit",
+            "detail": {"exit_code": 0},
+        },
+        # Current session: started fresh, YAML still empty, NO model_resolved yet
+        # (the first AssistantMessage hasn't landed).
+        {
+            "ts": "2026-05-30T00:00:00.000Z",
+            "nick": "local-boss",
+            "action": "agent_start",
+            "detail": {"model": "", "thinking": "high"},
+        },
+    ]
+    with open(path, "w", encoding="utf-8") as f:
+        for rec in records:
+            f.write(json.dumps(rec) + "\n")
+    # Stale model_resolved (pre-current-agent_start) is ignored → empty model.
+    model, thinking = boss._boss_inherits()
+    assert model == ""
+    assert thinking == "high"
+
+
+def test_boss_inherits_picks_most_recent_resolved_within_session(tmp_path, monkeypatch):
+    # Within one session, multiple model_resolved events can exist if the
+    # daemon code one day decides to refresh the latch (e.g. SDK switch
+    # mid-session). The most recent one wins. Today's daemon latches once
+    # per restart, but the reader is resilient either way.
+    monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
+    monkeypatch.setenv("CULTURE_NICK", "local-boss")
+    log_dir = os.path.join(str(tmp_path), "daemon-log")
+    os.makedirs(log_dir, exist_ok=True)
+    path = os.path.join(log_dir, "local-boss.jsonl")
+    records = [
+        {
+            "ts": "2026-05-30T00:00:00.000Z",
+            "nick": "local-boss",
+            "action": "agent_start",
+            "detail": {"model": "", "thinking": "high"},
+        },
+        {
+            "ts": "2026-05-30T00:00:01.000Z",
+            "nick": "local-boss",
+            "action": "model_resolved",
+            "detail": {"model": "claude-opus-4-7"},
+        },
+        {
+            "ts": "2026-05-30T00:01:00.000Z",
+            "nick": "local-boss",
+            "action": "model_resolved",
+            "detail": {"model": "claude-opus-4-8"},
+        },
+    ]
+    with open(path, "w", encoding="utf-8") as f:
+        for rec in records:
+            f.write(json.dumps(rec) + "\n")
+    assert boss._boss_inherits() == ("claude-opus-4-8", "high")
+
+
+def test_boss_inherits_orphan_model_resolved_returns_empty(tmp_path, monkeypatch):
+    # Qodo PR #24 #4: a daemon-log that contains ONLY model_resolved
+    # records (no agent_start anchor — corrupt file, truncated log, or
+    # pre-v8.18.6 instrumentation) must NOT propagate the model. The
+    # docstring contract says no agent_start -> return ("", "").
+    monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
+    monkeypatch.setenv("CULTURE_NICK", "local-boss")
+    log_dir = os.path.join(str(tmp_path), "daemon-log")
+    os.makedirs(log_dir, exist_ok=True)
+    path = os.path.join(log_dir, "local-boss.jsonl")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(
+            json.dumps(
+                {
+                    "ts": "2026-05-30T00:00:01.000Z",
+                    "nick": "local-boss",
+                    "action": "model_resolved",
+                    "detail": {"model": "claude-opus-4-8"},
+                }
+            )
+            + "\n"
+        )
+    # No agent_start anchors the model_resolved → contract says ("", "").
+    assert boss._boss_inherits() == ("", "")

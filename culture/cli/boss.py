@@ -577,6 +577,13 @@ def _boss_inherits() -> tuple[str, str]:
     inherits these values verbatim, so the worker imitates the boss exactly
     with no hardcoded model strings in code or yaml anywhere along the way.
 
+    When the boss's YAML omits ``model`` (the inheritance-friendly default)
+    the ``agent_start`` record carries an empty string. In that case we
+    fall back to the most recent ``model_resolved`` action — the daemon
+    latches that the moment the SDK's first AssistantMessage names a
+    model — so the worker inherits the SDK-resolved runtime model rather
+    than the SDK CLI's hardcoded default.
+
     When the daemon-log is unreadable or has no agent_start (boss never
     started), returns ``("", "")`` — caller writes empty fields and lets the
     SDK pick the current Claude at the worker's startup.
@@ -590,20 +597,45 @@ def _boss_inherits() -> tuple[str, str]:
             lines = handle.readlines()
     except OSError:
         return ("", "")
+    model = ""
+    thinking = ""
+    resolved_model_after_start = ""
+    saw_agent_start = False
     for line in reversed(lines):
         try:
             rec = json.loads(line)
         except (json.JSONDecodeError, ValueError):
             continue
-        if rec.get("action") == "agent_start":
-            detail = rec.get("detail") or {}
-            model = detail.get("model") or ""
-            thinking = detail.get("thinking") or ""
-            return (
-                model if isinstance(model, str) else "",
-                thinking if isinstance(thinking, str) else "",
-            )
-    return ("", "")
+        action = rec.get("action")
+        detail = rec.get("detail") or {}
+        if not saw_agent_start and action == "model_resolved":
+            candidate = detail.get("model")
+            if isinstance(candidate, str) and candidate:
+                # Only the most-recent model_resolved AFTER the latest
+                # agent_start counts. We're iterating in reverse, so any
+                # model_resolved we see before hitting agent_start belongs
+                # to the current session.
+                if not resolved_model_after_start:
+                    resolved_model_after_start = candidate
+            continue
+        if action == "agent_start":
+            saw_agent_start = True
+            yaml_model = detail.get("model")
+            yaml_thinking = detail.get("thinking")
+            model = yaml_model if isinstance(yaml_model, str) else ""
+            thinking = yaml_thinking if isinstance(yaml_thinking, str) else ""
+            break
+    # No ``agent_start`` was found → honor the docstring contract that the
+    # caller gets ("", "") in this case. Any ``model_resolved`` we saw without
+    # an anchoring start record is orphaned (the file is corrupt, truncated,
+    # or pre-dates the v8.18.6 instrumentation) and must NOT propagate. Per
+    # Qodo PR #24 #4.
+    if not saw_agent_start:
+        return ("", "")
+    # YAML had no model → fall back to whatever the SDK resolved at runtime.
+    if not model and resolved_model_after_start:
+        model = resolved_model_after_start
+    return (model, thinking)
 
 
 # Back-compat alias — old name returned just the model string.
