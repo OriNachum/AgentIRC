@@ -125,7 +125,22 @@ class ServerLink:
         self._session_span: otel_trace.Span | None = None
 
     def should_relay(self, channel_name: str) -> bool:
-        """Check if a channel event should be relayed over this link."""
+        """Check if a channel event should be relayed over this link.
+
+        ``#task-*`` channels are NEVER federated — they're per-worker DM
+        envelopes between a worker and its boss, gated by manifest-derived
+        ownership. Per Qodo PR #29 #4 (security): the local JOIN ACL
+        rejected foreign workers, but SJOIN over server-link bypassed it.
+        Closing the bypass at ``should_relay`` blocks every outbound
+        federation primitive (JOIN, PART, PRIVMSG, MODE, TOPIC) for
+        these channels in one place, leaving no federation vector.
+
+        The ``_check_incoming_trust`` / ``_handle_sjoin`` inbound paths
+        get the symmetric refusal so a malicious peer can't inject
+        membership remotely either.
+        """
+        if channel_name.startswith("#task-"):
+            return False
         channel = self.server.channels.get(channel_name)
         if channel is None:
             return False
@@ -470,7 +485,16 @@ class ServerLink:
         self.server.remote_clients[nick] = rc
 
     def _check_incoming_trust(self, channel_name: str) -> bool:
-        """Return True if we should accept incoming data for this channel."""
+        """Return True if we should accept incoming data for this channel.
+
+        ``#task-*`` channels are refused unconditionally (symmetric to
+        ``should_relay``). Per Qodo PR #29 #4 (security): the local JOIN
+        ACL would otherwise be bypassed by SJOIN / PRIVMSG / TOPIC
+        carrying remote membership into a task channel. Closing here
+        gates every inbound federation primitive in one place.
+        """
+        if channel_name.startswith("#task-"):
+            return False
         existing = self.server.channels.get(channel_name)
         if existing:
             if existing.restricted:

@@ -1249,3 +1249,47 @@ async def test_replay_event_handles_string_typed_message_event(linked_servers):
         " SMSG " in wire
     ), f"expected SMSG in wire output for string-typed MESSAGE event, got: {wire!r}"
     assert "ping-291" in wire
+
+
+# ---------------------------------------------------------------------------
+# Task-channel federation gate (Qodo PR #29 #4 — security)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_task_channel_not_relayed_outbound(linked_servers):
+    """#task-* channels are NEVER relayed over a server-to-server link.
+
+    Closes the federation bypass on the local JOIN ACL: a peer that
+    federates with us cannot pull events from one of our workers'
+    task channels even on a 'full' trust link.
+    """
+    server_a, _ = linked_servers
+    link_to_b = server_a.links["beta"]
+    # Even on a 'full' trust link, a #task-* channel must not relay.
+    assert link_to_b.should_relay("#task-foo") is False
+
+
+@pytest.mark.asyncio
+async def test_task_channel_not_accepted_inbound(linked_servers):
+    """Incoming SJOIN / PRIVMSG / TOPIC on a #task-* channel is refused.
+
+    Symmetric to ``should_relay`` so a malicious peer cannot inject
+    remote membership or messages into one of our task channels.
+    """
+    server_a, _ = linked_servers
+    link_to_b = server_a.links["beta"]
+    # _check_incoming_trust returns False for #task-* unconditionally,
+    # regardless of trust level or shared_with set.
+    assert link_to_b._check_incoming_trust("#task-foo") is False
+    assert link_to_b._check_incoming_trust("#task-other-boss-worker") is False
+
+
+@pytest.mark.asyncio
+async def test_joint_channels_still_relay(linked_servers):
+    """#joint-* channels keep federating — they're cross-team by design."""
+    server_a, _ = linked_servers
+    link_to_b = server_a.links["beta"]
+    # Create a joint channel so should_relay has something to evaluate.
+    server_a.get_or_create_channel("#joint-x-team")
+    assert link_to_b.should_relay("#joint-x-team") is True
