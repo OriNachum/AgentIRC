@@ -274,6 +274,10 @@ def list_agents(config_path: str | None = None) -> list[dict]:
                 "is_boss": "boss" in (getattr(agent, "tags", []) or []),
                 "boss": getattr(agent, "boss", "") or "",
                 "idle": _is_idle(nick, state, getattr(agent, "boss", "") or ""),
+                # role: free-text declaration of who-does-what — surfaced on
+                # the agent card so the orchestrator can disambiguate at
+                # a glance in a multi-agent channel (v8.19.4).
+                "role": getattr(agent, "role", "") or "",
             }
         )
     return rows

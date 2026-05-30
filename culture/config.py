@@ -82,6 +82,12 @@ class AgentConfig:
     archived: bool = False
     archived_at: str = ""
     archived_reason: str = ""
+    # Free-text role declaration — how the orchestrator tracks who-does-what
+    # in a channel with many agents. Examples: "qa-runner", "stack-dev",
+    # "prd-author", "ori-qa", "plenty-dev". Surfaced on every agent card
+    # in the dashboard. Set at spawn (``culture boss spawn --role "..."``)
+    # or editable directly in culture.yaml. Per docs/task-model.md.
+    role: str = ""
     extras: dict = field(default_factory=dict)
 
     # Computed at load time, not stored in YAML
@@ -382,6 +388,7 @@ def migrate_legacy_to_manifest(path: str | Path) -> ServerConfig:
                 "archived": agent_raw.get("archived", False),
                 "archived_at": agent_raw.get("archived_at", ""),
                 "archived_reason": agent_raw.get("archived_reason", ""),
+                "role": agent_raw.get("role", ""),
             }
             skip_keys = set(known_fields.keys()) | {"nick", "directory", "agent"}
             extras = {k: v for k, v in agent_raw.items() if k not in skip_keys}
@@ -476,6 +483,8 @@ def _agent_to_yaml_dict(agent: AgentConfig) -> dict:
         data["archived"] = agent.archived
         data["archived_at"] = agent.archived_at
         data["archived_reason"] = agent.archived_reason
+    if agent.role:
+        data["role"] = agent.role
     data.update(agent.extras)
     return data
 
