@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import time
 from typing import TYPE_CHECKING
@@ -39,6 +40,81 @@ _ATTR_CHANNEL = "irc.channel"
 
 if TYPE_CHECKING:
     from culture.agentirc.ircd import IRCd
+
+
+# ---------------------------------------------------------------------------
+# Task-channel ACL — enforce team isolation at the JOIN layer (v8.18.7).
+#
+# #task-<suffix> channels are private to the worker whose nick ends with
+# that suffix, plus the worker's boss (from the manifest).  All other
+# clients are refused.  #joint-* / #team / #system are open to everyone.
+# ---------------------------------------------------------------------------
+
+_TASK_PREFIX = "#task-"
+
+# Cache: mapping of worker-nick -> boss-nick, loaded lazily from server.yaml.
+# Cleared on every call so hot-reloads of the manifest take effect.
+# Using a module-level helper keeps the Client class thin.
+
+
+def _load_owner_map() -> dict[str, str]:
+    """Load worker-nick -> boss-nick from the manifest (server.yaml).
+
+    Returns an empty dict if the manifest is missing or unreadable.
+    Deliberately re-reads on every call so manifest changes take effect
+    without an IRCd restart.
+    """
+    try:
+        from culture.clients._perm_broker import culture_home
+        from culture.config import load_config_or_default
+
+        server_yaml = os.path.join(culture_home(), "server.yaml")
+        config = load_config_or_default(server_yaml, fallback=server_yaml)
+        return {a.nick: (getattr(a, "boss", "") or "") for a in config.agents}
+    except Exception:  # noqa: BLE001 — unreadable manifest -> open policy
+        return {}
+
+
+def _task_channel_acl(nick: str, channel_name: str) -> bool:
+    """Return True if *nick* is allowed to join *channel_name*.
+
+    Only gates ``#task-*`` channels.  Everything else returns True.
+
+    Rules for ``#task-<suffix>``:
+    - The worker whose nick ends with ``-<suffix>`` may join (owner).
+    - That worker's boss (from manifest) may join (supervisor).
+    - The ``system-*`` prefix is always allowed (server bots / system).
+    - Everyone else is refused.
+    """
+    if not channel_name.startswith(_TASK_PREFIX):
+        return True  # Not a task channel — no restriction.
+
+    task_suffix = channel_name[len(_TASK_PREFIX) :]
+    if not task_suffix:
+        return True  # Bare "#task-" — degenerate, allow.
+
+    # The owner is any nick whose suffix (after the server prefix) matches.
+    # Nick format: <server>-<suffix>.  Extract the suffix portion.
+    nick_suffix = nick.split("-", 1)[1] if "-" in nick else nick
+
+    # Owner match: nick suffix == task suffix
+    if nick_suffix == task_suffix:
+        return True
+
+    # System clients (system-*) always allowed — they deliver NOTICEs etc.
+    if nick.startswith("system-") or nick.startswith(SYSTEM_USER_PREFIX):
+        return True
+
+    # Boss match: look up the manifest to find the task-owner's boss.
+    # The task owner's full nick is <server>-<task_suffix>.  We need to
+    # find it in the manifest and check if the joining nick is its boss.
+    owner_map = _load_owner_map()
+    for worker_nick, boss_nick in owner_map.items():
+        w_suffix = worker_nick.split("-", 1)[1] if "-" in worker_nick else worker_nick
+        if w_suffix == task_suffix and boss_nick == nick:
+            return True
+
+    return False
 
 
 class Client:
@@ -433,6 +509,15 @@ class Client:
                         command="NOTICE",
                         params=[self.nick, f"{channel_name} is archived and cannot be joined"],
                     )
+                )
+                return
+
+            # --- Task-channel ACL (v8.18.7) ---
+            if not _task_channel_acl(self.nick, channel_name):
+                await self.send_numeric(
+                    replies.ERR_BANNEDFROMCHAN,
+                    channel_name,
+                    replies.MSG_BANNEDFROMCHAN,
                 )
                 return
 
