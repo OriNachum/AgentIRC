@@ -21,8 +21,9 @@ logger = logging.getLogger(__name__)
 def _cli_runtime_dir() -> str:
     """Return the directory where the CLI looks for sockets.
 
-    Mirrors culture.cli.shared.constants.culture_runtime_dir without
+    Mirrors ``culture.cli.shared.constants.culture_runtime_dir`` without
     importing CLI code so the daemon does not depend on the CLI package.
+    If you change the resolution order here, update ``constants.py`` too.
     """
     xdg = os.environ.get("XDG_RUNTIME_DIR")
     if xdg:
