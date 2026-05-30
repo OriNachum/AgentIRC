@@ -55,7 +55,7 @@ The orchestrator owns the channel. Agents are tenants.
 >
 > - **v8.19.1 (PR #27)** — agent + channel archiving (`culture
 >   channel archive`, `culture agent archive`, `culture agent
->   restore`, `culture agent unarchive`).
+>   unarchive`).
 > - **v8.19.0 (PR #416)** — `--channels` flag on `culture boss
 >   spawn`.
 > - **v8.18.6 (PR #24)** — model inheritance via
@@ -81,8 +81,9 @@ The orchestrator owns the channel. Agents are tenants.
 3. **Cross-project very-long** (weeks–months): "st4ck QA feature
    development with ori + plenty as dogfood targets". The joint
    channel is **permanent** for the duration of the initiative
-   (months). Agents per project (qa-ori, qa-plenty, dev-stack-1,
-   etc.) persist across many sub-tasks within the initiative.
+   (months). Agents per project (local-qaori, local-qaplenty,
+   local-devstack, etc.) persist across many sub-tasks within the
+   initiative.
    Each sub-task (a specific bug, a specific feature PR) is
    tracked in st4ck MCP; the channel hosts the live
    coordination.
@@ -99,9 +100,13 @@ design, because the cross-project collaboration model requires it.
 
 Every agent gets a `#task-<agent>` channel at spawn (auto). This
 is the orchestrator's DM line to that agent and the agent's
-private task envelope. ACLs (v8.18.7) restrict JOIN to the
-agent + its boss; foreign agents are refused with
-`474 ERR_BANNEDFROMCHAN`.
+private task envelope. ACLs (PR #415, not yet merged) will restrict
+JOIN to the agent + its boss; foreign agents will be refused with
+`ERR_BANNEDFROMCHAN`.
+
+> **Caution:** Until PR #415 lands, task channels are open like any
+> other channel — do not rely on channel privacy for sensitive data
+> until ACL enforcement ships.
 
 ### System channels
 
@@ -124,14 +129,13 @@ spawn  ─→  active  ─stop─→  stopped  ─start─→ active
                                 │
                                archive
                                 ▼
-                             archived ─restore─→ stopped
+                             archived ─unarchive─→ stopped
 ```
 
 - `culture boss spawn` / `culture agent start` → active
 - `culture agent stop` → stopped (state preserved, can be re-awakened)
-- `culture agent archive` → archived (only allowed from stopped)
-- `culture agent restore` → stopped (un-archive; can then start)
-- `archive` refuses running agents — they must be stopped first
+- `culture agent archive` → archived (auto-stops if running)
+- `culture agent unarchive` → stopped (un-archive; can then start)
 
 ### Role
 
