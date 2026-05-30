@@ -8,7 +8,7 @@ from contextlib import AbstractContextManager
 from typing import TYPE_CHECKING, Callable
 
 from culture.aio import maybe_await
-from culture.clients.codex.message_buffer import MessageBuffer
+from culture.clients.claude.message_buffer import MessageBuffer
 from culture.constants import SYSTEM_USER_PREFIX
 from culture.protocol.message import Message
 from culture.telemetry.context import (
@@ -21,7 +21,7 @@ from culture.telemetry.context import (
 if TYPE_CHECKING:
     from opentelemetry.trace import Tracer
 
-    from culture.clients.codex.telemetry import HarnessMetricsRegistry
+    from culture.clients.claude.telemetry import HarnessMetricsRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ class IRCTransport:
         icon: str | None = None,
         tracer: Tracer | None = None,
         metrics: HarnessMetricsRegistry | None = None,
-        backend: str = "codex",
+        backend: str = "claude",
     ):
         self.host = host
         self.port = port
@@ -80,6 +80,8 @@ class IRCTransport:
             "TOPIC": self._on_topic,
             "331": self._on_numeric_topic,
             "332": self._on_numeric_topic,
+            "HISTORY": self._on_history,
+            "HISTORYEND": self._on_historyend,
         }
 
     def _span(self, name: str, attrs: dict | None = None) -> AbstractContextManager:
@@ -175,6 +177,9 @@ class IRCTransport:
         await self._send_raw(f"JOIN {channel}")
         if channel not in self.channels:
             self.channels.append(channel)
+        # Backfill: request recent history so the buffer has pre-existing
+        # messages.  The HISTORY responses flow through _on_history().
+        await self._send_raw(f"HISTORY RECENT {channel} 200")
 
     async def part_channel(self, channel: str) -> None:
         if not channel.startswith("#"):
@@ -303,23 +308,6 @@ class IRCTransport:
             await self._send_raw(f"ICON {self.icon}")
         await self._send_raw(f"MODE {self.nick} +A")
 
-    def _on_privmsg(self, msg: Message) -> None:
-        if len(msg.params) < 2:
-            return
-        target = msg.params[0]
-        text = msg.params[1]
-        sender = msg.prefix.split("!")[0] if msg.prefix else "unknown"
-        if sender == self.nick:
-            return
-        # Filter out server-emitted event notifications from system-<server>.
-        # These are surfaced PRIVMSGs that announce mesh events (user.join,
-        # agent.connect, server.link, etc.) — they are not conversation and
-        # should not enter the agent's message buffer or trigger the poll loop.
-        if sender.startswith(SYSTEM_USER_PREFIX):
-            return
-        self._route_to_buffer(target, sender, text)
-        self._detect_and_fire_mention(target, sender, text)
-
     def _on_topic(self, msg: Message) -> None:
         """Handle TOPIC broadcasts (someone changed the topic)."""
         if len(msg.params) < 2:
@@ -341,6 +329,23 @@ class IRCTransport:
             self.buffer.add(channel, "server", "* No topic is set")
         elif msg.command == "332" and len(msg.params) >= 3:
             self.buffer.add(channel, "server", f"* Topic: {msg.params[2]}")
+
+    def _on_privmsg(self, msg: Message) -> None:
+        if len(msg.params) < 2:
+            return
+        target = msg.params[0]
+        text = msg.params[1]
+        sender = msg.prefix.split("!")[0] if msg.prefix else "unknown"
+        if sender == self.nick:
+            return
+        # Filter out server-emitted event notifications from system-<server>.
+        # These are surfaced PRIVMSGs that announce mesh events (user.join,
+        # agent.connect, server.link, etc.) — they are not conversation and
+        # should not enter the agent's message buffer or trigger the poll loop.
+        if sender.startswith(SYSTEM_USER_PREFIX):
+            return
+        self._route_to_buffer(target, sender, text)
+        self._detect_and_fire_mention(target, sender, text)
 
     def _route_to_buffer(self, target: str, sender: str, text: str) -> None:
         """Insert the message into the appropriate buffer (channel or DM)."""
@@ -374,6 +379,29 @@ class IRCTransport:
             return
         if target.startswith("#"):
             self.buffer.add(target, sender, text)
+
+    def _on_history(self, msg: Message) -> None:
+        """Handle HISTORY replay lines and populate the message buffer.
+
+        Server sends: HISTORY <channel> <nick> <timestamp> <text>
+        These arrive after a HISTORY RECENT request (issued on join_channel)
+        and backfill the buffer with pre-existing channel messages.
+        """
+        if len(msg.params) < 4:
+            return
+        channel = msg.params[0]
+        nick = msg.params[1]
+        # msg.params[2] is the timestamp (string); we don't use it — buffer
+        # records its own arrival time, which is fine for cursor-based reads.
+        text = msg.params[3]
+        # Skip system-user entries (same filter as _on_privmsg).
+        if nick.startswith(SYSTEM_USER_PREFIX):
+            return
+        self.buffer.add(channel, nick, text)
+
+    def _on_historyend(self, msg: Message) -> None:
+        """HISTORYEND is a sentinel — no action needed."""
+        pass
 
     def _on_roominvite(self, msg: Message) -> None:
         if len(msg.params) < 3:

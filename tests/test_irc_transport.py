@@ -312,3 +312,74 @@ async def test_own_dm_messages_in_buffer(server, make_client):
     msgs = buf.read("DM:testserv-ori", limit=50)
     assert any(m.text == "hello via DM" and m.nick == "testserv-bot" for m in msgs)
     await transport.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_join_channel_backfills_history(server, make_client):
+    """When a transport joins a channel, pre-existing messages are backfilled
+    into the buffer via HISTORY RECENT."""
+    # Phase 1: another user posts messages BEFORE the transport joins
+    human = await make_client(nick="testserv-ori", user="ori")
+    await human.recv_all(timeout=0.3)
+    await human.send(f"JOIN #backfill-test")
+    await human.recv_all(timeout=0.3)
+    await human.send(f"PRIVMSG #backfill-test :message before join 1")
+    await human.send(f"PRIVMSG #backfill-test :message before join 2")
+    await asyncio.sleep(0.3)
+
+    # Phase 2: transport joins — should issue HISTORY RECENT and backfill
+    buf = MessageBuffer()
+    transport = IRCTransport(
+        host="127.0.0.1",
+        port=server.config.port,
+        nick="testserv-bot",
+        user="bot",
+        channels=["#general"],
+        buffer=buf,
+    )
+    await transport.connect()
+    await asyncio.sleep(0.3)
+    await transport.join_channel("#backfill-test")
+    await asyncio.sleep(0.5)  # allow HISTORY responses to arrive
+
+    msgs = buf.read("#backfill-test", limit=50)
+    texts = [m.text for m in msgs]
+    assert "message before join 1" in texts
+    assert "message before join 2" in texts
+    await transport.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_history_handler_skips_system_nicks(server):
+    """HISTORY entries from system-* nicks should be filtered out."""
+    from culture.protocol.message import Message as IRCMsg
+
+    buf = MessageBuffer()
+    transport = IRCTransport(
+        host="127.0.0.1",
+        port=server.config.port,
+        nick="testserv-bot",
+        user="bot",
+        channels=["#general"],
+        buffer=buf,
+    )
+    # Call handler directly without connecting — unit test
+    system_msg = IRCMsg(
+        prefix="testserv",
+        command="HISTORY",
+        params=["#general", "system-local", "1234567890.0", "agent joined"],
+    )
+    transport._on_history(system_msg)
+    assert buf.read("#general", limit=50) == []
+
+    # Regular user message should pass through
+    user_msg = IRCMsg(
+        prefix="testserv",
+        command="HISTORY",
+        params=["#general", "testserv-alice", "1234567890.0", "hello world"],
+    )
+    transport._on_history(user_msg)
+    msgs = buf.read("#general", limit=50)
+    assert len(msgs) == 1
+    assert msgs[0].nick == "testserv-alice"
+    assert msgs[0].text == "hello world"
