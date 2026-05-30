@@ -72,8 +72,16 @@ def print_agent_detail(agent, config_path: str, args: argparse.Namespace) -> Non
     print(f"  Config:     {config_path}")
 
 
-def _format_agent_status(base_status: str, archived: bool, show_archived_marker: bool) -> str:
+def _format_agent_status(
+    base_status: str, archived: bool, show_archived_marker: bool, state: str = ""
+) -> str:
     """Format the display status string for an agent."""
+    # Use three-state lifecycle if state field is set
+    if state:
+        if state == "archived":
+            if show_archived_marker:
+                return f"{base_status} (archived)"
+            return "archived"
     if not archived:
         return base_status
     if show_archived_marker:
@@ -107,7 +115,10 @@ def _agent_overview_row(
             if show_activity:
                 activity = ipc_data.get("description", "nothing")
     status = _format_agent_status(
-        base_status, getattr(agent, "archived", False), show_archived_marker
+        base_status,
+        getattr(agent, "archived", False),
+        show_archived_marker,
+        state=getattr(agent, "state", ""),
     )
     return agent.nick, status, str(pid or "-"), activity
 

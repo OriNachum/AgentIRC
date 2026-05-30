@@ -4,6 +4,41 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [8.19.1] - 2026-05-30
+
+Agent archiving and channel archiving.
+
+### Added
+
+- **Agent archiving with `state` field**. Adds `state: archived` to
+  culture.yaml, formalizing the existing `archived` boolean into a
+  proper lifecycle state. Agents are either active (running or stopped,
+  re-startable) or archived (historical, read-only).
+
+- **`culture agent archive <nick>`** marks a stopped agent as archived.
+  Refuses if the agent is still running (must stop first). Archived
+  agents are hidden from default status listing.
+
+- **`culture agent restore <nick>`** moves an archived agent back to
+  active (stopped) state, ready to be started again. `unarchive`
+  remains as an alias.
+
+- **Status filtering**: `culture agent status --archived` shows only
+  archived agents; `--all` includes them alongside active agents.
+
+- **Channel archiving**: `culture channel archive <#channel>` and
+  server-side `CHANARCHIVE` command. Archived channels refuse new
+  JOINs, are hidden from LIST, but history remains readable. Agents
+  and channels archive independently.
+
+- **`set_agent_state()`** config helper for programmatic state
+  transitions with validation.
+
+- 21 new tests: agent state sync, serialization, transitions, display
+  filtering, lifecycle scenarios, and 4 server-level channel archive
+  integration tests (JOIN refused, LIST hidden, double-archive, missing
+  channel).
+
 ## [8.19.0] - 2026-05-30
 
 Two CLI/IPC fixes from the boss-fleet audit.

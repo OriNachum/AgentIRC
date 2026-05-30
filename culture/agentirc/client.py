@@ -703,9 +703,72 @@ class Client:
 
     async def _handle_list(self, msg: Message) -> None:
         for name, channel in self.server.channels.items():
+            if channel.archived:
+                continue  # hide archived channels from default listing
             topic = channel.topic or ""
             await self.send_numeric(replies.RPL_LIST, name, str(len(channel.members)), topic)
         await self.send_numeric(replies.RPL_LISTEND, "End of LIST")
+
+    async def _handle_chanarchive(self, msg: Message) -> None:
+        """Archive a channel (any channel, not just managed rooms).
+
+        Sets archived=True so JOINs are refused and the channel is hidden
+        from LIST.  History remains readable via HISTORY.
+        """
+        if not self._registered:
+            return
+        if not msg.params:
+            await self.send_numeric(
+                replies.ERR_NEEDMOREPARAMS, "CHANARCHIVE", replies.MSG_NEEDMOREPARAMS
+            )
+            return
+
+        channel_name = msg.params[0]
+        channel = self.server.channels.get(channel_name)
+        if not channel:
+            await self.send_numeric(
+                replies.ERR_NOSUCHCHANNEL, channel_name, replies.MSG_NOSUCHCHANNEL
+            )
+            return
+
+        if channel.archived:
+            await self.send(
+                Message(
+                    prefix=self.server.config.name,
+                    command="NOTICE",
+                    params=[self.nick, f"{channel_name} is already archived"],
+                )
+            )
+            return
+
+        # Only channel operators may archive
+        if not channel.is_operator(self):
+            await self.send(
+                Message(
+                    prefix=self.server.config.name,
+                    command="NOTICE",
+                    params=[
+                        self.nick,
+                        f"You do not have permission to archive {channel_name}",
+                    ],
+                )
+            )
+            return
+
+        channel.archived = True
+        # Mark persistent so the channel survives going empty — the server
+        # auto-deletes empty non-persistent channels on the last PART,
+        # which would silently drop the archived flag and let a future
+        # JOIN resurrect the channel as joinable. Per Qodo PR #27 #5
+        # (Reliability): archived channels MUST stay archived.
+        channel.persistent = True
+        await self.send(
+            Message(
+                prefix=self.server.config.name,
+                command="NOTICE",
+                params=[self.nick, f"{channel_name} has been archived"],
+            )
+        )
 
     async def _handle_mode(self, msg: Message) -> None:
         if not msg.params:

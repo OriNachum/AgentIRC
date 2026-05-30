@@ -19,6 +19,8 @@ if TYPE_CHECKING:
     from culture.clients.copilot.config import AgentConfig as CopilotAgentConfig
 
 from culture.config import (
+    AGENT_STATE_ACTIVE,
+    AGENT_STATE_ARCHIVED,
     AgentConfig,
     DaemonConfig,
     ServerConfig,
@@ -36,6 +38,7 @@ from culture.config import (
     sanitize_agent_name,
     save_culture_yaml,
     save_server_config,
+    set_agent_state,
     unarchive_manifest_agent,
 )
 from culture.pidfile import (
@@ -120,7 +123,10 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     status_parser.add_argument(
         "--full", action="store_true", help="Query agents for activity status"
     )
-    status_parser.add_argument("--all", action="store_true", help="Include archived agents")
+    status_parser.add_argument(
+        "--all", action="store_true", help="Include all agents (active + archived)"
+    )
+    status_parser.add_argument("--archived", action="store_true", help="Show only archived agents")
     status_parser.add_argument("--config", default=DEFAULT_CONFIG, help=_CONFIG_HELP)
 
     # -- rename ---------------------------------------------------------------
@@ -177,6 +183,11 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     unarchive_parser.add_argument("nick", help="Agent nick to unarchive")
     unarchive_parser.add_argument("--config", default=DEFAULT_CONFIG, help=_CONFIG_HELP)
 
+    # -- restore --------------------------------------------------------------
+    restore_parser = agent_sub.add_parser("restore", help="Restore an archived agent to stopped")
+    restore_parser.add_argument("nick", help="Agent nick to restore")
+    restore_parser.add_argument("--config", default=DEFAULT_CONFIG, help=_CONFIG_HELP)
+
     # -- delete ---------------------------------------------------------------
     delete_parser = agent_sub.add_parser("delete", help="Remove an agent from config entirely")
     delete_parser.add_argument("nick", help="Agent nick to delete")
@@ -207,7 +218,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
 def dispatch(args: argparse.Namespace) -> None:
     if not args.agent_command:
         print(
-            "Usage: culture agent {create|join|start|stop|status|rename|assign|sleep|wake|learn|message|read|archive|unarchive|delete|register|unregister|migrate}",
+            "Usage: culture agent {create|join|start|stop|status|rename|assign|sleep|wake|learn|message|read|archive|unarchive|restore|delete|register|unregister|migrate}",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -227,6 +238,7 @@ def dispatch(args: argparse.Namespace) -> None:
         "read": _cmd_read,
         "archive": _cmd_archive,
         "unarchive": _cmd_unarchive,
+        "restore": _cmd_restore,
         "delete": _cmd_delete,
         "register": _cmd_register,
         "unregister": _cmd_unregister,
@@ -417,7 +429,7 @@ def _cmd_join(args: argparse.Namespace) -> None:
 
 def _get_active_agents(config) -> list:
     """Return non-archived agents."""
-    return [a for a in config.agents if not a.archived]
+    return [a for a in config.agents if a.state != AGENT_STATE_ARCHIVED]
 
 
 def _resolve_by_nick(config, nick: str):
@@ -426,9 +438,9 @@ def _resolve_by_nick(config, nick: str):
     if not agent:
         print(f"Agent '{nick}' not found in config", file=sys.stderr)
         sys.exit(1)
-    if agent.archived:
-        print(f"Agent '{nick}' is archived. Unarchive first:", file=sys.stderr)
-        print(f"  culture agent unarchive {nick}", file=sys.stderr)
+    if agent.state == AGENT_STATE_ARCHIVED:
+        print(f"Agent '{nick}' is archived. Restore first:", file=sys.stderr)
+        print(f"  culture agent restore {nick}", file=sys.stderr)
         sys.exit(1)
     return agent
 
@@ -522,6 +534,14 @@ def _cmd_start(args: argparse.Namespace) -> None:
 
     server_name = config.server.name
     _probe_server_connection(config.server.host, config.server.port, server_name)
+
+    # Transition to active state
+    for agent in agents:
+        if agent.state != AGENT_STATE_ACTIVE:
+            try:
+                set_agent_state(args.config, agent.nick, AGENT_STATE_ACTIVE)
+            except (ValueError, FileNotFoundError):
+                pass  # best-effort
 
     if getattr(args, "foreground", False):
         _start_foreground(config, agents)
@@ -780,7 +800,14 @@ def _cmd_status(args: argparse.Namespace) -> None:
         return
 
     show_all = getattr(args, "all", False)
-    agents = config.agents if show_all else _get_active_agents(config)
+    show_archived = getattr(args, "archived", False)
+
+    if show_archived:
+        agents = [a for a in config.agents if a.state == AGENT_STATE_ARCHIVED]
+    elif show_all:
+        agents = config.agents
+    else:
+        agents = _get_active_agents(config)
 
     if not agents:
         print(_no_agents_message(config, show_all))
@@ -1016,19 +1043,26 @@ def _cmd_archive(args: argparse.Namespace) -> None:
     print(f"Agent archived: {args.nick}")
     if args.reason:
         print(f"  Reason: {args.reason}")
-    print(f"\nTo restore: culture agent unarchive {args.nick}")
+    print(f"\nTo restore: culture agent restore {args.nick}")
 
 
 def _cmd_unarchive(args: argparse.Namespace) -> None:
-    """Restore an archived agent."""
+    """Restore an archived agent to active state."""
     try:
         unarchive_manifest_agent(args.config, args.nick)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         sys.exit(1)
 
-    print(f"Agent unarchived: {args.nick}")
+    print(f"Agent restored: {args.nick}")
     print(f"\nStart with: culture agent start {args.nick}")
+
+
+# ``culture agent restore`` is the canonical name for the un-archive transition
+# (matches the doc/task-model.md state diagram). ``culture agent unarchive`` is
+# kept as a synonym for back-compat with the v8.19.1 initial ship and is what
+# the legacy ``archive_manifest_agent`` flow expects.
+_cmd_restore = _cmd_unarchive
 
 
 def _cmd_delete(args: argparse.Namespace) -> None:

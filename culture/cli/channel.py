@@ -13,7 +13,7 @@ from .shared.ipc import agent_socket_path, get_observer, ipc_request
 
 NAME = "channel"
 
-_ALL_CMDS = "list|read|message|who|join|part|ask|topic|compact|clear"
+_ALL_CMDS = "list|read|message|who|join|part|ask|topic|compact|clear|archive"
 _CHANNEL_HELP = "Channel (e.g. #general)"
 _ERR_EMPTY_CHANNEL = "Error: channel name cannot be empty"
 
@@ -104,6 +104,11 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     topic_parser.add_argument("text", nargs="?", default=None, help="New topic (omit to read)")
     topic_parser.add_argument("--config", default=DEFAULT_CONFIG, help=_CONFIG_HELP)
 
+    # -- archive ---------------------------------------------------------------
+    archive_parser = channel_sub.add_parser("archive", help="Archive a channel (task)")
+    archive_parser.add_argument("target", help="Channel to archive (e.g. #task-worker)")
+    archive_parser.add_argument("--config", default=DEFAULT_CONFIG, help=_CONFIG_HELP)
+
     # -- compact --------------------------------------------------------------
     channel_sub.add_parser("compact", help="Compact the agent's context window")
 
@@ -134,6 +139,7 @@ def dispatch(args: argparse.Namespace) -> None:
         "topic": _cmd_topic,
         "compact": _cmd_compact,
         "clear": _cmd_clear,
+        "archive": _cmd_archive_channel,
     }
     handler = handlers.get(args.channel_command)
     if not handler:
@@ -401,4 +407,30 @@ def _cmd_clear(args: argparse.Namespace) -> None:
         print("Context window cleared")
     else:
         print(f"Error: {resp.get('error', 'unknown error')}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _cmd_archive_channel(args: argparse.Namespace) -> None:
+    """Archive a channel so no new JOINs are accepted.
+
+    Reports actual success/failure based on the server's CHANARCHIVE
+    reply (per Qodo PR #27 #7 — the prior implementation always
+    printed "Archived" regardless of whether the server accepted
+    the request).
+    """
+    if not args.target.strip():
+        print(_ERR_EMPTY_CHANNEL, file=sys.stderr)
+        sys.exit(1)
+    channel = args.target if args.target.startswith("#") else f"#{args.target}"
+
+    observer = get_observer(args.config)
+    ok = asyncio.run(observer.archive_channel(channel))
+    if ok:
+        print(f"Archived: {channel}")
+    else:
+        print(
+            f"Failed to archive {channel} — server did not acknowledge. "
+            "Check the channel exists and you have operator permission.",
+            file=sys.stderr,
+        )
         sys.exit(1)
