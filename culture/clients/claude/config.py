@@ -73,8 +73,8 @@ class AgentConfig:
     agent: str = "claude"
     directory: str = "."
     channels: list[str] = field(default_factory=lambda: ["#general"])
-    model: str = "claude-opus-4-6"
-    thinking: str = "medium"
+    model: str = ""
+    thinking: str = "high"
     system_prompt: str = ""
     tags: list[str] = field(default_factory=list)
     icon: str | None = None

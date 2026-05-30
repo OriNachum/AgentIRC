@@ -68,8 +68,8 @@ class AgentConfig:
     suffix: str = ""
     backend: str = "claude"
     channels: list[str] = field(default_factory=lambda: ["#general"])
-    model: str = "claude-opus-4-6"
-    thinking: str = "medium"
+    model: str = ""
+    thinking: str = "high"
     system_prompt: str = ""
     tags: list[str] = field(default_factory=list)
     icon: str | None = None
@@ -360,8 +360,8 @@ def migrate_legacy_to_manifest(path: str | Path) -> ServerConfig:
                 "suffix": suffix,
                 "backend": backend,
                 "channels": agent_raw.get("channels", ["#general"]),
-                "model": agent_raw.get("model", "claude-opus-4-6"),
-                "thinking": agent_raw.get("thinking", "medium"),
+                "model": agent_raw.get("model", ""),
+                "thinking": agent_raw.get("thinking", "high"),
                 "system_prompt": agent_raw.get("system_prompt", ""),
                 "tags": agent_raw.get("tags", []),
                 "icon": agent_raw.get("icon"),

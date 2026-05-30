@@ -147,6 +147,67 @@ body {
 .stream-line .tools { color: var(--accent); font-size: 11px; }
 .stream-line .action { color: var(--amber); font-weight: 600; }
 
+/* Activity tab: per-turn cards rendered like a regular Claude session. */
+.turn {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.turn .ts {
+  color: var(--muted);
+  font-size: 10px;
+  margin-bottom: 4px;
+}
+.turn .thinking {
+  font-style: italic;
+  color: var(--muted);
+  font-size: 11px;
+  border-left: 2px solid var(--border);
+  padding: 4px 8px;
+  margin: 4px 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  opacity: 0.8;
+}
+.turn .assistant-text {
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 4px 0;
+}
+.turn .tool-use {
+  background: rgba(74, 163, 255, 0.06);
+  border-left: 2px solid var(--accent);
+  padding: 4px 8px;
+  margin: 4px 0;
+  border-radius: 0 4px 4px 0;
+}
+.turn .tool-result {
+  background: rgba(65, 214, 122, 0.05);
+  border-left: 2px solid var(--green);
+  padding: 4px 8px;
+  margin: 4px 0;
+  border-radius: 0 4px 4px 0;
+}
+.turn .tool-head {
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 11px;
+}
+.turn .tool-result .tool-head { color: var(--green); }
+.turn pre.tool-input,
+.turn pre.tool-output {
+  font-family: var(--mono);
+  font-size: 11px;
+  margin: 4px 0 0 0;
+  padding: 4px 6px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
 .pending-item {
   border: 1px solid var(--amber);
   border-radius: 6px;

@@ -74,6 +74,7 @@ async def test_whisper_on_correction():
     )
     for i in range(2):
         await sup.observe({"turn": i})
+    await sup.wait_for_evals()
     assert len(whispers) == 1
     assert whispers[0] == ("Stop retrying", "CORRECTION")
 
@@ -107,6 +108,7 @@ async def test_escalation_after_threshold():
     )
     for i in range(3):
         await sup.observe({"turn": i})
+        await sup.wait_for_evals()
     assert len(whispers) == 2
     assert len(escalated) == 1
 
@@ -146,8 +148,56 @@ async def test_ok_resets_escalation_counter():
     )
     for i in range(5):
         await sup.observe({"turn": i})
+        await sup.wait_for_evals()
     assert len(escalated) == 0
     assert len(whispers) == 4
+
+
+@pytest.mark.asyncio
+async def test_resume_clears_paused_and_counter():
+    """After an escalation pauses the supervisor, resume() lets it observe again.
+
+    Without this, an escalated worker stays unsupervised forever, even after
+    the operator un-pauses the daemon (which used to leave supervisor.paused
+    stuck at True). The daemon's _ipc_resume now calls supervisor.resume().
+    """
+    whispers = []
+    escalated = []
+
+    async def on_whisper(msg, wtype):
+        whispers.append((msg, wtype))
+
+    async def on_escalation(msg):
+        escalated.append(msg)
+
+    async def mock_eval(window, task):
+        return SupervisorVerdict(action="CORRECTION", message="bad")
+
+    sup = Supervisor(
+        window_size=20,
+        eval_interval=1,
+        escalation_threshold=2,
+        evaluate_fn=mock_eval,
+        on_whisper=on_whisper,
+        on_escalation=on_escalation,
+        task_description="test",
+    )
+    # Trigger escalation.
+    for i in range(2):
+        await sup.observe({"turn": i})
+        await sup.wait_for_evals()
+    assert sup.paused is True
+    assert len(escalated) == 1
+
+    # After resume, observation works again from a clean slate.
+    sup.resume()
+    assert sup.paused is False
+    await sup.observe({"turn": 99})
+    await sup.wait_for_evals()
+    # consecutive_failures was reset to 0 on resume, so this counts as 1
+    # again (a whisper), not an immediate escalation.
+    assert len(escalated) == 1  # unchanged
+    assert len(whispers) >= 1
 
 
 # ---------------------------------------------------------------------------

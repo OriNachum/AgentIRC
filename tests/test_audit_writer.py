@@ -114,6 +114,91 @@ class TestAuditWriter:
         assert preview.startswith("x")
 
     @pytest.mark.asyncio
+    async def test_full_tool_input_captured(self, culture_root):
+        # Dashboard render needs full tool input (not just digest) so the
+        # Session tab can show "→ Read /Users/.../file.py" instead of
+        # opaque "→ Read".
+        writer = AuditWriter(nick="local-foo")
+        await writer.write(
+            {
+                "type": "assistant",
+                "model": "m",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "name": "Read",
+                        "input": {"file_path": "/Users/x/code/foo.py"},
+                    },
+                ],
+            }
+        )
+        with open(writer.path) as f:
+            record = json.loads(f.readlines()[0])
+        assert record["tool_uses"][0]["name"] == "Read"
+        assert "/Users/x/code/foo.py" in record["tool_uses"][0]["input"]
+        # Digest is preserved for back-compat consumers.
+        assert record["tool_uses"][0]["input_digest"].startswith("sha256:")
+
+    @pytest.mark.asyncio
+    async def test_full_tool_result_content_captured(self, culture_root):
+        # Dashboard wants the full tool result, not the 200-char preview.
+        # Large results are capped at _FIELD_CAP_BYTES with a truncation
+        # marker so a single Bash with 100MB stdout can't bloat the log.
+        writer = AuditWriter(nick="local-foo")
+        await writer.write(
+            {
+                "type": "assistant",
+                "model": "m",
+                "content": [
+                    {"type": "tool_result", "name": "Read", "content": "line1\nline2"},
+                ],
+            }
+        )
+        with open(writer.path) as f:
+            record = json.loads(f.readlines()[0])
+        assert record["tool_results"][0]["content"] == "line1\nline2"
+
+    @pytest.mark.asyncio
+    async def test_oversized_tool_result_is_capped(self, culture_root):
+        from culture.clients._audit import _FIELD_CAP_BYTES
+
+        writer = AuditWriter(nick="local-foo")
+        big = "A" * (_FIELD_CAP_BYTES * 3)  # 48 KiB
+        await writer.write(
+            {
+                "type": "assistant",
+                "model": "m",
+                "content": [{"type": "tool_result", "name": "Bash", "content": big}],
+            }
+        )
+        with open(writer.path) as f:
+            record = json.loads(f.readlines()[0])
+        content = record["tool_results"][0]["content"]
+        assert "truncated" in content
+        assert len(content.encode("utf-8")) < _FIELD_CAP_BYTES * 2  # cap + small suffix
+
+    @pytest.mark.asyncio
+    async def test_thinking_block_captured(self, culture_root):
+        # Extended-thinking text used to be silently dropped at the audit
+        # layer. The dashboard wants to render it (italicized, collapsible)
+        # so the Session view matches a regular Claude Code session.
+        writer = AuditWriter(nick="local-foo")
+        await writer.write(
+            {
+                "type": "assistant",
+                "model": "m",
+                "content": [
+                    {"type": "thinking", "text": "Let me reason about this..."},
+                    {"type": "text", "text": "Here's my answer."},
+                ],
+            }
+        )
+        with open(writer.path) as f:
+            record = json.loads(f.readlines()[0])
+        assert "reason about this" in record["thinking"]
+        assert record["text"] == "Here's my answer."
+
+    @pytest.mark.asyncio
     async def test_empty_nick_rejected(self, culture_root):
         with pytest.raises(ValueError):
             AuditWriter(nick="")

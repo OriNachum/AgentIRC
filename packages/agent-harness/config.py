@@ -54,8 +54,8 @@ class AgentConfig:
     nick: str = ""
     directory: str = "."
     channels: list[str] = field(default_factory=lambda: ["#general"])
-    model: str = "claude-opus-4-6"
-    thinking: str = "medium"
+    model: str = ""
+    thinking: str = "high"
     system_prompt: str = ""
     icon: str | None = None
 

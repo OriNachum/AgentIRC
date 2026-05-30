@@ -8,7 +8,7 @@ install_claude_sdk_stub()
 
 import json  # noqa: E402
 import os  # noqa: E402
-from unittest.mock import AsyncMock  # noqa: E402
+from unittest.mock import AsyncMock, MagicMock  # noqa: E402
 
 import pytest  # noqa: E402
 
@@ -56,47 +56,151 @@ class TestOnPermRequest:
 
 
 class TestIdleWatchdog:
+    """The watchdog catches three classes of silent worker:
+
+    * never_briefed — no mention/poll/invite ever landed within grace
+    * stalled_pre_engagement — brief landed, no AssistantMessage in STALL grace
+    * stalled_post_engagement — engaged, then no new AssistantMessage in grace
+
+    Tests drive ``_watchdog_tick`` directly (the loop body) so the watchdog can
+    be exercised deterministically without sleeping for ``WATCHDOG_POLL_SECONDS``.
+    """
+
+    @staticmethod
+    def _wd_state() -> dict:
+        return {"warned_state": None}
+
     @pytest.mark.asyncio
     async def test_dms_boss_when_never_engaged(self, tmp_path, monkeypatch):
+        import time as _time
+
         monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
         monkeypatch.setattr(daemon_mod, "IDLE_GRACE_SECONDS", 0)
         d = _daemon(boss="local-boss")
         d._transport = AsyncMock()
-        d._agent_runner = AsyncMock()  # simulate a running runner
+        d._agent_runner = AsyncMock()
         d._engaged = False
-        await d._idle_watchdog()
+        await d._watchdog_tick(_time.time() - 1, self._wd_state())
         d._transport.send_privmsg.assert_awaited_once()
         target, text = d._transport.send_privmsg.await_args.args
         assert target == "local-boss"
         assert "idle" in text.lower() and "local-worker" in text
 
     @pytest.mark.asyncio
-    async def test_no_dm_when_engaged(self, tmp_path, monkeypatch):
+    async def test_no_dm_when_engaged_and_recently_active(self, tmp_path, monkeypatch):
+        import time as _time
+
         monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
         monkeypatch.setattr(daemon_mod, "IDLE_GRACE_SECONDS", 0)
+        monkeypatch.setattr(daemon_mod, "STALL_GRACE_SECONDS", 300)
         d = _daemon(boss="local-boss")
         d._transport = AsyncMock()
         d._agent_runner = AsyncMock()
-        d._engaged = True  # produced a turn → not idle
-        await d._idle_watchdog()
+        d._engaged = True
+        d._last_assistant_message_at = _time.time()  # just produced a turn
+        await d._watchdog_tick(_time.time() - 1, self._wd_state())
         d._transport.send_privmsg.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_no_dm_when_activated_but_slow_first_turn(self, tmp_path, monkeypatch):
-        # A worker that WAS triggered/briefed but hasn't finished a slow first turn
-        # (extended thinking / long first tool call) must NOT be flagged idle.
+    async def test_no_dm_when_activated_within_stall_grace(self, tmp_path, monkeypatch):
+        # A worker that received its brief recently (within STALL grace) but
+        # hasn't finished its first turn yet (slow model, extended thinking,
+        # long first tool call) is busy, not stalled.
+        import time as _time
+
+        monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
+        monkeypatch.setattr(daemon_mod, "IDLE_GRACE_SECONDS", 0)
+        monkeypatch.setattr(daemon_mod, "STALL_GRACE_SECONDS", 300)
+        d = _daemon(boss="local-boss")
+        d._transport = AsyncMock()
+        d._agent_runner = AsyncMock()
+        d._engaged = False
+        d._last_activation = _time.time() - 5  # briefed 5s ago, mid-first-turn
+        await d._watchdog_tick(_time.time() - 1, self._wd_state())
+        d._transport.send_privmsg.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_dms_boss_when_stalled_pre_engagement(self, tmp_path, monkeypatch):
+        # Brief landed but no AssistantMessage ever produced — SDK hang.
+        import time as _time
+
+        monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
+        monkeypatch.setattr(daemon_mod, "IDLE_GRACE_SECONDS", 0)
+        monkeypatch.setattr(daemon_mod, "STALL_GRACE_SECONDS", 1)
+        d = _daemon(boss="local-boss")
+        d._transport = AsyncMock()
+        d._agent_runner = AsyncMock()
+        d._engaged = False
+        d._last_activation = _time.time() - 60  # briefed 60s ago, no output
+        await d._watchdog_tick(_time.time() - 1, self._wd_state())
+        d._transport.send_privmsg.assert_awaited_once()
+        target, text = d._transport.send_privmsg.await_args.args
+        assert target == "local-boss"
+        assert "stall" in text.lower() and "received" in text.lower()
+
+    @pytest.mark.asyncio
+    async def test_dms_boss_when_stalled_post_engagement(self, tmp_path, monkeypatch):
+        # Worker engaged then went silent — the engaged-then-silent class the
+        # old one-shot watchdog could not see.
+        import time as _time
+
+        monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
+        monkeypatch.setattr(daemon_mod, "IDLE_GRACE_SECONDS", 0)
+        monkeypatch.setattr(daemon_mod, "STALL_GRACE_SECONDS", 1)
+        d = _daemon(boss="local-boss")
+        d._transport = AsyncMock()
+        d._agent_runner = AsyncMock()
+        d._engaged = True
+        d._last_assistant_message_at = _time.time() - 60  # last turn 60s ago
+        await d._watchdog_tick(_time.time() - 1, self._wd_state())
+        d._transport.send_privmsg.assert_awaited_once()
+        target, text = d._transport.send_privmsg.await_args.args
+        assert target == "local-boss"
+        assert "stall" in text.lower() and "engaged" in text.lower()
+
+    @pytest.mark.asyncio
+    async def test_warns_once_per_state(self, tmp_path, monkeypatch):
+        # Calling tick twice in the same state must DM the boss only once.
+        import time as _time
+
         monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
         monkeypatch.setattr(daemon_mod, "IDLE_GRACE_SECONDS", 0)
         d = _daemon(boss="local-boss")
         d._transport = AsyncMock()
         d._agent_runner = AsyncMock()
         d._engaged = False
-        d._last_activation = 12345.0  # was activated (mentioned/briefed), still working
-        await d._idle_watchdog()
-        d._transport.send_privmsg.assert_not_awaited()
+        state = self._wd_state()
+        await d._watchdog_tick(_time.time() - 1, state)
+        await d._watchdog_tick(_time.time() - 1, state)
+        assert d._transport.send_privmsg.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_warns_again_on_state_change(self, tmp_path, monkeypatch):
+        # never_briefed → activation arrives → eventually stalled_pre_engagement.
+        # Two distinct DMs (one per state).
+        import time as _time
+
+        monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
+        monkeypatch.setattr(daemon_mod, "IDLE_GRACE_SECONDS", 0)
+        monkeypatch.setattr(daemon_mod, "STALL_GRACE_SECONDS", 1)
+        d = _daemon(boss="local-boss")
+        d._transport = AsyncMock()
+        d._agent_runner = AsyncMock()
+        d._engaged = False
+        state = self._wd_state()
+        await d._watchdog_tick(_time.time() - 1, state)  # never_briefed
+        d._last_activation = _time.time() - 60  # now stalled-pre-engagement
+        await d._watchdog_tick(_time.time() - 1, state)
+        assert d._transport.send_privmsg.await_count == 2
+        first = d._transport.send_privmsg.await_args_list[0].args[1].lower()
+        second = d._transport.send_privmsg.await_args_list[1].args[1].lower()
+        assert "idle" in first and "stall" in second
 
     @pytest.mark.asyncio
     async def test_no_dm_when_paused(self, tmp_path, monkeypatch):
+        # Paused workers don't fire; returns True to stop the loop.
+        import time as _time
+
         monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
         monkeypatch.setattr(daemon_mod, "IDLE_GRACE_SECONDS", 0)
         d = _daemon(boss="local-boss")
@@ -104,8 +208,43 @@ class TestIdleWatchdog:
         d._agent_runner = AsyncMock()
         d._engaged = False
         d._paused = True
-        await d._idle_watchdog()
+        stop = await d._watchdog_tick(_time.time() - 1, self._wd_state())
+        assert stop is True
         d._transport.send_privmsg.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_no_dm_when_runner_dead(self, tmp_path, monkeypatch):
+        import time as _time
+
+        monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
+        monkeypatch.setattr(daemon_mod, "IDLE_GRACE_SECONDS", 0)
+        d = _daemon(boss="local-boss")
+        d._transport = AsyncMock()
+        runner = AsyncMock()
+        # is_running is a *sync* method in production; override the
+        # AsyncMock-generated coroutine attribute with a MagicMock that
+        # returns the actual bool.
+        runner.is_running = MagicMock(return_value=False)
+        d._agent_runner = runner
+        d._engaged = False
+        stop = await d._watchdog_tick(_time.time() - 1, self._wd_state())
+        assert stop is True
+        d._transport.send_privmsg.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_engaged_message_resets_stall_timer(self, tmp_path, monkeypatch):
+        # The unified watchdog reads _last_assistant_message_at; verify
+        # _on_agent_message sets it (so the post-engagement tracker drives correctly).
+        import time as _time
+
+        monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
+        d = _daemon(boss="local-boss")
+        d._supervisor = None
+        assert d._last_assistant_message_at is None
+        t0 = _time.time()
+        await d._on_agent_message({"type": "assistant", "text": "hi", "tool_uses": []})
+        assert d._last_assistant_message_at is not None
+        assert d._last_assistant_message_at >= t0
 
     @pytest.mark.asyncio
     async def test_engagement_flag_and_engaged_record_on_first_turn(self, tmp_path, monkeypatch):

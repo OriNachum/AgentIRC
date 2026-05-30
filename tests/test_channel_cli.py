@@ -97,6 +97,25 @@ class TestMessageIpcRouting:
         result = _try_ipc("irc_send", channel="#general", message="hello")
         assert result is None
 
+    def test_cmd_message_refuses_observer_fallback_when_nick_set(self, monkeypatch, capsys):
+        """SECURITY/UX: when CULTURE_NICK is set but the daemon socket is
+        unreachable, _cmd_message must NOT fall through to the observer
+        (which would post under an ephemeral _peek<hex> nick — fracturing
+        the agent's identity in-channel). It must error out."""
+        from culture.cli.channel import _cmd_message
+
+        monkeypatch.setenv("CULTURE_NICK", "local-audit1")
+        # Pointing XDG_RUNTIME_DIR at an empty dir guarantees the socket
+        # doesn't exist → IPC returns None.
+        monkeypatch.setenv("XDG_RUNTIME_DIR", tempfile.mkdtemp())
+        args = _make_args(target="#task-audit1", text="hello")
+        with pytest.raises(SystemExit) as exc:
+            _cmd_message(args)
+        assert exc.value.code == 1
+        err = capsys.readouterr().err
+        assert "CULTURE_NICK" in err and "audit1" in err
+        assert "observer" in err.lower()
+
 
 class TestNickValidation:
     """Issue #202 review: CULTURE_NICK must match <server>-<agent> format."""

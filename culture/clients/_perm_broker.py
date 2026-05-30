@@ -17,6 +17,7 @@ import os
 import re
 import secrets
 import tempfile
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -33,6 +34,12 @@ logger = logging.getLogger(__name__)
 
 # Poll cadence while awaiting a decision file.
 _POLL_INTERVAL_SECONDS = 0.25
+
+# Maximum time the broker will block waiting for a boss decision before
+# returning a synthetic deny ("timeout"). Generous so a boss has time to
+# read the request, ask the human if needed, and decide; bounded so a dead
+# or unresponsive boss does not hang the worker's SDK call forever.
+_PERM_DECISION_TIMEOUT_SECONDS = 600
 
 # Default permission policy seeded by ``culture boss spawn`` (seed_helper_policy)
 # when a helper has no existing perm-policy/<nick>.yaml.  Mirrors the spec's
@@ -170,12 +177,19 @@ def _handoff_auto_allow_rule(nick: str) -> dict[str, Any]:
     """Auto-allow rule letting a helper write its own context-handoff file.
 
     A context-crisis handoff must never stall on boss approval, so the helper's
-    Write to handoff/<nick>.md is pre-approved. All other Writes still route to
-    the boss.
+    Write to ``~/.culture/handoff/<nick>.md`` is pre-approved. All other
+    Writes still route to the boss.
+
+    SECURITY: the regex is anchored to the EXACT absolute path (re.fullmatch
+    semantics via ``^…$``). The previous form was only tail-anchored
+    (``/handoff/<nick>.md$``), which together with ``re.search`` matched any
+    path whose tail looked right — e.g. ``/etc/secrets/handoff/<nick>.md`` or
+    a path-traversal smuggle. Anchoring to the literal handoff_path_for(nick)
+    closes that surface.
     """
     return {
         "tool": "Write",
-        "input_regex": rf"/handoff/{re.escape(nick)}\.md$",
+        "input_regex": rf"^{re.escape(handoff_path_for(nick))}$",
     }
 
 
@@ -600,6 +614,14 @@ class PermissionBroker:
         policy = self._load_policy()
         verdict = match_policy(tool_name, input_dict, policy)
         if verdict == "allow":
+            # Ceiling re-check on every policy-allow: a sticky `--always allow`
+            # rule for a benign tool (e.g. `Bash ls`) must NOT bypass the
+            # boss's grant ceiling when the worker comes around with a
+            # high-risk Bash invocation (`rm -rf`, `git push`, etc). Without
+            # this re-check, one approved `Bash ls --always` whitelists every
+            # Bash because the sticky rule matches by tool name only.
+            if self._boss and is_above_ceiling(tool_name, input_dict, self._boss):
+                return await self._request_from_boss(tool_name, input_dict)
             return PermissionResultAllow(updated_input=None)
         if verdict == "deny":
             return PermissionResultDeny(
@@ -646,7 +668,7 @@ class PermissionBroker:
                 )
 
         try:
-            decision = await self._await_decision(decision_path)
+            decision = await self._await_decision(decision_path, request_id=request_id)
         except asyncio.CancelledError:
             # Helper task cancelled mid-wait; clean up our request file so it
             # does not linger in the queue.  Re-raise so the SDK sees the
@@ -683,20 +705,41 @@ class PermissionBroker:
             interrupt=False,
         )
 
-    async def _await_decision(self, decision_path: str) -> dict[str, Any]:
-        """Poll until the decision file exists and parses, then return it.
+    async def _await_decision(self, decision_path: str, request_id: str = "") -> dict[str, Any]:
+        """Poll until the decision file exists and parses, then return it. On
+        timeout, return a synthetic deny — never block forever.
 
         Reads are best-effort each tick: a transient ``OSError`` (the file was
         removed between the existence check and the open) or ``JSONDecodeError``
         (a non-atomic writer mid-write) is swallowed and the loop retries on the
         next tick. The boss scripts write atomically via ``os.replace`` so a
-        complete, valid file is the steady state; this loop simply never lets a
-        read error escape and orphan the in-flight request.
+        complete, valid file is the steady state.
+
+        Timeout behaviour: after ``_PERM_DECISION_TIMEOUT_SECONDS`` of no
+        decision, the broker returns a deny with ``auto=True`` and a timeout
+        ``reason``. This prevents a dead/unresponsive boss from hanging the
+        worker's SDK call forever — the SDK sees an honest deny and the agent
+        can proceed (try a different tool, ask the human, or exit cleanly).
         """
+        deadline = time.monotonic() + _PERM_DECISION_TIMEOUT_SECONDS
         while True:
             decision = self._try_read_decision(decision_path)
             if decision is not None:
                 return decision
+            if time.monotonic() >= deadline:
+                logger.warning(
+                    "Perm-broker timeout on %s: boss did not decide in %ds; auto-deny.",
+                    request_id or decision_path,
+                    _PERM_DECISION_TIMEOUT_SECONDS,
+                )
+                return {
+                    "verdict": "deny",
+                    "reason": (
+                        f"timeout: boss did not respond in " f"{_PERM_DECISION_TIMEOUT_SECONDS}s"
+                    ),
+                    "scope": "once",
+                    "auto": True,
+                }
             await asyncio.sleep(_POLL_INTERVAL_SECONDS)
 
     @staticmethod

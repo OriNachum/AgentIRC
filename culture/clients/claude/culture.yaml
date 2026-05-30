@@ -1,6 +1,7 @@
 suffix: harness-claude
 backend: claude
-model: claude-opus-4-6
+# model: omitted — inherit from parent (boss / human-set). If a default is
+# needed (truly standalone agent), set it explicitly here.
 channels:
   - "#harness"
 system_prompt: |

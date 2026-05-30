@@ -139,11 +139,19 @@ function confirmClose(nick) {
 
 // ---- Stream (per-agent session / daemon-log) -------------------------------
 
+const KIND_LABEL = { audit: "Activity", "daemon-log": "Daemon actions", chat: "Chat" };
+
+function updateStreamTitle() {
+  const nick = state.selected || "—";
+  const label = KIND_LABEL[state.kind] || state.kind;
+  $("#stream-title").textContent = `${nick} · ${label}`;
+}
+
 function selectAgent(nick) {
   state.selected = nick;
-  $("#stream-title").textContent = nick;
   refreshAgents();
   openStream();
+  updateStreamTitle();
 }
 
 function openStream() {
@@ -197,19 +205,66 @@ function sendChat() {
     .catch((e) => toast(e.message, true));
 }
 
+function localTs(iso) {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleTimeString();
+  } catch (_) {
+    return iso;
+  }
+}
+
+function renderActivityTurn(box, rec) {
+  // One turn from the audit JSONL = one assistant message. Render with the
+  // shape of a regular Claude session: optional thinking (italic gray) →
+  // optional assistant text → tool calls with full inputs → tool results
+  // (collapsed by default; click to expand).
+  const card = el("div", "turn");
+  card.appendChild(el("div", "ts", localTs(rec.ts)));
+  if (rec.thinking) {
+    const t = el("div", "thinking");
+    t.textContent = rec.thinking;
+    card.appendChild(t);
+  }
+  if (rec.text) {
+    const t = el("div", "assistant-text");
+    t.textContent = rec.text;
+    card.appendChild(t);
+  }
+  for (const tu of rec.tool_uses || []) {
+    const block = el("div", "tool-use");
+    block.appendChild(el("div", "tool-head", "→ " + (tu.name || "(tool)")));
+    if (tu.input) {
+      const pre = el("pre", "tool-input");
+      pre.textContent = tu.input;
+      block.appendChild(pre);
+    }
+    card.appendChild(block);
+  }
+  for (const tr of rec.tool_results || []) {
+    const block = el("div", "tool-result");
+    block.appendChild(el("div", "tool-head", "← " + (tr.name || "(result)")));
+    if (tr.content || tr.preview) {
+      const pre = el("pre", "tool-output");
+      pre.textContent = tr.content || tr.preview;
+      block.appendChild(pre);
+    }
+    card.appendChild(block);
+  }
+  box.appendChild(card);
+  box.scrollTop = box.scrollHeight;
+}
+
 function appendStreamLine(box, raw) {
   let rec;
   try { rec = JSON.parse(raw); } catch (_) { rec = null; }
-  const line = el("div", "stream-line");
   if (rec && state.kind === "audit") {
-    line.appendChild(el("span", "ts", (rec.ts || "") + "  "));
-    if (rec.text) line.appendChild(document.createTextNode(rec.text));
-    if (rec.tool_uses && rec.tool_uses.length) {
-      const tools = rec.tool_uses.map((t) => t.name).join(", ");
-      line.appendChild(el("div", "tools", "→ " + tools));
-    }
-  } else if (rec && state.kind === "daemon-log") {
-    line.appendChild(el("span", "ts", (rec.ts || "") + "  "));
+    renderActivityTurn(box, rec);
+    return;
+  }
+  const line = el("div", "stream-line");
+  if (rec && state.kind === "daemon-log") {
+    line.appendChild(el("span", "ts", localTs(rec.ts) + "  "));
     line.appendChild(el("span", "action", rec.action || "?"));
     const detail = rec.detail ? " " + Object.entries(rec.detail).map(([k, v]) => `${k}=${v}`).join(" ") : "";
     if (detail) line.appendChild(document.createTextNode(detail));
@@ -296,6 +351,7 @@ document.querySelectorAll(".tab").forEach((tab) => {
     tab.classList.add("active");
     state.kind = tab.dataset.kind;
     openStream();
+    updateStreamTitle();
   };
 });
 

@@ -18,6 +18,10 @@ import culture.cli.boss as boss  # noqa: E402
 @pytest.fixture
 def as_boss(monkeypatch):
     monkeypatch.setenv("CULTURE_NICK", "local-boss")
+    # Ownership comes from the manifest now (workers can't forge boss in the
+    # request payload). These tests are scoped to brief-delivery behavior,
+    # not the ownership gate, so neutralize the gate here.
+    monkeypatch.setattr(boss, "_foreign_worker", lambda *a, **k: False)
     return monkeypatch
 
 

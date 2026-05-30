@@ -1,8 +1,13 @@
-"""Model inheritance: a spawned worker defaults to its parent (boss)'s model;
-any parent may override with --model. (User rule: default is the parent's model.)
+"""Model + thinking inheritance: a spawned worker imitates its parent (boss)'s
+RUNTIME model and thinking — read from the boss's daemon-log, not its yaml,
+so there are no hardcoded model strings anywhere in the inheritance chain.
+The SDK picks the current Claude when no model is set; that choice lands in
+the boss's agent_start daemon-log record and is propagated forward.
 """
 
 from __future__ import annotations
+
+import json
 
 from tests._sdk_stub import install_claude_sdk_stub
 
@@ -15,23 +20,20 @@ import yaml  # noqa: E402
 import culture.cli.boss as boss  # noqa: E402
 
 
-def _write_boss_manifest(home, boss_nick="local-boss", model="claude-opus-4-7"):
-    suffix = boss_nick.split("-", 1)[1]
-    bdir = os.path.join(str(home), "boss")
-    os.makedirs(bdir, exist_ok=True)
-    cfg = {"suffix": suffix, "backend": "claude"}
-    if model:  # omit the key entirely when no explicit model (the real "unset" case)
-        cfg["model"] = model
-    with open(os.path.join(bdir, "culture.yaml"), "w", encoding="utf-8") as f:
-        yaml.safe_dump(cfg, f)
-    with open(os.path.join(str(home), "server.yaml"), "w", encoding="utf-8") as f:
-        yaml.safe_dump(
-            {
-                "server": {"name": "local", "host": "127.0.0.1", "port": 6667},
-                "agents": {suffix: bdir},
-            },
-            f,
-        )
+def _write_boss_daemon_log(home, boss_nick="local-boss", model="", thinking=""):
+    """Write a synthetic ``agent_start`` record to the boss's daemon-log. This
+    is what a live boss daemon records on startup, capturing the model+thinking
+    it's actually running with."""
+    log_dir = os.path.join(str(home), "daemon-log")
+    os.makedirs(log_dir, exist_ok=True)
+    rec = {
+        "ts": "2026-05-30T00:00:00.000Z",
+        "nick": boss_nick,
+        "action": "agent_start",
+        "detail": {"model": model, "thinking": thinking, "directory": "/x"},
+    }
+    with open(os.path.join(log_dir, f"{boss_nick}.jsonl"), "w", encoding="utf-8") as f:
+        f.write(json.dumps(rec) + "\n")
 
 
 def test_record_worker_writes_model_when_given(tmp_path):
@@ -104,24 +106,87 @@ def test_record_worker_into_multi_agent_yaml(tmp_path):
     ]
 
 
-def test_boss_model_empty_when_boss_has_no_explicit_model(tmp_path, monkeypatch):
-    # The key fix: _boss_model returns '' (not the hardcoded default) when the
-    # boss's culture.yaml has no model — so inheritance isn't illusory.
+def test_boss_inherits_empty_when_no_daemon_log(tmp_path, monkeypatch):
+    # Boss never ran → daemon-log absent → no inherited model/thinking. The
+    # caller writes empty strings and the SDK picks the current Claude at the
+    # worker's startup. No hardcoded fallback anywhere.
     monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
     monkeypatch.setenv("CULTURE_NICK", "local-boss")
-    _write_boss_manifest(tmp_path, model="")  # boss culture.yaml omits model
+    assert boss._boss_inherits() == ("", "")
     assert boss._boss_model() == ""
 
 
-def test_boss_model_read_from_manifest(tmp_path, monkeypatch):
+def test_boss_inherits_from_daemon_log_model(tmp_path, monkeypatch):
+    # The boss daemon recorded its RUNTIME model on startup → spawn inherits
+    # that exact value, not whatever the yaml might say.
     monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
     monkeypatch.setenv("CULTURE_NICK", "local-boss")
-    _write_boss_manifest(tmp_path, model="claude-opus-4-7")
-    assert boss._boss_model() == "claude-opus-4-7"
+    _write_boss_daemon_log(tmp_path, model="claude-opus-4-8", thinking="")
+    model, thinking = boss._boss_inherits()
+    assert model == "claude-opus-4-8"
+    assert thinking == ""
+    # Back-compat alias.
+    assert boss._boss_model() == "claude-opus-4-8"
 
 
-def test_boss_model_empty_when_boss_not_in_manifest(tmp_path, monkeypatch):
+def test_boss_inherits_both_model_and_thinking(tmp_path, monkeypatch):
+    # Thinking is inherited the same way as model — workers imitate parent
+    # effort level, not just parent model.
     monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
-    monkeypatch.setenv("CULTURE_NICK", "local-ghost")
-    _write_boss_manifest(tmp_path, model="claude-opus-4-7")
-    assert boss._boss_model() == ""  # unknown boss → no inherited model (falls back to default)
+    monkeypatch.setenv("CULTURE_NICK", "local-boss")
+    _write_boss_daemon_log(tmp_path, model="claude-opus-4-8", thinking="high")
+    assert boss._boss_inherits() == ("claude-opus-4-8", "high")
+
+
+def test_boss_inherits_uses_most_recent_agent_start(tmp_path, monkeypatch):
+    # Multiple agent_start records (boss restarted) → most recent wins.
+    monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
+    monkeypatch.setenv("CULTURE_NICK", "local-boss")
+    log_dir = os.path.join(str(tmp_path), "daemon-log")
+    os.makedirs(log_dir, exist_ok=True)
+    path = os.path.join(log_dir, "local-boss.jsonl")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(
+            json.dumps(
+                {
+                    "ts": "2026-05-29T00:00:00.000Z",
+                    "nick": "local-boss",
+                    "action": "agent_start",
+                    "detail": {"model": "claude-opus-4-7", "thinking": "medium"},
+                }
+            )
+            + "\n"
+        )
+        f.write(
+            json.dumps(
+                {
+                    "ts": "2026-05-29T00:05:00.000Z",
+                    "nick": "local-boss",
+                    "action": "agent_exit",
+                    "detail": {"exit_code": 0},
+                }
+            )
+            + "\n"
+        )
+        f.write(
+            json.dumps(
+                {
+                    "ts": "2026-05-30T00:00:00.000Z",
+                    "nick": "local-boss",
+                    "action": "agent_start",
+                    "detail": {"model": "claude-opus-4-8", "thinking": "high"},
+                }
+            )
+            + "\n"
+        )
+    assert boss._boss_inherits() == ("claude-opus-4-8", "high")
+
+
+def test_record_worker_writes_thinking_too(tmp_path):
+    # Inheritance covers thinking, not just model.
+    cwd = str(tmp_path)
+    boss._record_worker_boss(cwd, "qa", "local-boss", model="claude-opus-4-8", thinking="high")
+    with open(os.path.join(cwd, "culture.yaml"), encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    assert data["model"] == "claude-opus-4-8"
+    assert data["thinking"] == "high"

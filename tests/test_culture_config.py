@@ -9,8 +9,11 @@ def test_agent_config_defaults():
     assert agent.suffix == ""
     assert agent.backend == "claude"
     assert agent.channels == ["#general"]
-    assert agent.model == "claude-opus-4-6"
-    assert agent.thinking == "medium"
+    # No hardcoded model default — empty so the SDK picks the current Claude,
+    # and the boss→worker inheritance chain has nothing stale to propagate.
+    assert agent.model == ""
+    # Thinking defaults to the highest level when no explicit value is set.
+    assert agent.thinking == "high"
     assert agent.system_prompt == ""
     assert agent.tags == []
     assert agent.icon is None

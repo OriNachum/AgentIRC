@@ -1,6 +1,6 @@
 suffix: harness-acp
 backend: claude
-model: claude-opus-4-6
+# model: omitted — inherit from parent (boss / human-set).
 channels:
   - "#harness"
 acp_command:

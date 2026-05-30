@@ -4,6 +4,118 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [8.18.0] - 2026-05-30
+
+This release closes 12 ranked findings (8 stall classes from audit1's
+in-mesh dogfood + 11 prioritized findings from a comprehensive
+multi-agent adversarial audit) that together hardened reliability,
+observability, and security across the boss/worker stack.
+
+### Added
+
+- **`AgentDaemon._notify_boss(action, message, **detail)`** — every
+  boss-facing alert (idle/stall, circuit_open, perm_request_notified,
+  supervisor escalation) now routes through one helper that records
+  to the daemon-log first (always lands; dashboard reads it) and DMs
+  the boss best-effort. Each alert is structured + visible in the
+  dashboard even when IRC is unhealthy.
+- **`AgentRunner.set_paused(flag)`** + an internal `asyncio.Event` so
+  pause holds the SDK runner queue authoritatively. Mirrors
+  `AgentDaemon._paused` so handoff/`/compact`/poll prompts already
+  queued wait for resume instead of executing against a "paused"
+  worker.
+- **`Supervisor.wait_for_evals()`** + `Supervisor.resume()` — the
+  former for graceful shutdown / determinism, the latter to clear
+  `paused` + `consecutive_failures` after an escalation (without it
+  an escalated worker stayed unsupervised forever).
+- **Activity-tab dashboard view** that renders the audit JSONL as
+  per-turn cards with thinking (italic gray), assistant text, tool
+  calls with their full inputs, and tool results with their full
+  outputs — same shape as a regular Claude Code session. Tab
+  tooltips explain what each shows (SDK activity / daemon lifecycle
+  / IRC channel).
+
+### Changed
+
+- **Workers inherit model + thinking from the boss's RUNTIME**, not
+  from any yaml. The SDK picks the current Claude when no model is
+  set; the boss daemon records that in its `agent_start` daemon-log
+  detail; `culture boss spawn` reads from there and propagates both
+  fields into the worker's yaml. Result: no hardcoded model strings
+  anywhere — new Claude versions inherit automatically. Code defaults
+  for `model` go to empty; `thinking` defaults to `"high"`.
+- **`_paused` is authoritative end-to-end**: pause halts the SDK
+  runner queue too, not just the mention/poll surfaces (workflow #2).
+- **Supervisor evaluation runs off the SDK consumer pump** via
+  fire-and-forget tasks (locked) so a slow supervisor LLM call no
+  longer blocks audit writes, engaged tracking, or watchdog activation
+  timers (workflow #8).
+- **Dashboard "Session" tab renamed to "Activity"** with tooltips on
+  each tab and `<nick> · <kind>` in the column header so the current
+  view is always obvious.
+- **`_audit.py` captures full tool I/O + thinking** (size-capped at
+  16 KiB per field with a truncation marker). Legacy `input_digest` /
+  `content_digest` / `preview` kept alongside for back-compat
+  consumers.
+
+### Fixed
+
+- **Stall watchdog now catches all three silent-worker classes**
+  (audit1 #1+#2, workflow #1 — observed live as `local-qa658c`
+  silently stalling for 3+ hours after receiving its brief):
+  - `never_briefed` — alive > `IDLE_GRACE_SECONDS` (90s) with no
+    mention/poll/invite activation
+  - `stalled_pre_engagement` — brief landed, no `AssistantMessage`
+    in `STALL_GRACE_SECONDS` (300s)
+  - `stalled_post_engagement` — engaged, then no new
+    `AssistantMessage` in `STALL_GRACE_SECONDS`
+  Each fires a distinct daemon-log entry + DMs the boss once per
+  state change. The watchdog re-arms on resume from pause
+  (`_ipc_resume`, sleep-scheduler resume).
+- **Perm-gate no longer hangs forever** when the boss is unresponsive
+  (audit1 #3). `_await_decision` returns a synthetic deny with
+  `reason=timeout` after `_PERM_DECISION_TIMEOUT_SECONDS` (600s) so
+  the SDK call can proceed instead of stalling.
+- **Circuit-breaker DMs the boss directly** (audit1 #4) — was
+  webhook-only, invisible to bosses not watching the alert channel.
+- **`_run_loop` done-callback** catches the silent-task-death case
+  (audit1 #8): an exception escaping `_process_turn`'s try/except
+  (e.g. from a callback) used to leave the task dead with no `on_exit`
+  signal, so crash recovery never triggered. Now fires a fallback
+  `on_exit(1)` so the circuit breaker still arms.
+- **Workers inherit `thinking` from the boss too**, not just `model`
+  (workflow #1, user feedback "both model and effort levels").
+
+### Security
+
+- **Ceiling bypass closed** (workflow #3): a sticky `--always allow`
+  rule for a benign tool (e.g. `Bash ls`) used to whitelist every
+  Bash invocation (`rm -rf`, `git push`, …) because the gate's fast
+  path returned allow without re-checking `is_above_ceiling`. Gate
+  now re-checks on every policy-allow.
+- **Handoff write-anywhere closed** (workflow #5): the auto-allow
+  regex was tail-anchored only (`/handoff/<nick>.md$` matched via
+  `re.search`), so any path whose tail looked right slipped through —
+  e.g. `/etc/secrets/handoff/<nick>.md`. Now anchored to the EXACT
+  absolute `handoff_path_for(nick)` via `^…$`.
+- **Ownership forge closed** (workflow #4): `_request_is_foreign`
+  used to trust `req['boss']` as authoritative. The worker controls
+  that payload field, so a buggy/malicious worker could forge
+  `boss: <other-boss>` to route requests to another team's approver.
+  Ownership now derived from the MANIFEST only (`_owner_map`); a
+  request whose `helper_nick` lacks a manifest entry is foreign to
+  every boss (fail closed).
+- **Cross-team audit/log read gated** (workflow #9): `culture boss
+  audit` / `culture boss log` now check `_foreign_worker` before
+  tailing, matching the gate in `brief`/`read`/`approve`/`deny`/
+  `close`.
+- **Nick fidelity** (observed live): `culture channel message` from
+  a worker's Bash subprocess fell to the IRCObserver fallback (which
+  posts under `<server>-_peek<hex>`) when the daemon socket was
+  unreachable — so the worker's DONE post appeared in the channel
+  under a stranger nick. When `CULTURE_NICK` is set, the CLI now
+  refuses the observer fallback with a clear error.
+
 ## [8.17.3] - 2026-05-29
 
 ### Fixed

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections import deque
@@ -75,12 +76,51 @@ class Supervisor:
         self._turn_count: int = 0
         self._consecutive_failures: int = 0
         self.paused: bool = False
+        # Fire-and-forget evaluation tasks so the SDK consumer pump never
+        # blocks on a slow supervisor LLM call. One evaluation at a time
+        # (per-supervisor lock) to keep semantics deterministic.
+        self._eval_tasks: set[asyncio.Task] = set()
+        self._eval_lock: asyncio.Lock = asyncio.Lock()
 
     async def observe(self, turn: dict[str, Any]) -> None:
         self._window.append(turn)
         self._turn_count += 1
         if self._turn_count % self.eval_interval == 0:
-            await self._evaluate()
+            # Fire and forget: a slow supervisor LLM call must NOT block the
+            # SDK consumer pump (which is `async for message in query(...)`).
+            # Blocking there stalls every AssistantMessage handler including
+            # audit writes, engaged tracking, watchdog activation timers.
+            task = asyncio.create_task(self._evaluate_safely())
+            self._eval_tasks.add(task)
+            task.add_done_callback(self._eval_tasks.discard)
+
+    async def _evaluate_safely(self) -> None:
+        """Wrap _evaluate so a bug or LLM exception doesn't leave the task
+        in an indeterminate state. The lock ensures evaluations are
+        serialized — overlapping evals would race on consecutive_failures /
+        paused / window iteration."""
+        async with self._eval_lock:
+            try:
+                await self._evaluate()
+            except Exception:  # noqa: BLE001 — fire-and-forget; log + drop
+                logger.exception("Supervisor evaluation crashed")
+
+    async def wait_for_evals(self) -> None:
+        """Wait for any in-flight evaluations to finish. Useful for tests and
+        for graceful shutdown so the supervisor isn't torn down mid-eval."""
+        if self._eval_tasks:
+            await asyncio.gather(*list(self._eval_tasks), return_exceptions=True)
+
+    def resume(self) -> None:
+        """Re-enable supervisor observation after a manual escalation.
+
+        Supervisor.paused goes True on escalation and there's no auto-reset,
+        so without this an escalated worker never gets supervised again even
+        after the operator un-pauses the daemon. Called from
+        AgentDaemon._ipc_resume.
+        """
+        self.paused = False
+        self._consecutive_failures = 0
 
     async def _evaluate(self) -> None:
         if self.paused:

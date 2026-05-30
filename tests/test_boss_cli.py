@@ -54,11 +54,24 @@ def home(tmp_path):
     return tmp_path
 
 
-def _write_request(culture_home, rid, tool, input_dict, nick="local-w"):
+def _write_request(culture_home, rid, tool, input_dict, nick="local-w", owner="local-boss"):
+    """Write a perm-queue request AND register the worker in the manifest.
+
+    Ownership is now manifest-only (worker-written payload is not trusted),
+    so a request whose helper_nick lacks a manifest entry is unowned and
+    refused. Tests that want to assert "unowned" behavior should write the
+    queue file directly and skip ``_register_worker`` themselves.
+    """
+    suffix = nick.split("-", 1)[1] if "-" in nick else nick
+    if owner:
+        _register_worker(culture_home, suffix, owner)
     qdir = os.path.join(str(culture_home), "perm-queue")
     os.makedirs(qdir, exist_ok=True)
+    payload = {"id": rid, "helper_nick": nick, "tool_name": tool, "input": input_dict}
+    if owner:
+        payload["boss"] = owner  # informational (audit trail), no longer authoritative
     with open(os.path.join(qdir, f"{rid}.json"), "w", encoding="utf-8") as f:
-        json.dump({"id": rid, "helper_nick": nick, "tool_name": tool, "input": input_dict}, f)
+        json.dump(payload, f)
 
 
 def _decision(culture_home, rid):
@@ -79,11 +92,17 @@ def _seed_ceiling(culture_home, nick="local-boss"):
 
 
 def _register_worker(culture_home, suffix, boss, server="local"):
-    """Register a worker in the manifest owned by `boss` (its culture.yaml boss field)."""
+    """Register a worker in the manifest owned by `boss` (its culture.yaml boss field).
+
+    Idempotent in one direction: if a manifest entry already exists for this
+    suffix, leaves it untouched (does NOT overwrite a deliberately-set boss).
+    """
     wdir = os.path.join(str(culture_home), "helpers", suffix)
     os.makedirs(wdir, exist_ok=True)
-    with open(os.path.join(wdir, "culture.yaml"), "w", encoding="utf-8") as f:
-        yaml.safe_dump({"suffix": suffix, "backend": "claude", "boss": boss}, f)
+    yaml_path = os.path.join(wdir, "culture.yaml")
+    if not os.path.exists(yaml_path):
+        with open(yaml_path, "w", encoding="utf-8") as f:
+            yaml.safe_dump({"suffix": suffix, "backend": "claude", "boss": boss}, f)
     server_yaml = os.path.join(str(culture_home), "server.yaml")
     try:
         with open(server_yaml, encoding="utf-8") as f:
@@ -92,7 +111,7 @@ def _register_worker(culture_home, suffix, boss, server="local"):
         data = {}
     data.setdefault("server", {"name": server, "host": "127.0.0.1", "port": 6667})
     data.setdefault("agents", {})
-    data["agents"][suffix] = wdir
+    data["agents"].setdefault(suffix, wdir)
     with open(server_yaml, "w", encoding="utf-8") as f:
         yaml.safe_dump(data, f)
 
@@ -240,6 +259,22 @@ class TestAuditHardening:
         assert res.returncode == 2, (res.returncode, res.stderr)
         assert "not your worker" in res.stderr
 
+    def test_audit_foreign_worker_refused(self, home):
+        # SECURITY: reading another team's audit log leaks its activity. The
+        # gate must match brief/read/approve/close/deny.
+        _register_worker(home, "w2", "local-boss2")
+        res = _run(["audit", "w2"], home, nick="local-boss1")
+        assert res.returncode == 2, (res.returncode, res.stderr)
+        assert "not your worker" in res.stderr
+
+    def test_log_foreign_worker_refused(self, home):
+        # SECURITY: reading another team's daemon-log exposes engagement /
+        # idle / circuit-open state across teams. Gate must match the others.
+        _register_worker(home, "w2", "local-boss2")
+        res = _run(["log", "w2"], home, nick="local-boss1")
+        assert res.returncode == 2, (res.returncode, res.stderr)
+        assert "not your worker" in res.stderr
+
     def test_init_rejects_traversal_nick(self, home):
         res = _run(["init", "--nick", "../../evil", "--server", "local"], home)
         assert res.returncode == 1
@@ -250,32 +285,66 @@ class TestAuditHardening:
         assert res.returncode == 1
         assert "invalid server name" in res.stderr
 
-    def test_isolation_holds_via_recorded_owner_without_manifest(self, home):
-        # The fail-open fix: a request carrying boss=local-boss2 is foreign to
-        # local-boss1 even with NO manifest entry for the worker (worker's
-        # culture.yaml missing/corrupt). Ownership comes from the request itself.
+    def test_unowned_request_is_foreign_to_all_bosses(self, home):
+        # SECURITY: a request whose worker is NOT in the manifest cannot be
+        # approved by ANY boss — even one that the (worker-controlled) payload
+        # nominates as owner. The previous "fail-open via payload" let a buggy
+        # or malicious worker forge boss=X to route requests to that boss.
         qdir = os.path.join(str(home), "perm-queue")
         os.makedirs(qdir, exist_ok=True)
         with open(os.path.join(qdir, "req-w2.json"), "w", encoding="utf-8") as f:
             json.dump(
                 {
                     "id": "req-w2",
-                    "helper_nick": "local-w2",
-                    "boss": "local-boss2",
+                    "helper_nick": "local-w2",  # NOT in manifest
+                    "boss": "local-boss2",  # worker-written, no longer trusted
                     "tool_name": "Bash",
                     "input": {"command": "rm -rf /important"},
                 },
                 f,
             )
-        res = _run(["approve", "req-w2"], home, nick="local-boss1")
-        assert res.returncode == 2, (res.returncode, res.stderr)
-        assert "not your worker" in res.stderr
-        assert _decision(home, "req-w2") is None
+        for boss in ("local-boss1", "local-boss2"):
+            res = _run(["approve", "req-w2"], home, nick=boss)
+            assert res.returncode == 2, (boss, res.returncode, res.stderr)
+            assert "not your worker" in res.stderr
+            assert _decision(home, "req-w2") is None
 
-    def test_pending_hides_foreign_via_recorded_owner(self, home):
+    def test_payload_boss_cannot_forge_ownership(self, home):
+        # SECURITY: a worker registered to boss1 cannot forge a request that
+        # routes to boss2 by writing boss=boss2 in the payload — ownership is
+        # derived from the MANIFEST (which says boss1), not from the worker.
+        _register_worker(home, "w1", "local-boss1")
         qdir = os.path.join(str(home), "perm-queue")
         os.makedirs(qdir, exist_ok=True)
-        for rid, owner, nick in (
+        with open(os.path.join(qdir, "req-forge.json"), "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "id": "req-forge",
+                    "helper_nick": "local-w1",
+                    "boss": "local-boss2",  # worker lies about its owner
+                    "tool_name": "Bash",
+                    "input": {"command": "rm -rf /etc"},
+                },
+                f,
+            )
+        # boss2 sees the forged owner but the manifest says boss1 → REFUSED.
+        res = _run(["approve", "req-forge"], home, nick="local-boss2")
+        assert res.returncode == 2, res.stderr
+        assert "not your worker" in res.stderr
+        assert _decision(home, "req-forge") is None
+        # boss1 (the real owner per manifest) can act normally.
+        res = _run(["pending"], home, nick="local-boss1")
+        assert "req-forge" in res.stdout
+
+    def test_pending_hides_foreign_via_manifest_owner(self, home):
+        # SECURITY: pending lists only the requests whose worker is owned by
+        # ME per the MANIFEST. Payload's `boss` field is ignored — see
+        # test_payload_boss_cannot_forge_ownership.
+        _register_worker(home, "w1", "local-boss1")
+        _register_worker(home, "w2", "local-boss2")
+        qdir = os.path.join(str(home), "perm-queue")
+        os.makedirs(qdir, exist_ok=True)
+        for rid, payload_boss, nick in (
             ("req-mine", "local-boss1", "local-w1"),
             ("req-theirs", "local-boss2", "local-w2"),
         ):
@@ -284,7 +353,7 @@ class TestAuditHardening:
                     {
                         "id": rid,
                         "helper_nick": nick,
-                        "boss": owner,
+                        "boss": payload_boss,  # informational; ignored by gate
                         "tool_name": "Edit",
                         "input": {"file_path": "/a"},
                     },
@@ -300,9 +369,10 @@ class TestMultiBossIsolation:
     # another boss must be invisible + un-actionable to this boss. The dashboard
     # (the human) remains the all-teams view.
     def test_foreign_worker_hidden_from_pending(self, home):
+        _register_worker(home, "w1", "local-boss1")
         _register_worker(home, "w2", "local-boss2")
-        _write_request(home, "req-w2", "Edit", {"file_path": "/a"}, nick="local-w2")
-        _write_request(home, "req-mine", "Edit", {"file_path": "/b"}, nick="local-w1")
+        _write_request(home, "req-w2", "Edit", {"file_path": "/a"}, nick="local-w2", owner=None)
+        _write_request(home, "req-mine", "Edit", {"file_path": "/b"}, nick="local-w1", owner=None)
         res = _run(["pending"], home, nick="local-boss1")
         assert res.returncode == 0, res.stderr
         assert "req-mine" in res.stdout

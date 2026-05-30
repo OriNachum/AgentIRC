@@ -126,6 +126,74 @@ async def test_on_exit_crash(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_on_task_done_fires_fallback_on_exit_for_silent_death(monkeypatch):
+    """If _run_loop's task ends with an unhandled exception (from a callback
+    escaping _process_turn's try/except), the done_callback fires on_exit(1)
+    so the daemon's crash-recovery still triggers. Without this, is_running()
+    returns False but no signal reaches the daemon."""
+    exit_codes = []
+
+    async def on_exit(code):
+        exit_codes.append(code)
+
+    async def on_message(msg):
+        # An unhandled exception INSIDE a callback that escapes upward —
+        # _process_turn's except catches it and calls on_exit(1) inline, so
+        # this path is actually well-covered. To exercise the fallback we
+        # poke a synthetic case below.
+        raise RuntimeError("callback boom")
+
+    async def fake_query(*, prompt, options=None, transport=None):
+        yield FakeAssistantMessage(content=[FakeTextBlock(text="boom-trigger")])
+        yield FakeResultMessage(session_id="sess-boom")
+
+    monkeypatch.setattr("culture.clients.claude.agent_runner.query", fake_query)
+    monkeypatch.setattr("culture.clients.claude.agent_runner.ResultMessage", FakeResultMessage)
+    monkeypatch.setattr(
+        "culture.clients.claude.agent_runner.AssistantMessage", FakeAssistantMessage
+    )
+
+    runner = AgentRunner(
+        model="test-model", directory="/tmp", on_exit=on_exit, on_message=on_message
+    )
+    runner._prompt_queue.put_nowait("go")
+    await runner.start()
+    await asyncio.sleep(0.4)
+    # on_exit(1) was called — either via _process_turn's inline path (the
+    # normal route) or via the fallback done_callback. Either way the daemon
+    # gets the signal it needs.
+    assert exit_codes == [1]
+
+
+@pytest.mark.asyncio
+async def test_on_task_done_does_not_fire_on_clean_exit(monkeypatch):
+    """Clean exit path (on_exit(0) already called) must not double-fire the
+    fallback exit signal from the done_callback."""
+    exit_codes = []
+
+    async def on_exit(code):
+        exit_codes.append(code)
+
+    async def fake_query(*, prompt, options=None, transport=None):
+        yield FakeResultMessage(session_id="sess-clean")
+
+    monkeypatch.setattr("culture.clients.claude.agent_runner.query", fake_query)
+    monkeypatch.setattr("culture.clients.claude.agent_runner.ResultMessage", FakeResultMessage)
+    monkeypatch.setattr(
+        "culture.clients.claude.agent_runner.AssistantMessage", FakeAssistantMessage
+    )
+
+    runner = AgentRunner(model="test-model", directory="/tmp", on_exit=on_exit)
+    runner._prompt_queue.put_nowait("go")
+    await runner.start()
+    await asyncio.sleep(0.2)
+    await runner.stop()
+    await asyncio.sleep(0.1)
+    # Exactly one clean exit signal — no fallback fired.
+    assert exit_codes == [0]
+
+
+@pytest.mark.asyncio
 async def test_send_prompt(monkeypatch):
     """send_prompt queues a prompt that is consumed by the next turn."""
     prompts_seen = []

@@ -92,8 +92,10 @@ agents:
             assert config.webhooks.irc_channel == "#alerts"
             assert config.buffer_size == 500
             agent = config.agents[0]
-            assert agent.model == "claude-opus-4-6"
-            assert agent.thinking == "medium"
+            # No hardcoded model default — agent inherits at runtime via the
+            # boss→worker chain (or the SDK picks current Claude when empty).
+            assert agent.model == ""
+            assert agent.thinking == "high"
         finally:
             os.unlink(f.name)
 

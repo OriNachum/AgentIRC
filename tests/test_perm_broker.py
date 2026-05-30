@@ -314,6 +314,115 @@ class TestBrokerEndToEnd:
         result = await asyncio.wait_for(gate_task, timeout=2.0)
         assert isinstance(result, PermissionResultAllow)
 
+    @pytest.mark.asyncio
+    async def test_handoff_auto_allow_is_exact_path_only(self, culture_root):
+        # SECURITY: the handoff auto-allow rule must match ONLY the helper's
+        # own handoff file at the exact absolute path under CULTURE_HOME. A
+        # tail-anchored regex matched any /handoff/<nick>.md tail anywhere on
+        # disk (or via traversal), which is a write-anywhere primitive given
+        # the worker's auto-allowed Write tool.
+        from culture.clients._perm_broker import (
+            handoff_path_for,
+            seed_helper_policy,
+        )
+
+        seed_helper_policy("local-helper")
+        broker = PermissionBroker(nick="local-helper")
+        canonical = handoff_path_for("local-helper")
+        # The legitimate path → allow (no boss roundtrip).
+        result = await asyncio.wait_for(
+            broker.gate("Write", {"file_path": canonical}, _empty_context()),
+            timeout=1.0,
+        )
+        assert isinstance(result, PermissionResultAllow)
+        # A tail-spoofed path → must NOT auto-allow; goes through the boss.
+        # Cancel quickly to assert "did not return allow immediately".
+        import contextlib
+
+        evil = "/etc/secrets/handoff/local-helper.md"
+        gate_task = asyncio.create_task(broker.gate("Write", {"file_path": evil}, _empty_context()))
+        queue_dir = os.path.join(str(culture_root), "perm-queue")
+        rid = await _wait_for_request(queue_dir, timeout=1.0)
+        assert rid  # it was queued, i.e. NOT auto-allowed
+        gate_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await gate_task
+
+    @pytest.mark.asyncio
+    async def test_sticky_allow_does_not_bypass_ceiling(self, culture_root, monkeypatch):
+        # SECURITY: a sticky `--always allow` rule for a benign tool (Bash ls)
+        # must NOT whitelist dangerous invocations (Bash rm -rf) just because
+        # the sticky rule matches by tool name. The gate re-checks the boss
+        # ceiling on every policy-allow.
+        import contextlib
+
+        # Write a policy that allows Bash unconditionally (the broken sticky shape).
+        path = policy_path_for("local-helper")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            yaml.safe_dump({"auto_allow": [{"tool": "Bash"}], "auto_deny": []}, f)
+        # Seed the boss ceiling so is_above_ceiling has rules to match against.
+        from culture.clients._perm_broker import write_default_boss_ceiling
+
+        write_default_boss_ceiling("local-boss")
+        broker = PermissionBroker(nick="local-helper", boss="local-boss")
+        # An above-ceiling Bash invocation must NOT be auto-allowed — instead,
+        # the gate routes it through the perm queue so the boss decides.
+        gate_task = asyncio.create_task(
+            broker.gate("Bash", {"command": "rm -rf /etc"}, _empty_context())
+        )
+        queue_dir = os.path.join(str(culture_root), "perm-queue")
+        # If the bypass were still open, gate would return immediately with
+        # an allow and we'd never see a request file. The presence of a
+        # request file proves the ceiling re-check forced the slow path.
+        request_id = await _wait_for_request(queue_dir, timeout=1.0)
+        assert request_id  # request was queued
+        gate_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await gate_task
+
+    @pytest.mark.asyncio
+    async def test_sticky_allow_below_ceiling_still_fast_path(self, culture_root):
+        # The benign case still gets the fast path: ceiling doesn't fire, so
+        # an `ls`-style Bash command returns allow immediately.
+        path = policy_path_for("local-helper")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            yaml.safe_dump({"auto_allow": [{"tool": "Bash"}], "auto_deny": []}, f)
+        from culture.clients._perm_broker import write_default_boss_ceiling
+
+        write_default_boss_ceiling("local-boss")
+        broker = PermissionBroker(nick="local-helper", boss="local-boss")
+        result = await asyncio.wait_for(
+            broker.gate("Bash", {"command": "ls /tmp"}, _empty_context()),
+            timeout=1.0,
+        )
+        assert isinstance(result, PermissionResultAllow)
+
+    @pytest.mark.asyncio
+    async def test_perm_gate_times_out_with_auto_deny(self, culture_root, monkeypatch):
+        # A dead or unresponsive boss must NOT hang the worker forever. The
+        # broker times out and returns a synthetic deny so the SDK can proceed.
+        import culture.clients._perm_broker as broker_mod
+
+        monkeypatch.setattr(broker_mod, "_PERM_DECISION_TIMEOUT_SECONDS", 0.5)
+        write_default_policy("local-helper")
+        broker = PermissionBroker(nick="local-helper")
+        result = await asyncio.wait_for(
+            broker.gate("Edit", {"file_path": "/x"}, _empty_context()),
+            timeout=2.0,
+        )
+        assert isinstance(result, PermissionResultDeny)
+        assert "timeout" in result.message.lower()
+        # Queue file should NOT linger (gate cleaned up its own request).
+        queue_dir = os.path.join(str(culture_root), "perm-queue")
+        entries = (
+            [e for e in os.listdir(queue_dir) if not e.startswith(".")]
+            if os.path.exists(queue_dir)
+            else []
+        )
+        assert entries == []
+
 
 # ---------------------------------------------------------------------------
 # Helpers — boss-side simulation

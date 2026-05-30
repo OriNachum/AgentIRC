@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import time
+from typing import Any
 
 from culture.aio import maybe_await
 from culture.clients._audit import AuditWriter
@@ -40,6 +41,18 @@ CRASH_RESTART_DELAY = 5
 # A worker that produces no turn within this window after start has never
 # engaged (wrong channel / never briefed) — flag it back to the boss.
 IDLE_GRACE_SECONDS = 90
+
+# After the worker has been activated (mention/poll/invite landed) OR has
+# already produced at least one turn, this is the maximum gap between
+# AssistantMessages before we surface a "stall" warning to the boss. Generous
+# enough to cover slow first turns, extended thinking, and long-running tool
+# calls; tight enough that a genuinely hung worker is noticed within minutes.
+STALL_GRACE_SECONDS = 300
+
+# Periodic re-check interval for the idle watchdog. Short relative to grace
+# windows so a state-change is surfaced promptly; long enough to keep wakeups
+# cheap.
+WATCHDOG_POLL_SECONDS = 30
 
 # IPC validation error messages
 _ERR_MISSING_CHANNEL = "Missing 'channel'"
@@ -141,6 +154,10 @@ class AgentDaemon:
         # the truth back to the boss instead of relying on anyone to notice.
         self._engaged: bool = False
         self._idle_task: asyncio.Task | None = None
+        # Last AssistantMessage timestamp — drives the unified stall watchdog
+        # (catches "engaged then silent" as well as "activated then silent").
+        # None until the first turn lands.
+        self._last_assistant_message_at: float | None = None
 
         # Pause/sleep state
         self._paused: bool = False
@@ -331,10 +348,15 @@ class AgentDaemon:
 
                 if should_sleep and not self._paused:
                     self._paused = True
+                    if self._agent_runner is not None:
+                        self._agent_runner.set_paused(True)
                     logger.info("Sleep schedule: pausing %s", self.agent.nick)
                 elif not should_sleep and self._paused and not self._manually_paused:
                     self._paused = False
+                    if self._agent_runner is not None:
+                        self._agent_runner.set_paused(False)
                     logger.info("Sleep schedule: resuming %s", self.agent.nick)
+                    self._maybe_rearm_watchdog()
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -422,7 +444,10 @@ class AgentDaemon:
         await self._agent_runner.start()
         logger.info("AgentRunner started via SDK for %s", self.agent.nick)
         await self._daemon_log.record(
-            "agent_start", model=self.agent.model, directory=self.agent.directory
+            "agent_start",
+            model=self.agent.model,
+            thinking=self.agent.thinking,
+            directory=self.agent.directory,
         )
         # Arm the idle watchdog for boss-owned workers (the ones a boss expects to
         # be working). It fires once if the worker is never even triggered within
@@ -434,32 +459,110 @@ class AgentDaemon:
                 self._idle_task.cancel()
             self._engaged = False
             self._last_activation = None
+            self._last_assistant_message_at = None
             self._idle_task = asyncio.create_task(self._idle_watchdog())
 
     async def _idle_watchdog(self) -> None:
-        """If a boss-owned worker is never triggered within the grace window,
-        record it and DM the boss — so an idle/mis-briefed worker surfaces itself
-        instead of the boss falsely believing it's working."""
+        """Detect three classes of silent boss-owned worker, DM the boss each.
+
+        Runs as a periodic poll (not one-shot) so a worker that engaged-then-
+        went-silent is still caught — the bug behind the original one-shot
+        watchdog that returned silently the moment ``_last_activation`` was
+        set, regardless of whether the worker ever actually produced output.
+
+        Classes (each warned at most once until state changes):
+
+        * ``never_briefed`` — alive > IDLE_GRACE_SECONDS with no mention/poll/
+          invite ever landed.
+        * ``stalled_pre_engagement`` — brief landed (_last_activation set) but
+          no AssistantMessage produced after STALL_GRACE_SECONDS. SDK hang
+          (rate-limit, extended-thinking never resolving, etc).
+        * ``stalled_post_engagement`` — already engaged but no new
+          AssistantMessage in STALL_GRACE_SECONDS. The class the old watchdog
+          could never see because _engaged=True disabled it.
+
+        On resume from pause, the watchdog is re-armed (see ``_maybe_rearm_watchdog``).
+        """
+        armed_at = time.time()
+        state: dict = {"warned_state": None}
         try:
-            await asyncio.sleep(IDLE_GRACE_SECONDS)
+            while True:
+                try:
+                    await asyncio.sleep(WATCHDOG_POLL_SECONDS)
+                except asyncio.CancelledError:
+                    return
+                if await self._watchdog_tick(armed_at, state):
+                    return
         except asyncio.CancelledError:
             return
-        if self._engaged or self._paused or self._agent_runner is None:
+
+    async def _watchdog_tick(self, armed_at: float, state: dict) -> bool:
+        """One iteration of the watchdog loop. Returns True if the caller
+        should stop looping (paused / runner dead). Public for tests so the
+        watchdog can be driven deterministically without sleeping."""
+        if self._paused:
+            return True
+        if self._agent_runner is None or not self._agent_runner.is_running():
+            return True
+        now = time.time()
+        new_state: str | None = None
+        since_ts: float = now
+        if not self._engaged:
+            if self._last_activation is None:
+                if now - armed_at >= IDLE_GRACE_SECONDS:
+                    new_state = "never_briefed"
+                    since_ts = armed_at
+            else:
+                if now - self._last_activation >= STALL_GRACE_SECONDS:
+                    new_state = "stalled_pre_engagement"
+                    since_ts = self._last_activation
+        else:
+            last = self._last_assistant_message_at
+            if last is not None and now - last >= STALL_GRACE_SECONDS:
+                new_state = "stalled_post_engagement"
+                since_ts = last
+        if not new_state or new_state == state.get("warned_state"):
+            return False
+        state["warned_state"] = new_state
+        since = int(now - since_ts)
+        await self._notify_boss(
+            "idle_warning",
+            self._stall_message(new_state, since),
+            reason=new_state,
+            since_seconds=since,
+        )
+        return False
+
+    def _maybe_rearm_watchdog(self) -> None:
+        """Start a fresh idle watchdog task if this is a boss-owned worker and
+        the previous task is gone (the watchdog returns when paused, so resume
+        must respawn it to keep coverage)."""
+        if not _boss_nick(self.agent):
             return
-        # A worker that WAS triggered (mentioned/briefed) but hasn't finished its
-        # first turn yet (slow model, extended thinking, long first tool call) is
-        # busy, not idle — only flag one that was never even activated.
-        if self._last_activation is not None:
+        if self._idle_task is not None and not self._idle_task.done():
             return
-        boss = _boss_nick(self.agent)
-        await self._daemon_log.record("idle_warning", detail={"since_seconds": IDLE_GRACE_SECONDS})
-        if boss and self._transport is not None:
-            await self._transport.send_privmsg(
-                boss,
-                f"[idle] worker {self.agent.nick} has produced no activity "
-                f"{IDLE_GRACE_SECONDS}s after start — it may not be in its "
-                f"#task channel or was never briefed. Check and re-drive it.",
+        if self._agent_runner is None or not self._agent_runner.is_running():
+            return
+        self._idle_task = asyncio.create_task(self._idle_watchdog())
+
+    def _stall_message(self, reason: str, since: int) -> str:
+        nick = self.agent.nick
+        if reason == "never_briefed":
+            return (
+                f"[idle] worker {nick} has produced no activity {since}s "
+                f"after start — it may not be in its #task channel or was "
+                f"never briefed. Check and re-drive it."
             )
+        if reason == "stalled_pre_engagement":
+            return (
+                f"[stall] worker {nick} received its brief {since}s ago but "
+                f"has not produced any output — the SDK call may have hung. "
+                f"Check its audit, consider re-driving or restarting."
+            )
+        return (
+            f"[stall] worker {nick} engaged but has been silent for {since}s "
+            f"(no new turns). Check its audit, consider re-driving."
+        )
 
     def _on_mention(self, target: str, sender: str, text: str) -> None:
         """Called by IRCTransport when the agent is @mentioned or DM'd.
@@ -558,6 +661,10 @@ class AgentDaemon:
             # (which reads the daemon-log, not audit size) clears authoritatively.
             self._engaged = True
             await self._daemon_log.record("engaged")
+        # Drive the stall watchdog: every AssistantMessage resets the "time
+        # since last turn" timer. A worker that engaged-then-went-silent is
+        # only catchable because we track this.
+        self._last_assistant_message_at = time.time()
         await self._audit.write(msg)
 
         if self._supervisor:
@@ -599,17 +706,43 @@ class AgentDaemon:
         await self._agent_runner.send_prompt("/compact")
         await self._daemon_log.record("compact", trigger="context_watermark", pct=round(pct, 3))
 
-    async def _on_perm_request(self, payload: dict) -> None:
-        """Surface a worker permission request to its boss over IRC (best-effort).
+    async def _notify_boss(
+        self, action: str, message: str, *, also_daemon_log: bool = True, **detail: Any
+    ) -> bool:
+        """Send a structured notification to the parent boss with daemon-log
+        fallback. Returns True if the IRC DM succeeded.
 
-        Fired by this worker's PermissionBroker when a tool call routes to the
-        boss. DMs the owning boss (``self.agent.boss``) so the boss's activation
-        handler fires and it can approve/deny. If no boss is configured (the
-        human-supervised case from PR #411) we post nothing — the human finds the
-        request via ``culture boss pending`` or the Mission Control dashboard.
+        Every boss-facing alert (stall, circuit_open, perm_request, supervisor
+        escalation) routes through this helper so the daemon-log is the
+        single source of truth for "what was raised" — the dashboard can read
+        and surface it even when IRC is broken / boss is dead. The IRC DM is
+        best-effort; transport errors do not raise.
+
+        ``action`` is the daemon-log action name. ``detail`` is the daemon-log
+        detail dict, so caller can use any keys (including 'reason') without
+        colliding with this helper's signature.
         """
+        if also_daemon_log:
+            await self._daemon_log.record(action, **detail)
         boss = _boss_nick(self.agent)
         if not boss or self._transport is None:
+            return False
+        try:
+            await self._transport.send_privmsg(boss, message)
+            return True
+        except Exception:  # noqa: BLE001 — DM is advisory; daemon-log already landed
+            logger.warning("Failed to DM boss %s with %s", boss, action, exc_info=True)
+            return False
+
+    async def _on_perm_request(self, payload: dict) -> None:
+        """Surface a worker permission request to its boss.
+
+        Fired by this worker's PermissionBroker when a tool call routes to the
+        boss. DMs the owning boss (``self.agent.boss``) AND records to
+        daemon-log so the dashboard sees the request even if the DM fails.
+        """
+        boss = _boss_nick(self.agent)
+        if not boss:
             return
         tool = payload.get("tool_name", "?")
         req_id = payload.get("id", "?")
@@ -618,7 +751,12 @@ class AgentDaemon:
             f"[perm] worker {self.agent.nick} wants {tool}: {preview} "
             f"— id {req_id} (approve/deny)"
         )
-        await self._transport.send_privmsg(boss, notice)
+        await self._notify_boss(
+            "perm_request_notified",
+            notice,
+            tool=tool,
+            request_id=req_id,
+        )
 
     @staticmethod
     def _perm_input_preview(tool: str, input_dict: dict) -> str:
@@ -679,6 +817,15 @@ class AgentDaemon:
         """Open the circuit breaker if crash count reached the threshold.
 
         Returns True if the circuit was opened (caller should stop restart logic).
+
+        On open, the boss is notified via THREE channels so the message lands
+        even when one is broken:
+        1. daemon-log (local FS, always succeeds — the dashboard reads this)
+        2. webhook (for ops dashboards / Slack — fires if configured)
+        3. direct DM to the parent boss over IRC (the boss may not monitor the
+           webhook channel; an in-team DM is the channel a boss agent actually
+           reads). Without this, audit1's finding #4 stands: an open circuit
+           is invisible to the boss until someone manually queries status.
         """
         if len(self._crash_times) >= MAX_CRASH_COUNT:
             self._circuit_open = True
@@ -687,11 +834,6 @@ class AgentDaemon:
                 self.agent.nick,
                 len(self._crash_times),
                 CRASH_WINDOW_SECONDS,
-            )
-            await self._daemon_log.record(
-                "circuit_open",
-                count=len(self._crash_times),
-                window_s=CRASH_WINDOW_SECONDS,
             )
             if self._webhook:
                 await self._webhook.fire(
@@ -704,6 +846,17 @@ class AgentDaemon:
                         ),
                     )
                 )
+            await self._notify_boss(
+                "circuit_open",
+                (
+                    f"[circuit_open] worker {self.agent.nick} crashed "
+                    f"{len(self._crash_times)} times in {CRASH_WINDOW_SECONDS}s "
+                    f"— circuit breaker opened, NOT restarting. Investigate "
+                    f"its audit log and decide whether to restart manually."
+                ),
+                count=len(self._crash_times),
+                window_s=CRASH_WINDOW_SECONDS,
+            )
             return True
         return False
 
@@ -769,7 +922,10 @@ class AgentDaemon:
             await self._socket_server.send_whisper(message, whisper_type)
 
     async def _on_supervisor_escalation(self, message: str) -> None:
-        """Escalate via webhook + IRC when supervisor exhausts whispers."""
+        """Escalate via webhook + daemon-log + IRC DM when supervisor
+        exhausts whispers. Without the boss DM the escalation is invisible
+        to the agent that's supposed to act on it (boss reads IRC, not the
+        webhook channel)."""
         if self._webhook:
             await self._webhook.fire(
                 AlertEvent(
@@ -778,6 +934,10 @@ class AgentDaemon:
                     message=f"[ESCALATION] {self.agent.nick}: {message}",
                 )
             )
+        await self._notify_boss(
+            "supervisor_escalation",
+            f"[escalation] worker {self.agent.nick}: {message}",
+        )
 
     # ------------------------------------------------------------------
     # IPC handler
@@ -809,6 +969,11 @@ class AgentDaemon:
     def _ipc_pause(self, req_id: str, msg: dict) -> dict:
         self._paused = True
         self._manually_paused = True
+        # Make pause authoritative at the SDK runner too — a half-pause that
+        # only gates mention/poll surfaces still lets queued handoff/compact
+        # work run, so the operator's halt is not actually a halt.
+        if self._agent_runner is not None:
+            self._agent_runner.set_paused(True)
         logger.info("Agent %s paused (manual)", self.agent.nick)
         self._log_action_bg("pause", manual=True)
         return make_response(req_id, ok=True)
@@ -816,8 +981,19 @@ class AgentDaemon:
     def _ipc_resume(self, req_id: str, msg: dict) -> dict:
         self._paused = False
         self._manually_paused = False
+        if self._agent_runner is not None:
+            self._agent_runner.set_paused(False)
+        # Supervisor sets paused=True on escalation and has no auto-reset, so
+        # without this an escalated worker stays unsupervised forever even
+        # after the operator un-pauses it. (Workflow finding: "supervisor
+        # self-pauses on first escalation and never un-pauses".)
+        if self._supervisor is not None:
+            self._supervisor.resume()
         logger.info("Agent %s resumed", self.agent.nick)
         self._log_action_bg("resume", manual=True)
+        # Re-arm the watchdog: it returns when _paused is True, so resuming
+        # without restarting it leaves the worker un-monitored.
+        self._maybe_rearm_watchdog()
         # NOTE: Catch-up on missed messages is not yet implemented.
         # IRCTransport does not process HISTORY responses into the buffer.
         # The agent resumes and will see new messages going forward.

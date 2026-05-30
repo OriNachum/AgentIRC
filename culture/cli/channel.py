@@ -267,6 +267,24 @@ def _cmd_message(args: argparse.Namespace) -> None:
         print(f"Sent to {target}")
         return
 
+    # Identity fidelity: when CULTURE_NICK is set, the caller is a daemon-
+    # owned process (the agent's Bash subprocess) and the message MUST go out
+    # under that nick. The observer fallback posts under an ephemeral
+    # `<server>-_peek<hex>` nick — which is what the user saw on 2026-05-30
+    # when audit1's DONE message appeared in #task-audit1 under
+    # `<local-_peekdb2e>` instead of `<local-audit1>`. Refuse the silent
+    # identity swap; surface a clear error so the operator knows why.
+    nick = os.environ.get("CULTURE_NICK", "")
+    if nick:
+        print(
+            f"Error: CULTURE_NICK={nick} is set but its daemon socket is "
+            f"unreachable — refusing to post under the ephemeral observer "
+            f"nick (which would fracture this agent's identity in the "
+            f"channel). Is the daemon running? Check: culture agent status",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     observer = get_observer(args.config)
     asyncio.run(observer.send_message(target, text))
     print(f"Sent to {target}")
