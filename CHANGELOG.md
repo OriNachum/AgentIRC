@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [8.19.28] - 2026-05-31
+
+### Added — Dashboard UX: 4 critical/high findings from v8.19.24 evaluation
+
+Implements the 4 top-ranked UX findings from `docs/v8.19.24-ux-evaluation.md`:
+
+1. **Timeline**: each Channel heading now shows "Started 2h ago — last active 3m ago"
+   derived from daemon-log `agent_start` and last-entry timestamps. Per-member
+   `started_at` / `last_activity` fields added to `/api/tasks`.
+
+2. **Brief subtitle**: the first 1-2 sentences of a channel's living brief
+   (`/api/channels/<name>/brief`) render as a subtitle under the Channel heading.
+   Room cards also gain a "Living brief" collapsible toggle (alongside the existing
+   seed brief). Title truncation fixed: CSS now allows 2-line wrap.
+
+3. **Watcher health dot**: reads `~/.culture/watcher-state.json` and surfaces a
+   green/yellow/red dot on each Channel heading and member chip. Red = crash/death
+   alerts, yellow = stalled patterns, green = no alerts, absent = no watcher file.
+
+4. **Pending badge**: per-channel pending-approval count from `list_pending()`
+   filtered by `helper_nick`. Renders as an amber badge on the Channel heading
+   when any member has pending approvals, and as a per-member badge on chips.
+
 ## [8.19.25] - 2026-05-31
 
 ### Fixed — SDK inactivity hangs the agent runner

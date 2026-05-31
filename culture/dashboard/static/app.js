@@ -42,6 +42,20 @@ function formatTokens(n) {
   return (x / 1_000_000).toFixed(x < 10_000_000 ? 1 : 0) + "M";
 }
 
+function timeAgo(iso) {
+  if (!iso) return "";
+  try {
+    const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+    if (diff < 0) return "just now";
+    if (diff < 60) return Math.floor(diff) + "s ago";
+    if (diff < 3600) return Math.floor(diff / 60) + "m ago";
+    if (diff < 86400) return Math.floor(diff / 3600) + "h ago";
+    return Math.floor(diff / 86400) + "d ago";
+  } catch (_) {
+    return "";
+  }
+}
+
 // v8.19.14 round 2: the channel/agent/pending lists previously called
 // replaceChildren() on every poll (every 2.5–3s), nuking the DOM even
 // when the data was identical. The user saw the entire left panel
@@ -289,16 +303,15 @@ async function refreshChannels() {
 }
 
 function renderTaskGroup(task) {
-  // v8.19.22: a TASK GROUP renders one Channel (per the user's data
-  // model: Channel === Task scope). Inside the Channel are rooms — the
-  // boss board, group chat, joint channels, and per-worker dialogs.
   const block = el("div", "task-group");
   const header = el("div", "task-header");
   const dot = el("span", `task-state-dot member-dot-${task.state || "unknown"}`);
   header.appendChild(dot);
-  // Explicit "Channel:" label so the unit of scope is obvious — the
-  // <task title> is the channel's purpose (from seed → mission → boss
-  // nick) and the per-room cards below are the rooms within it.
+  if (task.health && task.health !== "green") {
+    const hDot = el("span", `health-dot health-${task.health}`);
+    hDot.title = task.health === "red" ? "Watcher: crash/death alert" : "Watcher: stalled pattern";
+    header.appendChild(hDot);
+  }
   const channelLabel = el("span", "channel-scope-label", "Channel");
   header.appendChild(channelLabel);
   const title = el("div", "task-title", task.title || (task.boss + "'s work"));
@@ -314,9 +327,10 @@ function renderTaskGroup(task) {
     );
     header.appendChild(count);
   }
-  // Channel-level token total — sum over UNIQUE members so the boss
-  // (who appears in every room) is counted exactly once. This is the
-  // true task total, distinct from per-room sub-totals on each card.
+  if (task.pending_total > 0) {
+    const pb = el("span", "task-pending-badge", task.pending_total + " pending");
+    header.appendChild(pb);
+  }
   if (task.tokens_total && task.tokens_total > 0) {
     const tt = el(
       "span",
@@ -327,6 +341,20 @@ function renderTaskGroup(task) {
     header.appendChild(tt);
   }
   block.appendChild(header);
+
+  const subtitleParts = [];
+  if (task.started_at) subtitleParts.push("Started " + timeAgo(task.started_at));
+  if (task.last_activity) subtitleParts.push("last active " + timeAgo(task.last_activity));
+  if (subtitleParts.length) {
+    const timeline = el("div", "task-timeline", subtitleParts.join(" \u2014 "));
+    block.appendChild(timeline);
+  }
+
+  const briefCh = (task.channels || []).find((c) => c.brief_preview);
+  if (briefCh) {
+    const briefSub = el("div", "task-brief-subtitle", briefCh.brief_preview);
+    block.appendChild(briefSub);
+  }
 
   for (const ch of (task.channels || [])) {
     block.appendChild(renderChannelCard(ch));
@@ -401,6 +429,36 @@ function renderChannelCard(ch) {
     card.appendChild(seedRow);
   }
 
+  if (ch.brief_preview) {
+    const briefRow = el("div", "channel-brief-preview");
+    const briefToggle = el("span", "seed-toggle", "▸ Living brief");
+    const briefLine = el("span", "seed-preview-line", ch.brief_preview);
+    const briefBody = el("div", "seed-body hidden");
+    briefRow.appendChild(briefToggle);
+    briefRow.appendChild(briefLine);
+    briefRow.appendChild(briefBody);
+    briefRow.onclick = async (ev) => {
+      ev.stopPropagation();
+      if (briefBody.classList.contains("hidden")) {
+        if (!briefBody.textContent) {
+          const name = ch.channel.replace(/^#/, "");
+          try {
+            const data = await api(`/api/channels/${encodeURIComponent(name)}/brief`);
+            briefBody.textContent = data.text || ch.brief_preview;
+          } catch (_) {
+            briefBody.textContent = ch.brief_preview;
+          }
+        }
+        briefBody.classList.remove("hidden");
+        briefToggle.textContent = "▾ Living brief";
+      } else {
+        briefBody.classList.add("hidden");
+        briefToggle.textContent = "▸ Living brief";
+      }
+    };
+    card.appendChild(briefRow);
+  }
+
   // Member chips — each shows nick + role badge + state dot.
   if (ch.members && ch.members.length) {
     // members is now a list of objects {nick, role, is_boss, state};
@@ -411,6 +469,11 @@ function renderChannelCard(ch) {
       const chip = el("span", "member-chip");
       const dot = el("span", `member-dot member-dot-${memberObj.state || "unknown"}`);
       chip.appendChild(dot);
+      if (memberObj.health && memberObj.health !== "green") {
+        const hDot = el("span", `health-dot health-${memberObj.health}`);
+        hDot.title = memberObj.health === "red" ? "Watcher: crash/death alert" : "Watcher: stalled pattern";
+        chip.appendChild(hDot);
+      }
       const nickEl = el("span", "member-nick", memberObj.nick);
       if (memberObj.is_boss) nickEl.classList.add("is-boss");
       chip.appendChild(nickEl);
@@ -418,8 +481,11 @@ function renderChannelCard(ch) {
         const rb = el("span", "role-badge", memberObj.role);
         chip.appendChild(rb);
       }
-      // v8.19.21: per-agent token badge. Hidden at 0 so the chip stays
-      // clean for backends that don't expose usage yet.
+      if (memberObj.pending && memberObj.pending > 0) {
+        const pendBadge = el("span", "member-pending-badge", memberObj.pending);
+        pendBadge.title = memberObj.pending + " pending approval(s)";
+        chip.appendChild(pendBadge);
+      }
       if (memberObj.tokens_used && memberObj.tokens_used > 0) {
         const tb = el("span", "token-badge", formatTokens(memberObj.tokens_used));
         const ti = memberObj.tokens_in || 0;

@@ -162,6 +162,69 @@ def _pending_counts() -> dict[str, int]:
     return counts
 
 
+def _daemon_log_timestamps(nick: str) -> tuple[str, str]:
+    """Return (started_at, last_activity) ISO timestamps from the daemon log.
+
+    started_at = ts of the most recent agent_start entry.
+    last_activity = ts of the most recent entry of any kind.
+    """
+    path = daemon_log_path_for(nick)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            content = handle.read()
+    except OSError:
+        return ("", "")
+    started_at = ""
+    last_activity = ""
+    for line in content.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        ts = rec.get("ts", "")
+        if ts:
+            last_activity = ts
+        if rec.get("action") == "agent_start" and ts:
+            started_at = ts
+    return (started_at, last_activity)
+
+
+def _watcher_health(nick: str) -> str:
+    """Derive a health status from watcher alerts.
+
+    green = no alerts, yellow = stalled patterns, red = crash/death patterns.
+    empty string if watcher-state.json is missing.
+    """
+    path = os.path.join(culture_home(), "watcher-state.json")
+    if not os.path.exists(path):
+        return ""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return ""
+    firings = data.get("firings", {}) if isinstance(data, dict) else {}
+    alerts = []
+    for key in firings:
+        parts = key.split(":", 1)
+        if len(parts) == 2 and parts[1] == nick:
+            alerts.append(parts[0])
+    if not alerts:
+        return "green"
+    red_patterns = {
+        "crash_burst",
+        "silent_death",
+        "stalled_in_retry_loop",
+        "stalled_in_failed_retry",
+    }
+    if any(a in red_patterns for a in alerts):
+        return "red"
+    return "yellow"
+
+
 def _last_action(nick: str) -> str:
     """Most recent daemon-action for an agent (empty if none).
 
@@ -484,6 +547,25 @@ def _seed_preview(channel: str, max_chars: int = 80) -> str:
     return first[: max_chars - 1] + "…" if len(first) > max_chars else first
 
 
+def _brief_preview(channel: str, max_chars: int = 120) -> str:
+    """Return the first 1-2 sentences of a channel's living brief (v8.19.28).
+
+    Empty when the channel has no brief file.
+    """
+    from culture.clients._channel_brief import has_brief, load_brief
+
+    if not has_brief(channel):
+        return ""
+    text = load_brief(channel)
+    if not text:
+        return ""
+    first_line = next(
+        (ln.strip() for ln in text.splitlines() if ln.strip() and not ln.strip().startswith("#")),
+        "",
+    )
+    return first_line[: max_chars - 1] + "…" if len(first_line) > max_chars else first_line
+
+
 def list_tasks(config_path=None):
     """Build a task-grouped channel listing (v8.19.11 — per user request).
 
@@ -531,11 +613,18 @@ def list_tasks(config_path=None):
             _token_cache[nick] = sum_tokens(nick)
         return _token_cache[nick]
 
+    pending = _pending_counts()
+
+    _ts_cache: dict[str, tuple[str, str]] = {}
+
+    def _timestamps_of(nick: str) -> tuple[str, str]:
+        if nick not in _ts_cache:
+            _ts_cache[nick] = _daemon_log_timestamps(nick)
+        return _ts_cache[nick]
+
     def _member(agent):
-        # tokens_used: cumulative input + output across this agent's
-        # lifetime. 0 if the backend (codex / copilot) doesn't expose
-        # usage counts yet.
         toks = _tokens_of(agent.nick)
+        started_at, last_activity = _timestamps_of(agent.nick)
         return {
             "nick": agent.nick,
             "role": getattr(agent, "role", "") or "",
@@ -544,6 +633,10 @@ def list_tasks(config_path=None):
             "tokens_used": toks["total"],
             "tokens_in": toks["in"],
             "tokens_out": toks["out"],
+            "started_at": started_at,
+            "last_activity": last_activity,
+            "pending": pending.get(agent.nick, 0),
+            "health": _watcher_health(agent.nick),
         }
 
     def _channel_token_total(members: list[dict]) -> int:
@@ -586,6 +679,7 @@ def list_tasks(config_path=None):
                     "members": ch_members,
                     "seed_preview": _seed_preview(ch),
                     "tokens_total": _channel_token_total(ch_members),
+                    "brief_preview": _brief_preview(ch),
                 }
             )
         # Per-worker #task-<worker> rooms — labeled WORKER (v8.19.22) to
@@ -604,6 +698,7 @@ def list_tasks(config_path=None):
                     "members": members,
                     "seed_preview": _seed_preview(wch),
                     "tokens_total": _channel_token_total(members),
+                    "brief_preview": _brief_preview(wch),
                 }
             )
 
@@ -634,6 +729,24 @@ def list_tasks(config_path=None):
                 if nick and nick not in unique_nicks:
                     unique_nicks.add(nick)
                     channel_total_tokens += int(m.get("tokens_used", 0) or 0)
+        all_members_flat = [m for c in channels for m in c["members"] if isinstance(m, dict)]
+        task_started = ""
+        task_last_activity = ""
+        task_pending = 0
+        task_health = "green"
+        for m in all_members_flat:
+            sa = m.get("started_at", "")
+            la = m.get("last_activity", "")
+            if sa and (not task_started or sa < task_started):
+                task_started = sa
+            if la and (not task_last_activity or la > task_last_activity):
+                task_last_activity = la
+            task_pending += int(m.get("pending", 0) or 0)
+            mh = m.get("health", "")
+            if mh == "red":
+                task_health = "red"
+            elif mh == "yellow" and task_health != "red":
+                task_health = "yellow"
         tasks.append(
             {
                 "boss": boss.nick,
@@ -642,6 +755,10 @@ def list_tasks(config_path=None):
                 "channels": channels,
                 "worker_count": len(workers),
                 "tokens_total": channel_total_tokens,
+                "started_at": task_started,
+                "last_activity": task_last_activity,
+                "pending_total": task_pending,
+                "health": task_health,
             }
         )
 
@@ -664,6 +781,7 @@ def list_tasks(config_path=None):
                     "members": ch_members,
                     "seed_preview": _seed_preview(wch),
                     "tokens_total": _channel_token_total(ch_members),
+                    "brief_preview": _brief_preview(wch),
                 }
             )
         unique_nicks = set()
