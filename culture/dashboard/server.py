@@ -25,6 +25,7 @@ import sys
 import yaml
 from aiohttp import web
 
+from culture import __version__ as _CULTURE_VERSION
 from culture.cli.shared.ipc import agent_socket_path, get_observer, ipc_request
 from culture.cli.shared.process import is_process_alive
 from culture.clients._audit import audit_path_for
@@ -47,6 +48,11 @@ from culture.pidfile import read_pid
 logger = logging.getLogger(__name__)
 
 _STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+# v8.19.16: cache-bust query string applied to static asset URLs in
+# index.html. Bumping pyproject.toml's version invalidates the browser
+# cache automatically — no manual hard-refresh needed for a hotfix to
+# land on a tab that's already open.
+_ASSET_BUSTER = f"?v={_CULTURE_VERSION}"
 _SSE_POLL_SECONDS = 0.25
 _SSE_BACKLOG_LINES = 200
 _KEEPALIVE_SECONDS = 15
@@ -393,6 +399,7 @@ def list_channels(config_path=None):
     # Sort each channel's members: boss first, then by nick.
     for ch in seen.values():
         ch["members"].sort(key=lambda m: (not m["is_boss"], m["nick"]))
+
     # Filter: a `#task-<x>` channel whose ONLY members are stopped
     # workers is stale clutter (the worker was closed but its yaml
     # still names the channel). Hide from the active Channels tab —
@@ -403,11 +410,7 @@ def list_channels(config_path=None):
     def _has_active_member(ch_entry):
         return any(m["state"] == "running" for m in ch_entry["members"])
 
-    filtered = [
-        ch
-        for ch in seen.values()
-        if ch["category"] != "task" or _has_active_member(ch)
-    ]
+    filtered = [ch for ch in seen.values() if ch["category"] != "task" or _has_active_member(ch)]
     # Sort channels: joint coordination first (cross-team focus), then
     # task channels, then shared, then boss, then other.
     category_order = {"joint": 0, "task": 1, "shared": 2, "boss": 3, "other": 4}
@@ -520,24 +523,27 @@ def list_tasks(config_path=None):
         boss_chs = [c for c in (getattr(boss, "channels", []) or []) if isinstance(c, str)]
         for ch in boss_chs:
             cat = _classify_channel(ch)
-            channels.append({
-                "channel": ch,
-                "category": cat,
-                "members": [_member(boss)] + [
-                    _member(w) for w in workers if ch in (getattr(w, "channels", []) or [])
-                ],
-            })
+            channels.append(
+                {
+                    "channel": ch,
+                    "category": cat,
+                    "members": [_member(boss)]
+                    + [_member(w) for w in workers if ch in (getattr(w, "channels", []) or [])],
+                }
+            )
         # Per-worker #task-<worker> channels.
         for worker in workers:
             wch = f"#task-{worker.nick.split('-', 1)[1] if '-' in worker.nick else worker.nick}"
             if any(c["channel"] == wch for c in channels):
                 continue  # already included via boss's channel list
             members = [_member(boss), _member(worker)]
-            channels.append({
-                "channel": wch,
-                "category": "task",
-                "members": members,
-            })
+            channels.append(
+                {
+                    "channel": wch,
+                    "category": "task",
+                    "members": members,
+                }
+            )
 
         # Stable order: #boss first, then #joint-*, then #task-* (alphabetical).
         def _ch_sort_key(c):
@@ -547,13 +553,15 @@ def list_tasks(config_path=None):
 
         channels.sort(key=_ch_sort_key)
 
-        tasks.append({
-            "boss": boss.nick,
-            "title": title,
-            "state": _agent_state(boss.nick),
-            "channels": channels,
-            "worker_count": len(workers),
-        })
+        tasks.append(
+            {
+                "boss": boss.nick,
+                "title": title,
+                "state": _agent_state(boss.nick),
+                "channels": channels,
+                "worker_count": len(workers),
+            }
+        )
 
     # Orphan workers: bosses that have workers but no boss agent in the
     # manifest. Group them under a synthetic "no boss" task so they don't
@@ -566,18 +574,22 @@ def list_tasks(config_path=None):
         channels = []
         for w in orphan_workers:
             wch = f"#task-{w.nick.split('-', 1)[1] if '-' in w.nick else w.nick}"
-            channels.append({
-                "channel": wch,
-                "category": "task",
-                "members": [_member(w)],
-            })
-        tasks.append({
-            "boss": "",
-            "title": "Unassigned workers",
-            "state": "stopped",
-            "channels": channels,
-            "worker_count": len(orphan_workers),
-        })
+            channels.append(
+                {
+                    "channel": wch,
+                    "category": "task",
+                    "members": [_member(w)],
+                }
+            )
+        tasks.append(
+            {
+                "boss": "",
+                "title": "Unassigned workers",
+                "state": "stopped",
+                "channels": channels,
+                "worker_count": len(orphan_workers),
+            }
+        )
 
     # Sort tasks: running bosses first, then by name.
     tasks.sort(key=lambda t: (t["state"] != "running", t["boss"]))
@@ -591,7 +603,29 @@ def list_tasks(config_path=None):
 
 
 async def _handle_index(request: web.Request) -> web.StreamResponse:
-    return web.FileResponse(os.path.join(_STATIC_DIR, "index.html"))
+    # v8.19.16: render index.html with version-stamped asset URLs and
+    # no-cache headers. Without this, a browser tab that was open
+    # before a dashboard hotfix sits on the stale app.js until the
+    # user hard-refreshes — which is exactly the trap the v8.19.14 /
+    # v8.19.15 flicker fix kept tripping over.
+    try:
+        with open(os.path.join(_STATIC_DIR, "index.html"), "r", encoding="utf-8") as fh:
+            body = fh.read()
+    except OSError as exc:
+        logger.error("index.html unreadable: %s", exc)
+        return web.Response(status=500, text="index.html unreadable")
+    body = body.replace("/static/app.js", f"/static/app.js{_ASSET_BUSTER}")
+    body = body.replace("/static/style.css", f"/static/style.css{_ASSET_BUSTER}")
+    return web.Response(
+        body=body,
+        content_type="text/html",
+        charset="utf-8",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 async def _handle_agents(request: web.Request) -> web.Response:

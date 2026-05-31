@@ -4,6 +4,35 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [8.19.16] - 2026-05-31
+
+### Fixed
+
+- **Dashboard flicker that v8.19.15 "fixed" was still reported by the
+  user after they refreshed — root cause was browser cache.**
+  v8.19.14 and v8.19.15 both touched `culture/dashboard/static/app.js`
+  but the served URL is the unversioned `/static/app.js`. A tab opened
+  before the fix landed sits on the stale bundle indefinitely. The
+  user kept seeing the OLD code's flicker even though I'd
+  live-verified the new code works (zero DOM mutations in 8s).
+- **Fix: cache-bust + no-cache on index.html.** `_handle_index` now
+  reads `index.html`, rewrites `/static/app.js` → `/static/app.js?v=<version>`
+  and the same for `style.css`, and serves with
+  `Cache-Control: no-cache, no-store, must-revalidate` + `Pragma: no-cache`
+  + `Expires: 0`. So:
+  - The HTML shell is never cached — every page load asks the server.
+  - Static assets ARE cached per-URL (cheap on CDN-style fetches),
+    but each `pyproject.toml` version bump changes the URL →
+    automatic invalidation. No more "hard-refresh to pick up a
+    hotfix."
+- Version sourced from `culture.__version__` (`importlib.metadata`),
+  so the buster updates automatically on every release.
+- Live-verified end-to-end: restarted dashboard, fresh browser session
+  loaded `app.js?v=8.19.16` + `style.css?v=8.19.16`, MutationObserver
+  recorded **0 mutations in 10 seconds** across `#channel-list`,
+  `#agent-list`, `#pending-list`, `#stream`.
+- 45/45 dashboard tests pass.
+
 ## [8.19.15] - 2026-05-31
 
 ### Fixed
