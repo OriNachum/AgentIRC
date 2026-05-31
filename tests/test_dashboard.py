@@ -291,6 +291,35 @@ class TestChat:
         assert resp.status == 400
 
 
+class TestSeed:
+    """v8.19.18 — /api/channels/{name}/seed endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_seed_missing_returns_404(self, client):
+        resp = await client.get("/api/channels/never-seeded/seed")
+        assert resp.status == 404
+        data = await resp.json()
+        assert data["channel"] == "#never-seeded"
+        assert data["text"] == ""
+
+    @pytest.mark.asyncio
+    async def test_seed_existing_returns_text(self, client, home, monkeypatch):
+        from culture.clients import _perm_broker, _seed
+
+        monkeypatch.setattr(_perm_broker, "culture_home", lambda: str(home))
+        _seed.persist_seed("#task-seeded", "Build feature Y end-to-end")
+        resp = await client.get("/api/channels/task-seeded/seed")
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["channel"] == "#task-seeded"
+        assert data["text"] == "Build feature Y end-to-end"
+
+    @pytest.mark.asyncio
+    async def test_seed_invalid_channel_name_400(self, client):
+        resp = await client.get("/api/channels/bad..name/seed")
+        assert resp.status == 400
+
+
 class TestStream:
     @pytest.mark.asyncio
     async def test_audit_stream_emits_backlog(self, client, home):

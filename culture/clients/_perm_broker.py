@@ -187,6 +187,25 @@ def mission_path_for(nick: str) -> str:
     return os.path.join(culture_home(), "mission", f"{nick}.md")
 
 
+def seed_path_for(channel: str) -> str:
+    """Return the seed-text path for a task channel (v8.19.18).
+
+    The seed is the initial brief text the boss sent when opening a
+    task channel — surfaced in the dashboard as a collapsible "Seed
+    brief" header so the operator can see the original mission without
+    scrolling all the way back. Written once on first brief (or via
+    ``culture boss spawn --topic``) and never overwritten thereafter.
+
+    ``channel`` may carry a leading ``#``; it's stripped. The remaining
+    string is validated as a safe filename token (alnum / underscore /
+    hyphen only) to keep the path inside ``~/.culture/seeds/``.
+    """
+    name = channel.lstrip("#")
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", name):
+        raise ValueError(f"invalid channel name for seed path: {channel!r}")
+    return os.path.join(culture_home(), "seeds", f"{name}.md")
+
+
 def _handoff_auto_allow_rule(nick: str) -> dict[str, Any]:
     """Auto-allow rule letting a helper write its own context-handoff file.
 
