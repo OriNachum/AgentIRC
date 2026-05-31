@@ -584,3 +584,137 @@ class TestRecordWorkerBossChannels:
         assert "#joint-fixes" in entry["channels"]
         assert "#team" in entry["channels"]
         assert "#task-alpha" in entry["channels"]
+
+
+class TestLaunchRoster:
+    """Pure-function tests for the launch worker-roster resolution."""
+
+    def test_explicit_names_used_as_given(self):
+        from culture.cli.boss import _resolve_worker_roster
+
+        assert _resolve_worker_roster("t", 0, ["alpha", "beta"]) == ["alpha", "beta"]
+
+    def test_workers_count_autonames(self):
+        from culture.cli.boss import _resolve_worker_roster
+
+        assert _resolve_worker_roster("feat", 3, None) == ["feat-1", "feat-2", "feat-3"]
+
+    def test_names_then_topped_up_by_count(self):
+        from culture.cli.boss import _resolve_worker_roster
+
+        # 1 explicit name + workers=3 → top up with 2 auto-named workers.
+        assert _resolve_worker_roster("x", 3, ["lead"]) == ["lead", "x-1", "x-2"]
+
+    def test_dedup_preserves_order(self):
+        from culture.cli.boss import _resolve_worker_roster
+
+        assert _resolve_worker_roster("x", 0, ["a", "b", "a"]) == ["a", "b"]
+
+    def test_no_flags_empty_roster(self):
+        from culture.cli.boss import _resolve_worker_roster
+
+        assert _resolve_worker_roster("x", 0, None) == []
+
+    def test_invalid_worker_name_rejected(self):
+        from culture.cli.boss import _resolve_worker_roster
+
+        with pytest.raises(SystemExit):
+            _resolve_worker_roster("x", 0, ["../evil"])
+
+
+class TestLaunch:
+    """`culture boss launch` — one-shot task bootstrap.
+
+    The happy path and guards are exercised IN-PROCESS with `_boss_irc`
+    monkeypatched to a no-op, because the IRC socket is NOT isolated by
+    CULTURE_HOME — a subprocess launch would hit the real boss daemon and
+    mutate the live mesh. Validation/argparse paths that exit BEFORE any
+    IRC op are checked via subprocess for end-to-end coverage.
+    """
+
+    def _args(self, name, purpose, **kw):
+        import argparse
+
+        return argparse.Namespace(
+            boss_command="launch",
+            name=name,
+            purpose=purpose,
+            workers=kw.get("workers", 0),
+            worker_name=kw.get("worker_name"),
+            cwd=kw.get("cwd"),
+            role=kw.get("role", ""),
+            config="server.yaml",
+        )
+
+    def test_writes_seed_and_living_brief(self, home, monkeypatch):
+        monkeypatch.setenv("CULTURE_HOME", str(home))
+        monkeypatch.setenv("CULTURE_NICK", "local-boss")
+        import culture.cli.boss as boss
+
+        monkeypatch.setattr(boss, "_boss_irc", lambda *a, **k: {"ok": True})
+        boss._cmd_launch(self._args("myteam", "Build the widget pipeline"))
+
+        from culture.clients._channel_brief import load_brief
+        from culture.clients._seed import load_seed
+
+        seed = load_seed("#task-myteam")
+        assert seed is not None and "widget pipeline" in seed["text"]
+        brief = load_brief("#task-myteam")
+        assert "Build the widget pipeline" in brief
+        assert "launch" in brief
+
+    def test_collision_seed_exists_refused_before_irc(self, home, monkeypatch):
+        monkeypatch.setenv("CULTURE_HOME", str(home))
+        monkeypatch.setenv("CULTURE_NICK", "local-boss")
+        import culture.cli.boss as boss
+
+        calls = {"irc": 0}
+
+        def _fake(*a, **k):
+            calls["irc"] += 1
+            return {"ok": True}
+
+        monkeypatch.setattr(boss, "_boss_irc", _fake)
+        from culture.clients._seed import persist_seed
+
+        persist_seed("#task-dup", "original mission")
+        with pytest.raises(SystemExit) as ei:
+            boss._cmd_launch(self._args("dup", "a different mission"))
+        assert ei.value.code == 1
+        # Guard must fire before any IRC op so we don't half-open a channel.
+        assert calls["irc"] == 0
+
+    def test_collision_brief_exists_refused(self, home, monkeypatch):
+        monkeypatch.setenv("CULTURE_HOME", str(home))
+        monkeypatch.setenv("CULTURE_NICK", "local-boss")
+        import culture.cli.boss as boss
+
+        monkeypatch.setattr(boss, "_boss_irc", lambda *a, **k: {"ok": True})
+        from culture.clients._channel_brief import persist_section
+
+        persist_section("#task-bz", "note", "some prior decision")
+        with pytest.raises(SystemExit) as ei:
+            boss._cmd_launch(self._args("bz", "new mission"))
+        assert ei.value.code == 1
+
+    def test_empty_purpose_refused(self, home, monkeypatch):
+        monkeypatch.setenv("CULTURE_HOME", str(home))
+        monkeypatch.setenv("CULTURE_NICK", "local-boss")
+        import culture.cli.boss as boss
+
+        monkeypatch.setattr(boss, "_boss_irc", lambda *a, **k: {"ok": True})
+        with pytest.raises(SystemExit) as ei:
+            boss._cmd_launch(self._args("x", "   "))
+        assert ei.value.code == 1
+
+    def test_missing_purpose_arg_cli(self, home):
+        # argparse usage error — exits before dispatch, never touches IRC.
+        res = _run(["launch", "onlyname"], home)
+        assert res.returncode == 2, (res.returncode, res.stderr)
+        assert "purpose" in res.stderr
+
+    def test_invalid_name_rejected_cli(self, home):
+        # Name validated first thing in the handler → exits before any IRC op.
+        res = _run(["launch", "../evil", "do it"], home)
+        assert res.returncode == 1, (res.returncode, res.stderr)
+        assert "invalid worker name" in res.stderr

@@ -4,6 +4,38 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [8.19.31] - 2026-06-01
+
+### Added — `culture boss launch` one-shot task bootstrap
+
+Starting a boss-managed task used to take 4+ commands: pick a channel
+name, `culture boss spawn` each worker, `culture boss brief` each, and
+optionally seed a brief by hand. `culture boss launch` collapses the
+bootstrap into one verb:
+
+```text
+culture boss launch <name> "<purpose>" [--workers N]
+    [--worker-name <suffix> ...] [--cwd PATH] [--role ROLE]
+```
+
+It opens the channel `#task-<name>`, sets the IRC topic, writes BOTH the
+write-once seed (the immutable original mission) and the living channel
+brief (the evolving onboarding doc) from `<purpose>`, then spawns the
+requested workers — each joined into the shared task channel — by
+**calling the existing `culture boss spawn` handler** (no spawn/brief
+logic is duplicated). Explicit `--worker-name`s are used as given;
+`--workers N` tops the roster up with auto-named `<name>-1..N`.
+
+Naming note: the obvious verb `init` was already taken — `culture boss
+init` creates the *boss's own identity*. `launch` bootstraps a *task*
+under an already-running boss, a distinct concept, so it ships under its
+own verb rather than overloading `init`.
+
+Addresses docs/v8.19.22-orchestrator-friction.md item 5 (the task-side
+"I am the orchestrator" entry-point). Item 6 (seed vs. living brief) is
+intentionally NOT merged — launch writes both, keeping the v8.19.24
+two-file decision (seed = original mission, brief = running state).
+
 ## [8.19.25] - 2026-05-31
 
 ### Fixed — SDK inactivity hangs the agent runner

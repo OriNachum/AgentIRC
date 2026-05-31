@@ -43,7 +43,7 @@ from .shared.ipc import agent_socket_path, get_observer, ipc_request
 
 NAME = "boss"
 
-_ALL_CMDS = "init|spawn|brief|read|pending|approve|deny|audit|log|status|close|cleanup"
+_ALL_CMDS = "init|launch|spawn|brief|note|read|pending|approve|deny|audit|log|status|close|cleanup"
 
 _MANAGER_PROMPT = """\
 You are {nick}, a manager agent on the culture mesh. A human briefs you in your
@@ -118,6 +118,45 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     )
     spawn_p.add_argument("--config", default=DEFAULT_CONFIG)
 
+    launch_p = sub.add_parser(
+        "launch",
+        help="One-shot task bootstrap: open #task-<name>, seed its living "
+        "brief, and optionally spawn a team of workers into it",
+    )
+    launch_p.add_argument("name", help="Task name (becomes the channel #task-<name>)")
+    launch_p.add_argument(
+        "purpose",
+        help="Task purpose/mission — seeds the channel topic + living brief",
+    )
+    launch_p.add_argument(
+        "--workers",
+        type=int,
+        default=0,
+        help="Number of workers to spawn. Any beyond explicit --worker-name "
+        "are auto-named <name>-1, <name>-2, …. Default 0 (channel + brief only).",
+    )
+    launch_p.add_argument(
+        "--worker-name",
+        action="append",
+        dest="worker_name",
+        default=None,
+        metavar="SUFFIX",
+        help="Explicit worker suffix (repeatable). --workers tops the roster up "
+        "with auto-named workers if it asks for more than were named.",
+    )
+    launch_p.add_argument(
+        "--cwd",
+        default=None,
+        help="Base working dir; each worker gets its own <cwd>/<suffix> subdir. "
+        "Default: ~/.culture/helpers/<suffix> (one per worker).",
+    )
+    launch_p.add_argument(
+        "--role",
+        default="",
+        help="Role tag applied to every spawned worker (free-text). Optional.",
+    )
+    launch_p.add_argument("--config", default=DEFAULT_CONFIG)
+
     brief_p = sub.add_parser("brief", help="Send a task to a worker's channel")
     brief_p.add_argument("name", help="Worker suffix")
     brief_p.add_argument("task", help="Task text")
@@ -173,6 +212,7 @@ def dispatch(args: argparse.Namespace) -> None:
         sys.exit(1)
     handlers = {
         "init": _cmd_init,
+        "launch": _cmd_launch,
         "spawn": _cmd_spawn,
         "brief": _cmd_brief,
         "note": _cmd_note,
@@ -607,6 +647,161 @@ def _cmd_status(args: argparse.Namespace) -> None:
     reqs = list_pending()
     if reqs:
         print(f"\n{len(reqs)} pending permission request(s) — run: culture boss pending")
+
+
+def _resolve_worker_roster(name: str, workers: int, worker_names: list[str] | None) -> list[str]:
+    """Final, order-preserving, de-duplicated worker suffix list for a launch.
+
+    Explicit ``--worker-name`` suffixes come first (validated by the caller);
+    if ``--workers N`` asks for more than were named, the remainder are
+    auto-named ``<name>-1``, ``<name>-2``, … to fill the count. Each generated
+    suffix is validated the same way as an explicit one. With neither flag the
+    list is empty (channel + brief only — no team).
+    """
+    roster: list[str] = []
+    for wn in worker_names or []:
+        roster.append(_require_worker_suffix(wn))
+    idx = 1
+    while len(roster) < max(workers, 0):
+        roster.append(_require_worker_suffix(f"{name}-{idx}"))
+        idx += 1
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for w in roster:
+        if w not in seen:
+            seen.add(w)
+            deduped.append(w)
+    return deduped
+
+
+def _cmd_launch(args: argparse.Namespace) -> None:
+    """One-shot task bootstrap — open a task channel, seed it, spawn a team.
+
+    Surface::
+
+        culture boss launch <name> "<purpose>" [--workers N]
+            [--worker-name <suffix> ...] [--cwd PATH] [--role ROLE]
+
+    NOTE ON THE NAME: the obvious verb ``init`` is already taken — ``culture
+    boss init`` creates the *boss's own identity* (its culture.yaml + grant
+    ceiling + skill). This verb bootstraps a *task* under an already-running
+    boss, a different concept, so it ships as ``launch`` to avoid overloading
+    one verb with two unrelated jobs (and breaking the existing ``init``
+    tests).
+
+    What it does, in order:
+      1. Validates ``<name>`` (it becomes the channel ``#task-<name>``) and
+         every ``--worker-name`` suffix against the path-safe suffix regex,
+         BEFORE touching IRC or writing any file.
+      2. Refuses if the channel was already launched — a seed OR a living
+         brief already exists. This single guard is both the "brief/seed
+         already exists" check and the channel-name-collision check:
+         re-launching would clobber the original mission, so the caller is
+         pointed at ``culture boss brief`` / ``culture boss note`` to update
+         an existing channel instead.
+      3. Joins ``#task-<name>`` as the boss and sets the IRC TOPIC to the
+         purpose (best-effort — if the boss daemon is unreachable it warns
+         with the fix command but still writes the durable brief files).
+      4. Writes BOTH the write-once seed (``culture.clients._seed``, the
+         immutable original mission) AND opens the living channel brief
+         (``culture.clients._channel_brief``) with the purpose as its first
+         section — so a worker joining the room is onboarded from the brief.
+      5. For each worker, CALLS the existing ``culture boss spawn`` handler
+         (no spawn logic is duplicated here) with ``--channels #task-<name>``
+         so every worker joins the shared task room.
+      6. Prints a summary of the channel, what was seeded, and the workers.
+
+    Relationship to docs/v8.19.22-orchestrator-friction.md:
+      * Item 5 ("no 'I am the orchestrator' entry-point"): launch is the
+        TASK-side bootstrap — it collapses pick-channel + seed + open-brief +
+        spawn-each into one verb. The boss-DAEMON/server-readiness half of
+        item 5 stays with ``culture boss init`` + ``culture agent start``.
+      * Item 6 ("does the brief replace the seed?"): launch does NOT merge
+        them — it writes both, adopting the v8.19.24 two-file decision (seed =
+        immutable original mission, living brief = evolving onboarding doc)
+        rather than reopening that design question.
+    """
+    boss = _boss_nick()
+    name = _require_worker_suffix(args.name)
+    purpose = (args.purpose or "").strip()
+    if not purpose:
+        print("Error: <purpose> must be a non-empty task description", file=sys.stderr)
+        sys.exit(1)
+    channel = _task_channel(name)
+
+    from culture.clients._channel_brief import has_brief, persist_section
+    from culture.clients._seed import load_seed, persist_seed
+
+    # Collision / already-initialized guard (covers both "seed exists" and
+    # "channel name collision"): a launched channel owns an original mission;
+    # re-launching would overwrite it. Update an existing channel instead.
+    if load_seed(channel) is not None or has_brief(channel):
+        print(
+            f"Error: {channel} is already initialized (a seed or living brief "
+            f"already exists). To add to it use:\n"
+            f'    culture boss brief {name} "..."      # task a worker + append to the brief\n'
+            f'    culture boss note {channel} "..."    # append a note to the living brief',
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # Resolve the roster up-front so an invalid suffix fails before any writes.
+    roster = _resolve_worker_roster(name, args.workers, getattr(args, "worker_name", None))
+
+    # Open the channel (best-effort; the seed/brief below are the durable
+    # artifacts and are written regardless of daemon reachability).
+    irc_topic = " ".join(purpose.split())
+    if len(irc_topic) > 200:
+        irc_topic = irc_topic[:197] + "..."
+    try:
+        joined = _boss_irc("irc_join", channel=channel)
+    except Exception:  # noqa: BLE001 — daemon unreachable; still write the brief
+        joined = None
+    if joined is None:
+        print(
+            f"warning: could not join {channel} over IPC — is the boss daemon "
+            f"({boss}) running? Start it with `culture agent start {boss}`. "
+            "The seed + living brief were still written.",
+            file=sys.stderr,
+        )
+    else:
+        try:
+            _boss_irc("irc_topic", channel=channel, topic=irc_topic)
+        except Exception:  # noqa: BLE001 — topic is cosmetic; brief is durable
+            pass
+
+    # Seed (write-once original mission) + living brief (onboarding doc).
+    persist_seed(channel, purpose)
+    persist_section(channel, "launch", purpose)
+
+    # Spawn the team by CALLING the existing spawn handler — no duplication.
+    spawned: list[str] = []
+    for suffix in roster:
+        worker_cwd = os.path.join(args.cwd, suffix) if args.cwd else None
+        spawn_args = argparse.Namespace(
+            boss_command="spawn",
+            name=suffix,
+            cwd=worker_cwd,
+            server=None,
+            model="",
+            channels=channel,
+            role=getattr(args, "role", ""),
+            topic="",
+            config=getattr(args, "config", DEFAULT_CONFIG),
+        )
+        _cmd_spawn(spawn_args)
+        spawned.append(f"{_server_of(boss)}-{suffix}")
+
+    # Summary.
+    print(f"launched {channel} — topic set, seed + living brief written")
+    if spawned:
+        print(f"  workers ({len(spawned)}): {', '.join(spawned)} — joined {channel}")
+    else:
+        print("  no workers spawned (channel + brief only)")
+    print(
+        f'  next: brief the team — `culture boss brief <worker> "..."` — '
+        f"or post directly in {channel}"
+    )
 
 
 def _cmd_spawn(args: argparse.Namespace) -> None:

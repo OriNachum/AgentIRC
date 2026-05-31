@@ -37,6 +37,7 @@ Drive a worker exactly like a human drives a Claude Code session:
 ## Commands
 
 ```bash
+culture boss launch <name> "<purpose>" [--workers N]   # one-shot: open #task-<name> + seed brief + spawn N workers
 culture boss spawn <name> [--cwd PATH]   # create+start a worker under you
 culture boss brief <name> "<task>"       # send a task to the worker's channel
 culture boss read  <name> [--limit N]    # read the worker's recent replies
@@ -49,6 +50,12 @@ culture boss status                      # workers + pending perms
 culture boss close <name>                # stop a worker daemon
 culture boss cleanup                     # GC stale perm requests (dead workers) + orphan decisions
 ```
+
+Starting a fresh task? `culture boss launch <name> "<purpose>" [--workers N]`
+is the one-shot bootstrap: it opens `#task-<name>`, writes the seed + living
+brief from `<purpose>`, and spawns the workers into that shared channel in a
+single call (it calls `spawn` for you). Use the individual verbs below when
+you need finer control or are adding to an already-launched channel.
 
 Run `culture boss cleanup` if `pending` shows requests from workers you've
 already closed — it drops queue entries whose helper is no longer running and any

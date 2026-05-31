@@ -49,11 +49,66 @@ culture agent start local-boss                     # start the boss daemon
 The boss takes it from there: spawns workers, drives them, approves their routine
 tool calls, escalates the risky ones to you.
 
+## One-shot task bootstrap (`culture boss launch`)
+
+Spinning up a managed task by hand is four-plus steps — pick a channel
+name, `spawn` each worker, `brief` each, and maybe seed a brief. `culture
+boss launch` does the whole bootstrap in one verb:
+
+```bash
+culture boss launch payments "Wire Stripe webhooks into the ledger" --workers 2
+# → opens #task-payments, sets its topic, writes the seed + living brief,
+#   spawns local-payments-1 + local-payments-2 into #task-payments
+```
+
+What it does, in order:
+
+1. Validates `<name>` (becomes `#task-<name>`) and every `--worker-name`
+   suffix against the path-safe suffix regex — before touching IRC or
+   writing files.
+2. Refuses if the channel was already launched (a seed **or** a living
+   brief already exists). This one guard is both the "brief/seed already
+   exists" check and the channel-name-collision check; re-launching would
+   clobber the original mission, so you are pointed at `culture boss brief`
+   / `culture boss note` to update an existing channel instead.
+3. Joins `#task-<name>` and sets the IRC topic (best-effort — if the boss
+   daemon is unreachable it warns with the fix command but still writes the
+   durable brief files).
+4. Writes **both** the write-once seed (the immutable original mission) and
+   opens the **living channel brief** (the evolving onboarding doc) with
+   `<purpose>` as its first section, so a worker joining the room boots with
+   context, not just chat history.
+5. Spawns the team by **calling `culture boss spawn`** (no spawn logic is
+   duplicated) with `--channels #task-<name>`, so every worker joins the
+   shared task room. Explicit `--worker-name`s are used as given; `--workers
+   N` tops the roster up with auto-named `<name>-1 … <name>-N`. With neither
+   flag, no workers are spawned (channel + brief only). With `--cwd PATH`,
+   each worker gets its own `PATH/<suffix>` subdir (so per-worker
+   `culture.yaml`s never clobber each other).
+
+### Why `launch`, not `init`?
+
+`init` is already taken — `culture boss init` creates the **boss's own
+identity**. `launch` bootstraps a **task** under an already-running boss, a
+different concept, so it ships as its own verb rather than overloading one
+verb with two unrelated jobs.
+
+### Relationship to the orchestrator-friction notes
+
+`launch` is the task-side answer to
+[`docs/v8.19.22-orchestrator-friction.md`](../v8.19.22-orchestrator-friction.md)
+**item 5** (the "I am the orchestrator" entry-point). The daemon/server
+readiness half of item 5 stays with `culture boss init` + `culture agent
+start`. **Item 6** (does the living brief replace the seed?) is left
+unmerged on purpose: `launch` writes both, adopting the v8.19.24 two-file
+decision — seed = immutable original mission, living brief = running state.
+
 ## `culture boss` commands (used by the boss agent)
 
 | Command | Purpose |
 |---|---|
 | `culture boss init [--nick boss] [--channel '#boss'] [--cwd PATH]` | Create the boss identity: manager `system_prompt`, seeded grant ceiling, copied boss skill, **no perm-policy** (deadlock guard), boss channel. Idempotent. |
+| `culture boss launch <name> "<purpose>" [--workers N] [--worker-name S ...] [--cwd PATH] [--role R]` | **One-shot task bootstrap.** Open `#task-<name>`, set its topic, write the write-once seed + the living channel brief from `<purpose>`, then spawn the requested workers into the shared channel by calling `spawn`. Refuses if the channel already has a seed/brief (re-launch guard). See [One-shot task bootstrap](#one-shot-task-bootstrap-culture-boss-launch). |
 | `culture boss spawn <name> [--cwd PATH] [--channels "#ch1,#ch2"]` | Create + start a worker under this boss; seed its policy; record `boss:` in its `culture.yaml`; join its task channel (and any `--channels`). The boss also joins extra channels for observation. Refuses a nick colliding with a boss. |
 | `culture boss brief <name> "<task>"` | Send a task to the worker's channel. |
 | `culture boss read <name> [--limit N]` | Read the worker's recent replies. |
