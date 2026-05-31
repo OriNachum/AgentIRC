@@ -469,6 +469,21 @@ def _boss_mission_title(boss_nick, max_chars=80):
     return title
 
 
+def _seed_preview(channel: str, max_chars: int = 80) -> str:
+    """Return the first non-empty line of the channel's seed (v8.19.18).
+
+    Used both as the task-group TITLE fallback and as the per-channel
+    card subtitle. Empty when no seed exists for the channel.
+    """
+    from culture.clients._seed import load_seed
+
+    seed = load_seed(channel)
+    if not seed or not seed.get("text"):
+        return ""
+    first = next((ln.strip() for ln in seed["text"].splitlines() if ln.strip()), "")
+    return first[: max_chars - 1] + "…" if len(first) > max_chars else first
+
+
 def list_tasks(config_path=None):
     """Build a task-grouped channel listing (v8.19.11 — per user request).
 
@@ -518,7 +533,16 @@ def list_tasks(config_path=None):
     for boss in bosses:
         seen_bosses.add(boss.nick)
         workers = workers_by_boss.get(boss.nick, [])
-        title = _boss_mission_title(boss.nick) or f"{boss.nick}'s work"
+        # v8.19.18: title preference is TOPIC/seed → mission.md → boss nick.
+        # Look at each worker's #task-<worker> seed first (those are the
+        # ones --topic flag and brief auto-set hit); fall back to mission.
+        topic_title = ""
+        for worker in workers:
+            wch = f"#task-{worker.nick.split('-', 1)[1] if '-' in worker.nick else worker.nick}"
+            topic_title = _seed_preview(wch)
+            if topic_title:
+                break
+        title = topic_title or _boss_mission_title(boss.nick) or f"{boss.nick}'s work"
 
         channels = []
         # Boss's own channel: from its config.channels, take the #boss* one
@@ -532,6 +556,7 @@ def list_tasks(config_path=None):
                     "category": cat,
                     "members": [_member(boss)]
                     + [_member(w) for w in workers if ch in (getattr(w, "channels", []) or [])],
+                    "seed_preview": _seed_preview(ch),
                 }
             )
         # Per-worker #task-<worker> channels.
@@ -545,6 +570,7 @@ def list_tasks(config_path=None):
                     "channel": wch,
                     "category": "task",
                     "members": members,
+                    "seed_preview": _seed_preview(wch),
                 }
             )
 
@@ -582,6 +608,7 @@ def list_tasks(config_path=None):
                     "channel": wch,
                     "category": "task",
                     "members": [_member(w)],
+                    "seed_preview": _seed_preview(wch),
                 }
             )
         tasks.append(
@@ -1131,6 +1158,24 @@ async def _handle_unarchive_agent(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
+async def _handle_channel_seed(request: web.Request) -> web.Response:
+    """Return the persisted seed (initial brief) for a channel, v8.19.18.
+
+    404 when there's no seed file for the channel — the dashboard
+    treats that as "no Seed brief panel to show."
+    """
+    from culture.clients._seed import load_seed
+
+    name = request.match_info["name"]
+    if not name or not re.match(r"^[A-Za-z0-9_-]+$", name):
+        raise web.HTTPBadRequest(text=f"invalid channel name {name!r}")
+    channel = f"#{name}"
+    seed = load_seed(channel)
+    if seed is None:
+        return web.json_response({"channel": channel, "text": "", "ts": ""}, status=404)
+    return web.json_response(seed)
+
+
 async def _handle_channel_messages(request: web.Request) -> web.Response:
     """Read messages from a specific channel by name."""
     name = request.match_info["name"]
@@ -1231,6 +1276,7 @@ def build_app(
     app.router.add_post("/api/archive", _handle_archive_agent)
     app.router.add_post("/api/unarchive", _handle_unarchive_agent)
     app.router.add_get("/api/channels/{name}/messages", _handle_channel_messages)
+    app.router.add_get("/api/channels/{name}/seed", _handle_channel_seed)
     if os.path.isdir(_STATIC_DIR):
         app.router.add_static("/static/", _STATIC_DIR)
     return app

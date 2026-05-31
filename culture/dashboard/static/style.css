@@ -360,6 +360,27 @@ body {
 .channel-cat-task { background: rgba(65, 214, 122, 0.12); color: var(--green); }
 .channel-cat-shared { background: rgba(138, 151, 163, 0.15); color: var(--muted); }
 .channel-cat-boss { background: rgba(227, 179, 65, 0.15); color: var(--amber); }
+.channel-seed {
+  margin: 6px 0 4px 0;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  border-left: 2px solid var(--border);
+  padding-left: 8px;
+}
+.channel-seed:hover { border-left-color: var(--accent); }
+.seed-toggle { font-weight: 600; margin-right: 6px; color: var(--accent); }
+.seed-preview-line { font-style: italic; }
+.seed-body {
+  white-space: pre-wrap;
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: rgba(31, 39, 48, 0.4);
+  border-radius: 4px;
+  color: var(--text);
+  font-style: normal;
+}
+.seed-body.hidden { display: none; }
 .channel-members { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 .channel-members.empty { color: var(--muted); font-style: italic; gap: 0; }
 .member-chip {

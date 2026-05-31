@@ -4,6 +4,49 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [8.19.18] - 2026-05-31
+
+### Added
+
+- **Channel topics + seed-brief panel** (user ask: "channels should be
+  named/titled by TOPIC, with a top tab/section showing the INITIAL
+  SEED TEXT the boss had when opening the channel").
+- **`culture boss spawn --topic "..."`** — sets the IRC TOPIC on
+  `#task-<worker>` at spawn time AND writes the full text to
+  `~/.culture/seeds/task-<worker>.md` so the dashboard can surface it
+  without scrolling back through HISTORY.
+- **`culture boss brief` auto-seeds** — if a task channel has no seed
+  yet, the first brief becomes the seed AND sets the channel's IRC
+  TOPIC (truncated to ~200 chars for the protocol line). Idempotent:
+  subsequent briefs don't overwrite, so the original mission stays
+  visible.
+- **New `culture/clients/_seed.py`** — `persist_seed` (write-once by
+  default), `load_seed`, `clear_seed`. Persistence path is
+  `~/.culture/seeds/<channel-without-hash>.md` via the existing
+  `seed_path_for` helper in `_perm_broker.py` (path-traversal-safe).
+- **New `/api/channels/<name>/seed` endpoint** — returns the
+  persisted seed with timestamp; 404 when no seed exists.
+- **Dashboard rendering** — each channel card now shows a "▸ Seed
+  brief" toggle when `seed_preview` is set, with lazy-fetch of the
+  full text on first expand. CSS additions: `.channel-seed`,
+  `.seed-toggle`, `.seed-preview-line`, `.seed-body`.
+- **Task-group title falls back through TOPIC/seed → mission.md
+  headline → boss-nick** — `list_tasks` now stamps every channel
+  with `seed_preview` and uses the first non-empty per-worker seed as
+  the task title.
+- **Channel renaming is out of scope** (would break agent membership
+  + ACLs + HISTORY continuity). The dashboard maps `#task-<nick>` to
+  its topic for display only.
+
+### Tests
+
+- 9 new tests in `tests/test_seed.py`: persist/load roundtrip,
+  idempotence, explicit overwrite, empty text skipped, missing
+  returns None, clear removes, unsafe channel name rejected,
+  multi-line body preserved, file lives under culture_home.
+- 3 new tests in `tests/test_dashboard.py::TestSeed`: missing seed
+  → 404, existing seed → 200 with text, invalid channel name → 400.
+
 ## [8.19.17] - 2026-05-31
 
 ### Added

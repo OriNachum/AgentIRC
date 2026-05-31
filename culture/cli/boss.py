@@ -108,6 +108,14 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         "Free-text; written to culture.yaml and surfaced on the dashboard. "
         "Optional — when omitted the worker has no role tag.",
     )
+    spawn_p.add_argument(
+        "--topic",
+        default="",
+        help="Channel topic for #task-<name> (v8.19.18). Sets the IRC TOPIC at "
+        "spawn time and is shown as the task title in the dashboard's channels "
+        "view. Optional — when omitted the title falls back to mission.md "
+        "headline or `<nick>'s work`.",
+    )
     spawn_p.add_argument("--config", default=DEFAULT_CONFIG)
 
     brief_p = sub.add_parser("brief", help="Send a task to a worker's channel")
@@ -483,6 +491,19 @@ def _cmd_brief(args: argparse.Namespace) -> None:
     resp = _boss_irc("irc_send", channel=channel, message=text)
     if resp and resp.get("ok"):
         print(f"briefed {nick} in {channel}")
+        # v8.19.18: capture the first brief as the channel seed (and set
+        # the IRC TOPIC if neither --topic at spawn nor a prior brief
+        # already claimed it). persist_seed is idempotent — write-once.
+        from culture.clients._seed import load_seed, persist_seed
+
+        if load_seed(channel) is None:
+            if persist_seed(channel, args.task):
+                irc_topic = " ".join(args.task.split())
+                # Truncate for the topic line — IRC topic is a single
+                # line; the full seed text lives in the file.
+                if len(irc_topic) > 200:
+                    irc_topic = irc_topic[:197] + "..."
+                _boss_irc("irc_topic", channel=channel, topic=irc_topic)
     else:
         print(f"Error: could not brief {nick} (is the boss daemon running?)", file=sys.stderr)
         sys.exit(1)
@@ -590,10 +611,25 @@ def _cmd_spawn(args: argparse.Namespace) -> None:
     subprocess.run([sys.executable, "-m", "culture", "agent", "register", cwd], check=False)
     subprocess.run([sys.executable, "-m", "culture", "agent", "start", worker_nick], check=False)
     # Boss joins the worker's task channel so it sees replies + perm DMs.
-    _boss_irc("irc_join", channel=_task_channel(name))
+    task_chan = _task_channel(name)
+    _boss_irc("irc_join", channel=task_chan)
     for ch in extra_channels:
         _boss_irc("irc_join", channel=ch)
-    joined = [_task_channel(name)] + extra_channels
+    joined = [task_chan] + extra_channels
+    # v8.19.18: --topic sets the IRC TOPIC and writes the channel seed
+    # so the dashboard can surface the original mission in its channel
+    # card without re-reading the entire HISTORY. Optional: omit to
+    # have the dashboard fall back to the mission.md headline.
+    topic = (getattr(args, "topic", "") or "").strip()
+    if topic:
+        from culture.clients._seed import persist_seed
+
+        # IRC TOPIC is single-line; collapse whitespace so a multi-line
+        # --topic still fits the protocol. The seed file keeps the
+        # original text including line breaks.
+        irc_topic = " ".join(topic.split())
+        _boss_irc("irc_topic", channel=task_chan, topic=irc_topic)
+        persist_seed(task_chan, topic, overwrite=True)
     print(f"spawned {worker_nick} (boss={boss}, cwd={cwd}); channels {', '.join(joined)}")
 
 

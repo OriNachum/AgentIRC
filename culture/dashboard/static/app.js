@@ -320,6 +320,42 @@ function renderChannelCard(ch) {
   }
   card.appendChild(header);
 
+  // v8.19.18: seed preview line shown right under the channel title.
+  // The full seed text is lazy-fetched into a collapsible panel when
+  // the user clicks "Seed brief". seed_preview is "" when the channel
+  // has no persisted seed — in which case we don't render the panel.
+  if (ch.seed_preview) {
+    const seedRow = el("div", "channel-seed");
+    const toggle = el("span", "seed-toggle", "▸ Seed brief");
+    const previewLine = el("span", "seed-preview-line", ch.seed_preview);
+    const body = el("div", "seed-body hidden");
+    seedRow.appendChild(toggle);
+    seedRow.appendChild(previewLine);
+    seedRow.appendChild(body);
+    seedRow.onclick = async (ev) => {
+      ev.stopPropagation();
+      if (body.classList.contains("hidden")) {
+        if (!body.textContent) {
+          // Lazy-fetch the full seed on first expand. The endpoint is
+          // 404-on-no-seed; we render an empty body if it lands.
+          const name = ch.channel.replace(/^#/, "");
+          try {
+            const data = await api(`/api/channels/${encodeURIComponent(name)}/seed`);
+            body.textContent = data.text || ch.seed_preview;
+          } catch (_) {
+            body.textContent = ch.seed_preview;
+          }
+        }
+        body.classList.remove("hidden");
+        toggle.textContent = "▾ Seed brief";
+      } else {
+        body.classList.add("hidden");
+        toggle.textContent = "▸ Seed brief";
+      }
+    };
+    card.appendChild(seedRow);
+  }
+
   // Member chips — each shows nick + role badge + state dot.
   if (ch.members && ch.members.length) {
     // members is now a list of objects {nick, role, is_boss, state};
