@@ -4,6 +4,59 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [8.19.25] - 2026-05-31
+
+### Fixed — SDK inactivity hangs the agent runner
+
+The `async for message in query(...)` loop in
+`culture/clients/claude/agent_runner.py` had no per-message timeout.
+When the SDK pipe wedged (Stream-closed, hung MCP tool result,
+dropped subprocess stream), the daemon sat in `__anext__()`
+indefinitely — the v8.18.4 / v8.19.8 watchdogs observed the silence
+via daemon-log but had no way to act on it. Caught live during the
+UX-eval worker run: an `mcp__playwright__browser_take_screenshot`
+returned the screenshot to disk but the SDK never yielded the next
+message; daemon stalled for 5 minutes before the watchdog logged
+`stalled_post_engagement`.
+
+Fix: wrap `__anext__()` in `asyncio.wait_for(timeout=180s)`. On
+timeout, raise `RuntimeError("SDK stream inactivity timeout ...")`
+which hits the existing `except Exception` block — fires
+`on_turn_failed`, then `on_exit(1)`, daemon's crash-recovery
+restarts the session. The watchdog goes from advisory to
+self-healing.
+
+Configurable via `CULTURE_SDK_INACTIVITY_TIMEOUT` env var (seconds,
+float). Default 180s — comfortably above real assistant turns
+including thinking + long tool calls, low enough to recover within
+a few minutes when the SDK genuinely wedges.
+
+### Added — UX evaluation of the dashboard
+
+`docs/v8.19.24-ux-evaluation.md` — 140-line evaluation authored by
+`local-ux-eval-w` (mesh worker, after restart with the v8.19.25
+fix). 8 ranked findings covering the user's "hardly any information
+here about the channel" complaint:
+
+| # | Severity | Finding |
+|---|---|---|
+| 1 | Critical | No timeline info (started / last-active) |
+| 2 | Critical | No task purpose visible at a glance |
+| 3 | High | No health / stuck indicators |
+| 4 | High | No per-channel pending-permissions count |
+| 5 | Medium | No living brief preview on Channel cards |
+| 6 | Medium | Channel title truncation hides context |
+| 7 | Low | No cost conversion for tokens |
+| 8 | Low | Second channel group lacks token badge |
+
+Each finding has SYMPTOM / ROOT CAUSE / PROPOSED FIX with concrete
+file:line references. Screenshot at
+`docs/v8.19.24-ux-eval-channels.png`.
+
+The findings drive the next dashboard iteration: add `started_at`
+and `last_activity` to the task dicts, surface watcher state on
+the Channel heading, add a brief-preview subtitle.
+
 ## [8.19.24] - 2026-05-31
 
 ### Added — living channel brief (worker onboarding)

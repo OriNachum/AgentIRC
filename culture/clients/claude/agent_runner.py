@@ -30,6 +30,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# v8.19.25: per-message inactivity timeout for the SDK iteration.
+# Real assistant turns (including thinking + long tool calls like full-page
+# screenshots) finish well inside this budget; a silence longer than this
+# means the SDK pipe is wedged (Stream-closed, hung MCP, dropped subprocess
+# stream) and we should surface it as a turn failure so the daemon restarts
+# the session. Configurable via CULTURE_SDK_INACTIVITY_TIMEOUT.
+SDK_INACTIVITY_TIMEOUT_SECONDS = float(os.environ.get("CULTURE_SDK_INACTIVITY_TIMEOUT", "180"))
+
 
 async def _single_user_message_stream(text: str) -> AsyncIterable[dict[str, Any]]:
     """Yield one user message in the SDK's streaming-mode shape.
@@ -364,10 +372,31 @@ class AgentRunner:
             },
         ):
             try:
-                async for message in query(
+                # v8.19.25: per-message inactivity timeout. Without this, an SDK
+                # async iteration that goes silent (Stream-closed, hung
+                # tool result, dropped subprocess pipe) holds the daemon
+                # in `async for` indefinitely — the daemon-log watchdog
+                # observes the silence but cannot act on it. Wrapping the
+                # `__anext__` in `wait_for` converts inactivity into the
+                # existing `on_turn_failed` + `on_exit(1)` recovery path
+                # so the daemon restarts the session cleanly.
+                aiter = query(
                     prompt=prompt_arg,
                     options=self._make_options(),
-                ):
+                ).__aiter__()
+                while True:
+                    try:
+                        message = await asyncio.wait_for(
+                            aiter.__anext__(),
+                            timeout=SDK_INACTIVITY_TIMEOUT_SECONDS,
+                        )
+                    except StopAsyncIteration:
+                        break
+                    except asyncio.TimeoutError as exc:
+                        raise RuntimeError(
+                            f"SDK stream inactivity timeout "
+                            f"({SDK_INACTIVITY_TIMEOUT_SECONDS}s with no message)"
+                        ) from exc
                     if isinstance(message, ResultMessage):
                         self._handle_result_message(message)
                         # Extract usage if exposed by SDK; some ResultMessages have it
