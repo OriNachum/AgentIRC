@@ -174,9 +174,19 @@ def register(subparsers: argparse._SubParsersAction) -> None:
 
     sub.add_parser("status", help="Summarize workers + pending perms")
 
-    sub.add_parser(
+    audit_policies_p = sub.add_parser(
         "audit-policies",
         help="Scan worker perm-policy files for dangerously-bare high-risk auto_allow rules",
+    )
+    audit_policies_p.add_argument(
+        "--fix",
+        action="store_true",
+        help=(
+            "Remove the offending bare-tool rules from each policy file. "
+            "Writes a .bak alongside each modified file before editing; "
+            "atomic write via temp+rename so the daemon never sees a "
+            "half-written policy. Without --fix the verb is read-only."
+        ),
     )
 
     close_p = sub.add_parser("close", help="Stop a worker daemon")
@@ -521,34 +531,68 @@ def _bare_high_risk_rules(policy: dict) -> list[dict]:
     return findings
 
 
-def _cmd_audit_policies(args: argparse.Namespace) -> None:  # noqa: ARG001 — argparse signature
+def _strip_bare_high_risk_rules(policy: dict) -> tuple[dict, list[dict]]:
+    """Return (policy_without_bare_rules, removed_rules).
+
+    Pure function — operates on a copy of the policy dict. Caller is
+    responsible for persisting the result.
+    """
+    import copy
+
+    new_policy = copy.deepcopy(policy)
+    rules = new_policy.get("auto_allow", []) or []
+    if not isinstance(rules, list):
+        return new_policy, []
+    dangerous = _bare_high_risk_rules(policy)
+    if not dangerous:
+        return new_policy, []
+    new_policy["auto_allow"] = [r for r in rules if r not in dangerous]
+    return new_policy, dangerous
+
+
+def _cmd_audit_policies(args: argparse.Namespace) -> None:
     """Scan worker perm-policy files for bare high-risk auto_allow rules.
 
     Companion to v8.19.32's ``BareStickyApproveRefusedError``: existing
     policies may carry rules that pre-date the new gate (e.g. earlier
     ``culture boss approve <id> --always`` calls that wrote
     ``- tool: Bash`` with no ``input_regex``). Each such rule auto-allows
-    EVERY future invocation of that tool. This verb surfaces them so the
-    boss can remediate by editing the policy file by hand and removing
-    the bare entry — next time the worker invokes that tool the broker
-    will re-route to the boss, who can re-approve with ``--input-regex``.
+    EVERY future invocation of that tool.
+
+    Default mode is READ-ONLY: surfaces every match so the operator can
+    decide. ``--fix`` removes the offending rules in place, with a
+    ``.bak`` backup alongside each modified file. Industry-standard
+    safe-edit pattern:
+
+      1. Read + parse the policy.
+      2. Build the new policy (pure function — no I/O).
+      3. Write the new policy to a temp file in the same dir, fsync,
+         then atomic rename. Daemon never sees a half-written file.
+      4. Backup copy at ``<path>.bak`` so the operator can rollback.
+
+    Workers will re-route the stripped tools to the boss on next use,
+    and the v8.19.32 gate then requires ``--input-regex`` for the
+    re-approval.
     """
     import glob
+    import shutil
+
+    import yaml as _yaml
 
     policy_dir = os.path.join(culture_home(), "perm-policy")
     if not os.path.isdir(policy_dir):
         print(f"No policy directory at {policy_dir} — nothing to audit.")
         return
 
+    fix = getattr(args, "fix", False)
     files = sorted(glob.glob(os.path.join(policy_dir, "*.yaml")))
     total_findings = 0
+    total_fixed = 0
     for path in files:
         try:
             with open(path, encoding="utf-8") as handle:
-                import yaml
-
-                policy = yaml.safe_load(handle) or {}
-        except (OSError, yaml.YAMLError):
+                policy = _yaml.safe_load(handle) or {}
+        except (OSError, _yaml.YAMLError):
             print(f"  ! {path} — could not parse; skipping")
             continue
         findings = _bare_high_risk_rules(policy)
@@ -557,17 +601,61 @@ def _cmd_audit_policies(args: argparse.Namespace) -> None:  # noqa: ARG001 — a
         nick = os.path.basename(path)[: -len(".yaml")]
         print(f"\n{nick}  ({path})")
         for rule in findings:
-            print(f"    DANGEROUS: tool={rule.get('tool')!r}  (no input_regex)")
+            verb = "REMOVED" if fix else "DANGEROUS"
+            print(f"    {verb}: tool={rule.get('tool')!r}  (no input_regex)")
         total_findings += len(findings)
+        if fix:
+            # Backup BEFORE write so a write failure leaves the original
+            # intact AND we still have the .bak from before the attempt.
+            try:
+                shutil.copy2(path, path + ".bak")
+            except OSError as exc:
+                print(f"    ! backup failed ({exc}); SKIPPING fix for safety")
+                continue
+            new_policy, _removed = _strip_bare_high_risk_rules(policy)
+            # Atomic write: temp file in same dir → fsync → rename.
+            import tempfile
+
+            fd, tmp_path = tempfile.mkstemp(
+                dir=os.path.dirname(path), prefix=".tmp-", suffix=".yaml"
+            )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    _yaml.safe_dump(new_policy, handle, sort_keys=False, default_flow_style=False)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                # Preserve the original mode bits (0600 on policy files).
+                try:
+                    st = os.stat(path)
+                    os.chmod(tmp_path, st.st_mode & 0o777)
+                except OSError:
+                    os.chmod(tmp_path, 0o600)
+                os.replace(tmp_path, path)
+                total_fixed += len(findings)
+            except OSError as exc:
+                # Atomic write failed mid-flight; original still intact.
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                print(f"    ! atomic write failed ({exc}); original untouched")
 
     if total_findings == 0:
         print(f"No dangerous bare-tool rules found across {len(files)} policy file(s). ✓")
+        return
+    if fix:
+        print(
+            f"\n{total_fixed} dangerous rule(s) removed across {len([1 for _ in files])} "
+            f"policy file(s). Backups at <file>.bak. The next tool call from each affected "
+            f"worker will route to the boss; re-approve with --input-regex if you want a "
+            f"sticky rule."
+        )
     else:
         print(
-            f"\n{total_findings} dangerous rule(s) found. "
-            "Edit each policy file by hand and delete the listed entry; the "
-            "worker will re-route the tool to the boss on next use, and the "
-            "v8.19.32 gate will require --input-regex on the re-approval."
+            f"\n{total_findings} dangerous rule(s) found. Re-run with --fix to remove them "
+            "(creates a .bak backup, atomic write). The worker will then re-route the "
+            "listed tools to the boss, and the v8.19.32 gate will require --input-regex "
+            "on re-approval."
         )
 
 

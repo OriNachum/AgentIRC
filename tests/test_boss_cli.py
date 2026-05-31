@@ -632,3 +632,59 @@ class TestBossAuditPolicies:
         assert _bare_high_risk_rules({"auto_allow": [{"not_a_tool": 1}]}) == []
         # A rule with tool=None or non-string also has to be skipped.
         assert _bare_high_risk_rules({"auto_allow": [{"tool": 42}]}) == []
+
+
+# ---------------------------------------------------------------------------
+# v8.19.39 — `culture boss audit-policies --fix` removes bare entries safely
+# ---------------------------------------------------------------------------
+
+
+class TestBossAuditPoliciesFix:
+    def test_strip_removes_only_bare_high_risk(self):
+        from culture.cli.boss import _strip_bare_high_risk_rules
+
+        policy = {
+            "auto_allow": [
+                {"tool": "Read"},
+                {"tool": "Bash", "input_regex": "^ls$"},
+                {"tool": "Bash"},  # remove
+                {"tool": "Edit"},  # remove
+                {"tool": "mcp__playwright__browser_click"},  # remove (mcp__)
+            ],
+            "auto_deny": [],
+        }
+        new_policy, removed = _strip_bare_high_risk_rules(policy)
+        assert len(removed) == 3
+        remaining = new_policy["auto_allow"]
+        assert {"tool": "Read"} in remaining
+        assert any(r.get("tool") == "Bash" and r.get("input_regex") for r in remaining)
+        assert {"tool": "Bash"} not in remaining
+        assert {"tool": "Edit"} not in remaining
+
+    def test_strip_is_noop_on_clean_policy(self):
+        from culture.cli.boss import _strip_bare_high_risk_rules
+
+        policy = {
+            "auto_allow": [
+                {"tool": "Read"},
+                {"tool": "Glob"},
+                {"tool": "Bash", "input_regex": "^ls$"},
+            ],
+            "auto_deny": [],
+        }
+        new_policy, removed = _strip_bare_high_risk_rules(policy)
+        assert removed == []
+        assert new_policy == policy  # untouched
+
+    def test_strip_does_not_mutate_input(self):
+        from culture.cli.boss import _strip_bare_high_risk_rules
+
+        policy = {
+            "auto_allow": [{"tool": "Bash"}],
+            "auto_deny": [],
+        }
+        original_id = id(policy["auto_allow"])
+        _strip_bare_high_risk_rules(policy)
+        # Original input must not be mutated — caller-owned data.
+        assert id(policy["auto_allow"]) == original_id
+        assert policy["auto_allow"] == [{"tool": "Bash"}]
