@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [8.19.41] - 2026-06-01
+
+### Fixed — false `never_briefed` warnings during SDK 0.2.x cold-start
+
+After the v8.19.38 SDK upgrade (0.1.50 → 0.2.87), freshly-spawned
+worker daemons take noticeably longer to produce their first turn
+(5–10 min observed on dev hardware before the first ``engaged``
+event). The watchdog (90s grace) fired false ``never_briefed``
+warnings during this window even though the worker was genuinely
+warming up; briefs sent during cold-start landed in the IRC buffer
+and were consumed once the SDK was ready.
+
+Mitigation: ``IDLE_GRACE_SECONDS`` raised from 90 → 600s. Override
+via ``CULTURE_IDLE_GRACE_SECONDS=90`` env to restore the old cadence.
+Full investigation notes at ``docs/v8.19.41-sdk-2x-cold-start.md``.
+
 ## [8.19.25] - 2026-05-31
 
 ### Fixed — SDK inactivity hangs the agent runner

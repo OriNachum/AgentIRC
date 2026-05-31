@@ -42,7 +42,16 @@ CRASH_WINDOW_SECONDS = 300
 CRASH_RESTART_DELAY = 5
 # A worker that produces no turn within this window after start has never
 # engaged (wrong channel / never briefed) — flag it back to the boss.
-IDLE_GRACE_SECONDS = 90
+#
+# v8.19.41 — cold-start tuning for claude-agent-sdk 0.2.x.
+# SDK 0.2.x has a noticeably longer first-turn warm-up than 0.1.x (observed
+# 5-10 min on this dev box for fresh daemons before the first
+# AssistantMessage). Tuning the grace to 600s prevents the watchdog from
+# firing false "never_briefed" warnings during the cold-start window;
+# genuine never-briefed cases still surface, just later. Operators who want
+# the old aggressive cadence can drop ``CULTURE_IDLE_GRACE_SECONDS=90`` in
+# the env.
+IDLE_GRACE_SECONDS = int(os.environ.get("CULTURE_IDLE_GRACE_SECONDS", "600"))
 
 # After the worker has been activated (mention/poll/invite landed) OR has
 # already produced at least one turn, this is the maximum gap between
