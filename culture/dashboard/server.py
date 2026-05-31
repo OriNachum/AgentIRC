@@ -1240,6 +1240,26 @@ async def _handle_channel_seed(request: web.Request) -> web.Response:
     return web.json_response(seed)
 
 
+async def _handle_channel_brief(request: web.Request) -> web.Response:
+    """Return the LIVING brief for a channel (v8.19.24).
+
+    The seed is the immutable initial mission (write-once); the brief
+    is the running team onboarding doc that grows as work progresses
+    (every ``boss brief`` and ``boss note`` appends a dated section).
+    Returns the full Markdown text + size; 404 when no brief exists.
+    """
+    from culture.clients._channel_brief import has_brief, load_brief
+
+    name = request.match_info["name"]
+    if not name or not re.match(r"^[A-Za-z0-9_-]+$", name):
+        raise web.HTTPBadRequest(text=f"invalid channel name {name!r}")
+    channel = f"#{name}"
+    if not has_brief(channel):
+        return web.json_response({"channel": channel, "text": "", "bytes": 0}, status=404)
+    text = load_brief(channel)
+    return web.json_response({"channel": channel, "text": text, "bytes": len(text)})
+
+
 async def _handle_channel_messages(request: web.Request) -> web.Response:
     """Read messages from a specific channel by name."""
     name = request.match_info["name"]
@@ -1341,6 +1361,7 @@ def build_app(
     app.router.add_post("/api/unarchive", _handle_unarchive_agent)
     app.router.add_get("/api/channels/{name}/messages", _handle_channel_messages)
     app.router.add_get("/api/channels/{name}/seed", _handle_channel_seed)
+    app.router.add_get("/api/channels/{name}/brief", _handle_channel_brief)
     if os.path.isdir(_STATIC_DIR):
         app.router.add_static("/static/", _STATIC_DIR)
     return app

@@ -122,6 +122,17 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     brief_p.add_argument("name", help="Worker suffix")
     brief_p.add_argument("task", help="Task text")
 
+    note_p = sub.add_parser(
+        "note",
+        help="Append a non-task note to a channel's living brief (v8.19.24)",
+    )
+    note_p.add_argument(
+        "channel_or_name",
+        help="Channel name (e.g. '#team') OR a worker suffix (note lands in #task-<name>)",
+    )
+    note_p.add_argument("text", help="Note text — appended as a dated section to the channel brief")
+    note_p.add_argument("--title", default="note", help="Section title; defaults to 'note'")
+
     read_p = sub.add_parser("read", help="Read recent worker channel messages")
     read_p.add_argument("name", help="Worker suffix")
     read_p.add_argument("--limit", "-n", type=int, default=30)
@@ -164,6 +175,7 @@ def dispatch(args: argparse.Namespace) -> None:
         "init": _cmd_init,
         "spawn": _cmd_spawn,
         "brief": _cmd_brief,
+        "note": _cmd_note,
         "read": _cmd_read,
         "pending": _cmd_pending,
         "approve": _cmd_approve,
@@ -504,6 +516,14 @@ def _cmd_brief(args: argparse.Namespace) -> None:
                 if len(irc_topic) > 200:
                     irc_topic = irc_topic[:197] + "..."
                 _boss_irc("irc_topic", channel=channel, topic=irc_topic)
+        # v8.19.24: ALWAYS append to the LIVING channel brief — even
+        # after the seed is written. The seed is the original mission;
+        # the living brief is the running onboarding doc that a new
+        # joiner reads. Every brief is a project decision worth
+        # capturing.
+        from culture.clients._channel_brief import persist_section
+
+        persist_section(channel, f"brief → {nick}", args.task)
     else:
         # v8.19.23: actionable error. Without this the orchestrator has to
         # guess: is the IRC server down? Did the worker crash? Is "boss
@@ -520,6 +540,29 @@ def _cmd_brief(args: argparse.Namespace) -> None:
             file=sys.stderr,
         )
         sys.exit(1)
+
+
+def _cmd_note(args: argparse.Namespace) -> None:
+    """Append a note to a channel's living brief (v8.19.24).
+
+    `channel_or_name` accepts EITHER a channel name (starts with #) or
+    a worker suffix (resolves to #task-<suffix>). The latter is the
+    common case when the orchestrator is leaving notes for a worker's
+    private room.
+    """
+    from culture.clients._channel_brief import persist_section
+
+    target = args.channel_or_name
+    channel = target if target.startswith("#") else _task_channel(target)
+    ok = persist_section(channel, args.title, args.text)
+    if ok:
+        print(f"appended note to {channel}'s living brief")
+    else:
+        # Empty body or idempotence hit.
+        print(
+            f"note skipped (empty body or already present in {channel}'s brief)",
+            file=sys.stderr,
+        )
 
 
 def _cmd_read(args: argparse.Namespace) -> None:
