@@ -476,7 +476,6 @@ class TestHighRiskStickyApprove:
     def test_high_risk_always_without_input_regex_refuses(self, culture_root):
         from culture.clients._perm_broker import (
             BareStickyApproveRefusedError,
-            
             write_decision,
         )
 
@@ -580,8 +579,56 @@ class TestHighRiskStickyApprove:
             policy = yaml.safe_load(f)
         rules = policy["auto_allow"]
         match = [
-            r
-            for r in rules
-            if r.get("tool") == "Bash" and r.get("input_regex") == r"^ls(\s|$)"
+            r for r in rules if r.get("tool") == "Bash" and r.get("input_regex") == r"^ls(\s|$)"
         ]
         assert match, f"expected the input-constrained Bash rule, got {rules!r}"
+
+
+class TestBrokerWarnOnLoad:
+    """v8.19.36: broker logs a WARNING when policy carries bare high-risk rules."""
+
+    def test_warns_on_bare_bash(self, culture_root, caplog):
+        import logging
+
+        path = policy_path_for("local-foo-w")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(
+                {
+                    "auto_allow": [
+                        {"tool": "Read"},
+                        {"tool": "Bash"},  # DANGEROUS bare
+                    ],
+                    "auto_deny": [],
+                },
+                f,
+            )
+        broker = PermissionBroker(nick="local-foo-w")
+        with caplog.at_level(logging.WARNING, logger="culture.clients._perm_broker"):
+            broker._load_policy()
+        messages = [r.getMessage() for r in caplog.records]
+        assert any(
+            "DANGEROUS bare auto_allow rule" in m and "'Bash'" in m for m in messages
+        ), f"expected warning about bare Bash rule; got: {messages!r}"
+
+    def test_no_warning_for_constrained_rules(self, culture_root, caplog):
+        import logging
+
+        path = policy_path_for("local-foo-w")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(
+                {
+                    "auto_allow": [
+                        {"tool": "Bash", "input_regex": r"^ls\b"},
+                        {"tool": "Edit", "input_regex": r"^/safe/path$"},
+                    ],
+                    "auto_deny": [],
+                },
+                f,
+            )
+        broker = PermissionBroker(nick="local-foo-w")
+        with caplog.at_level(logging.WARNING, logger="culture.clients._perm_broker"):
+            broker._load_policy()
+        dangerous = [r for r in caplog.records if "DANGEROUS" in r.getMessage()]
+        assert dangerous == [], f"expected no warnings, got: {dangerous!r}"

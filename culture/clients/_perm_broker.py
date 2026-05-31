@@ -683,8 +683,51 @@ class PermissionBroker:
         if not isinstance(policy, dict):
             logger.warning("Policy %s is not a mapping; treating as empty", path)
             policy = {}
+        # v8.19.36: surface dangerous bare-tool auto_allow rules at load time.
+        # A rule like ``{tool: Bash}`` with no ``input_regex`` constraint
+        # auto-allows EVERY future Bash call — the same silent-bypass case
+        # v8.19.32's ``BareStickyApproveRefusedError`` now prevents on new
+        # ``--always`` writes. Existing policies may carry such rules from
+        # earlier approvals; this warning makes them visible in the daemon
+        # logs so the operator can run ``culture boss audit-policies`` (or
+        # edit the yaml directly) to clean them up. Logged once per cache
+        # load, not per gate call.
+        self._warn_on_bare_high_risk(path, policy)
         self._cache = _PolicyCache(path=path, mtime=mtime, policy=policy)
         return policy
+
+    @staticmethod
+    def _warn_on_bare_high_risk(path: str, policy: dict[str, Any]) -> None:
+        """Emit a WARNING for each bare high-risk auto_allow rule in ``policy``.
+
+        Static so the load path stays inexpensive; takes the policy by
+        reference (not the broker) so the scan can be re-used without
+        constructing a full broker (the boss CLI's ``audit-policies`` uses
+        its own walker but the predicate logic is identical).
+        """
+        rules = policy.get("auto_allow", []) or []
+        if not isinstance(rules, list):
+            return
+        for rule in rules:
+            if not isinstance(rule, dict):
+                continue
+            if rule.get("input_regex"):
+                continue
+            tool = rule.get("tool", "")
+            if not isinstance(tool, str) or not tool:
+                continue
+            for hr_pattern in HIGH_RISK_STICKY_TOOLS:
+                if _tool_matches(tool, hr_pattern):
+                    logger.warning(
+                        "Policy %s carries a DANGEROUS bare auto_allow rule for "
+                        "high-risk tool %r — no input_regex constraint, so EVERY "
+                        "future call of this tool auto-allows without boss review. "
+                        "Run `culture boss audit-policies` and edit the file to "
+                        "remove this rule; re-approve with --input-regex next time.",
+                        path,
+                        tool,
+                    )
+                    break
 
     async def gate(
         self,
