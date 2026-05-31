@@ -576,7 +576,19 @@ class CodexDaemon:
             )
         # Boss agents: append persisted mission so a restart re-loads
         # the brief into the SDK system context (all-backends).
-        return base + _mission_persistence.build_system_prompt_extension(self.agent.nick)
+        extension = _mission_persistence.build_system_prompt_extension(self.agent.nick)
+        # v8.19.24 all-backends parity: living channel brief for every
+        # task channel this agent will join.
+        from culture.clients import _channel_brief
+
+        for channel in self.agent.channels or []:
+            if (
+                isinstance(channel, str)
+                and channel.startswith("#")
+                and _channel_brief.has_brief(channel)
+            ):
+                extension += _channel_brief.system_prompt_extension(channel)
+        return base + extension
 
     async def _record_crash_time(self, exit_code: int) -> None:
         """Log a crash warning, prune the sliding window, record the new crash, fire agent_error."""
@@ -965,9 +977,7 @@ class CodexDaemon:
         if reason:
             await self._agent_runner.send_prompt(
                 "[orchestrator-compact] You are about to compact your "
-                "context. Reason from orchestrator: " + reason + "
-
-"
+                "context. Reason from orchestrator: " + reason + "\n\n"
                 "Write your handoff with this reason in mind, then let the "
                 "compact happen — you'll be reminded to re-read on the next "
                 "turn."
@@ -976,9 +986,7 @@ class CodexDaemon:
         if reason:
             await self._agent_runner.send_prompt(
                 "[post-compact] You just compacted at the orchestrator's "
-                "request. The reason was: " + reason + "
-
-"
+                "request. The reason was: " + reason + "\n\n"
                 "Re-read your handoff at handoff/<your-nick>.md to recover "
                 "the prior context, then continue with the new direction."
             )

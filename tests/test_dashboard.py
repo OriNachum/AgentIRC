@@ -320,6 +320,39 @@ class TestSeed:
         assert resp.status == 400
 
 
+class TestChannelBrief:
+    """v8.19.24 — /api/channels/{name}/brief endpoint (living onboarding doc)."""
+
+    @pytest.mark.asyncio
+    async def test_brief_missing_returns_404(self, client):
+        resp = await client.get("/api/channels/never-briefed/brief")
+        assert resp.status == 404
+        data = await resp.json()
+        assert data["channel"] == "#never-briefed"
+        assert data["text"] == ""
+        assert data["bytes"] == 0
+
+    @pytest.mark.asyncio
+    async def test_brief_existing_returns_text_and_size(self, client, home, monkeypatch):
+        from culture.clients import _channel_brief, _perm_broker
+
+        monkeypatch.setattr(_perm_broker, "culture_home", lambda: str(home))
+        monkeypatch.setattr(_channel_brief, "culture_home", lambda: str(home))
+        _channel_brief.persist_section("#task-living", "kickoff", "Build feature Z.")
+        resp = await client.get("/api/channels/task-living/brief")
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["channel"] == "#task-living"
+        assert "Build feature Z." in data["text"]
+        assert "kickoff" in data["text"]
+        assert data["bytes"] > 0
+
+    @pytest.mark.asyncio
+    async def test_brief_invalid_channel_name_400(self, client):
+        resp = await client.get("/api/channels/bad..name/brief")
+        assert resp.status == 400
+
+
 class TestStream:
     @pytest.mark.asyncio
     async def test_audit_stream_emits_backlog(self, client, home):

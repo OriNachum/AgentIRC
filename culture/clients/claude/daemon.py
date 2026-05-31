@@ -1155,7 +1155,23 @@ class AgentDaemon:
             )
         # Boss agents: append persisted mission so a restart re-loads
         # the brief into the SDK system context (all-backends).
-        return base + _mission_persistence.build_system_prompt_extension(self.agent.nick)
+        extension = _mission_persistence.build_system_prompt_extension(self.agent.nick)
+        # v8.19.24: worker agents get the living channel brief for every
+        # task channel they're configured to join. So a worker spawned
+        # into an in-flight Channel boots with "here's what's been
+        # decided / done / open" rather than just IRC HISTORY. The
+        # brief is the team's running onboarding doc; the seed (the
+        # immutable initial mission) is already linked separately.
+        from culture.clients import _channel_brief
+
+        for channel in self.agent.channels or []:
+            if (
+                isinstance(channel, str)
+                and channel.startswith("#")
+                and _channel_brief.has_brief(channel)
+            ):
+                extension += _channel_brief.system_prompt_extension(channel)
+        return base + extension
 
     async def _record_crash_time(self, exit_code: int) -> None:
         """Log a crash warning, prune the sliding window, record the new crash, fire agent_error."""

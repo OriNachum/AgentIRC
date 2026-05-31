@@ -4,6 +4,51 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [8.19.24] - 2026-05-31
+
+### Added — living channel brief (worker onboarding)
+
+User flagged: *"does a new worker get briefed on what has transpired,
+like a new employee or team mate joining a project gets? Maybe we
+should keep an updating brief for each channel?"*
+
+A new worker spawned into `#task-<name>` used to read the last N
+IRC HISTORY lines and that was its entire context. The v8.19.18
+seed is **write-once initial** (the original mission). This release
+adds the living sibling.
+
+- New `culture/clients/_channel_brief.py` — persistence + read API
+  for `~/.culture/briefs/<channel-without-hash>.md`. Each call
+  appends a dated `## YYYY-MM-DD HH:MMZ — <title>` Markdown section.
+- **`culture boss brief` auto-appends** on every successful send,
+  building the running onboarding doc as work happens.
+- **New `culture boss note <channel-or-name> "<text>" [--title T]`**
+  for explicit non-task updates (decisions, status, gotchas).
+  Accepts a channel name or worker suffix.
+- **All 4 backends inject the brief into the SDK system prompt** on
+  worker boot. For each channel in the agent's config that has a
+  brief, the daemon appends a "Joining channel — current state"
+  section so the worker boots already onboarded. Wrapped with
+  framing so the worker treats it as context, not as a current
+  instruction.
+- **Read cap of 64 KiB** — runaway briefs read as the TAIL with
+  early history elided. Can't blow a worker's context window.
+- **Idempotence guard**: identical body in the same minute window
+  is skipped (defends against duplicate brief fires).
+- **Dashboard endpoint** `/api/channels/<name>/brief` returns the
+  full text + bytes; 404 on missing.
+- Path-traversal-safe channel→filename validation.
+
+### Tests
+
+- 14 new in `tests/test_channel_brief.py`: roundtrip, append,
+  empty-body skip, unsafe-name guard, has_brief, clear idempotent,
+  idempotence within minute, different body, read-cap truncation,
+  system-prompt-extension framing, file under culture_home,
+  traversal rejected.
+- 3 new in `tests/test_dashboard.py::TestChannelBrief`: 404 / 200 /
+  400.
+
 ## [8.19.23] - 2026-05-31
 
 ### Fixed — orchestrator-friction bugs
