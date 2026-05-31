@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [8.19.40] - 2026-06-01
+
+### Added — session-scoped pytest guard against repo-root culture.yaml leaks
+
+The repo root had been carrying a stale ``culture.yaml`` from earlier
+session pollution — gitignored in v8.19.34 — but no guard prevented
+the leak from re-entering. v8.19.40 adds a session-scoped autouse
+fixture that captures the mtime of ``culture.yaml`` + ``agents.yaml``
+at the repo root before the suite starts and writes a loud stderr
+warning if either file changed after the suite finishes.
+
+Advisory, not a hard fail — surfaces the regression in CI logs so it
+can be bisected (run pytest with ``-x`` and the culprit test is the
+last one before the warning).
+
 ## [8.19.25] - 2026-05-31
 
 ### Fixed — SDK inactivity hangs the agent runner

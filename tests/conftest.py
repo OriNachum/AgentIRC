@@ -387,3 +387,43 @@ def audit_dir(tmp_path):
     and inspect file contents via `Path(audit_dir).glob("*.jsonl*")`.
     """
     return tmp_path
+
+
+# v8.19.40: regression guard for the "test leaks ``culture.yaml`` to repo root"
+# class of bug. A test that calls into production code with a cwd-defaulted
+# argument can land an agent identity file at the project root — silent
+# pollution that shows up in ``git status`` and confuses contributors. The
+# repo-root file was gitignored in v8.19.34 but the underlying leak class
+# still needs a sentinel so it doesn't re-enter undetected.
+@pytest.fixture(scope="session", autouse=True)
+def _no_repo_root_culture_yaml_leak():
+    import os
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parent.parent
+    sentinel_files = ("culture.yaml", "agents.yaml")
+    pre = {
+        f: (repo_root / f).stat().st_mtime if (repo_root / f).exists() else None
+        for f in sentinel_files
+    }
+    yield
+    leaked: list[str] = []
+    for name, pre_mtime in pre.items():
+        path = repo_root / name
+        if not path.exists():
+            continue
+        post_mtime = path.stat().st_mtime
+        if pre_mtime is None or post_mtime > pre_mtime:
+            leaked.append(name)
+    if leaked:
+        # Don't FAIL the suite (a guard is advisory, not a hard gate) but
+        # print a loud message so CI logs surface the regression.
+        msg = (
+            "\n\n*** v8.19.40 LEAK GUARD: a test wrote to a repo-root identity "
+            f"file: {', '.join(leaked)}. Likely a test fixture is passing "
+            "cwd=os.getcwd() (the repo root) instead of tmp_path to a "
+            "production code path that writes culture.yaml. Find the test by "
+            "running with -x to bisect. Path(s) gitignored in v8.19.34 but "
+            "fix the test fixture too. ***\n"
+        )
+        os.write(2, msg.encode())  # raw stderr — survives capture
