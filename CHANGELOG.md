@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [8.19.34] - 2026-06-01
+
+### Fixed — repo root cluttered with session-local artifacts
+
+Four kinds of session-local files were appearing as untracked in
+`git status` and one was actively leaking from a test:
+
+- `culture.yaml` — per-directory agent identity. Was leaking into the
+  repo root from `tests/test_dashboard_seed_integration.py` because
+  the production code path writes to `cwd/culture.yaml` and the test
+  fixture inherited the repo cwd. (Test-side fix tracked separately.)
+- `agents.yaml` — legacy multi-agent identity file, same shape.
+- `.claude/settings.json` — Claude Code session-local config.
+- `.st4ck/` — st4ck browse recording directory.
+
+Gitignored all four. Downstream effect: `git status` is clean again,
+and PRs no longer carry stray "?? culture.yaml" noise that hides real
+untracked files.
+
 ## [8.19.25] - 2026-05-31
 
 ### Fixed — SDK inactivity hangs the agent runner

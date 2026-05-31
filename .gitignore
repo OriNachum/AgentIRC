@@ -219,3 +219,11 @@ safety-results.json
 # Generated Jekyll output (never commit)
 _site/
 _site_culture/
+
+# Per-directory agent identity (lives alongside source but is user/runtime data)
+culture.yaml
+agents.yaml
+
+# Session-local artifacts (Claude Code + st4ck browse) that shouldn't be committed
+.claude/settings.json
+.st4ck/
