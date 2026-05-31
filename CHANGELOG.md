@@ -4,6 +4,35 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [8.19.30] - 2026-06-01
+
+### Fixed — perm-queue silent-drop on enqueue failure
+
+`PermissionBroker._request_from_boss` (the slow path of the
+`can_use_tool` gate) created the boss-visible record of a
+`require_approval` tool call with a single, **unguarded** write to
+`~/.culture/perm-queue/<id>.json`. If that write failed — disk full,
+`EACCES`, a read-only `~/.culture`, or a mid-write crash — the `OSError`
+escaped `gate()`, i.e. escaped the SDK `can_use_tool` callback. The
+request never reached the queue, so the boss never saw it via
+`culture boss pending` / `list_pending()` (silent drop), and an
+exception leaking out of the permission callback risks the SDK treating
+the call as a fall-through that runs the tool unsupervised (silent
+allow).
+
+Fix: the enqueue (`_mkdir_secure` of the queue/decision dirs plus the
+`_atomic_write_json`) is now wrapped so any `OSError` **fails closed** —
+`gate()` returns a `PermissionResultDeny` with an explicit, operator-
+actionable message and logs a single `logger.error` line naming the
+request id, tool, helper, and boss. A worker tool call that cannot be
+recorded for the boss is denied, never silently dropped or silently
+allowed. Any partial queue artifact is best-effort unlinked.
+
+Tests: `tests/test_perm_broker.py::TestEnqueueNeverSilentlyDrops`
+reproduces the drop (enqueue write + queue-dir mkdir both forced to
+raise) and asserts a fail-closed deny, plus a positive test that a
+gated request surfaces in `list_pending()` while awaiting a decision.
+
 ## [8.19.25] - 2026-05-31
 
 ### Fixed — SDK inactivity hangs the agent runner

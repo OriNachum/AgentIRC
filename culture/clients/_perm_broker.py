@@ -671,8 +671,6 @@ class PermissionBroker:
         request_id = _new_request_id()
         queue_path = os.path.join(_queue_dir(), f"{request_id}.json")
         decision_path = os.path.join(_decisions_dir(), f"{request_id}.json")
-        _mkdir_secure(_queue_dir())
-        _mkdir_secure(_decisions_dir())
 
         payload = {
             "id": request_id,
@@ -682,7 +680,41 @@ class PermissionBroker:
             "input": _safe_jsonable(input_dict),
             "created_at": _now_iso(),
         }
-        _atomic_write_json(queue_path, payload)
+
+        # HARD GUARANTEE — never silently drop a request. The enqueue write is
+        # the single point where the boss's view of this request is created. If
+        # it fails (disk full, EACCES, read-only ~/.culture, a mid-write crash),
+        # the request would never reach the perm-queue: the boss would never see
+        # it via ``list_pending`` and, worse, an un-caught exception escaping
+        # this callback could be treated by the SDK as a fall-through that lets
+        # the tool run unsupervised. So we fail CLOSED here — deny the call with
+        # an explicit, logged reason — rather than risk a silent drop or a
+        # silent allow.
+        try:
+            _mkdir_secure(_queue_dir())
+            _mkdir_secure(_decisions_dir())
+            _atomic_write_json(queue_path, payload)
+        except OSError:
+            logger.error(
+                "Perm-broker ENQUEUE FAILED for %s (tool=%s, helper=%s, boss=%s); "
+                "failing closed with deny so the request is never silently dropped. "
+                "Check the boss host's ~/.culture disk space and permissions.",
+                request_id,
+                tool_name,
+                self._nick,
+                self._boss or "<none>",
+                exc_info=True,
+            )
+            # Best-effort: scrub any partial artifact the failed write left behind.
+            self._best_effort_unlink(queue_path)
+            return PermissionResultDeny(
+                message=(
+                    f"Permission request for {tool_name} could not be enqueued "
+                    "(broker write failed); denying to fail closed. Check the "
+                    "boss host's ~/.culture disk space and permissions."
+                ),
+                interrupt=False,
+            )
 
         # Best-effort notify the boss (e.g. an IRC post). A failure here must
         # never block or fail the gate — the file queue is the source of truth

@@ -424,6 +424,97 @@ class TestBrokerEndToEnd:
         assert entries == []
 
 
+class TestEnqueueNeverSilentlyDrops:
+    """Silent-drop guard (v8.19.30).
+
+    A ``require_approval`` tool call must always reach the perm-queue so the
+    boss can see it via ``list_pending``. If the enqueue write fails for any
+    reason, the gate MUST fail closed with a deny + clear log — never raise
+    (which the SDK may treat as a silent allow) and never drop the request
+    without a trace.
+    """
+
+    @pytest.mark.asyncio
+    async def test_gate_request_appears_in_list_pending(self, culture_root):
+        # Positive path: a require_approval tool routed to the boss is visible
+        # to the boss view (list_pending) while it awaits a decision.
+        from culture.clients._perm_broker import list_pending
+
+        write_default_policy("local-helper")
+        broker = PermissionBroker(nick="local-helper")
+        gate_task = asyncio.create_task(broker.gate("Edit", {"file_path": "/x"}, _empty_context()))
+        queue_dir = os.path.join(str(culture_root), "perm-queue")
+        decisions_dir = os.path.join(str(culture_root), "perm-decisions")
+        request_id = await _wait_for_request(queue_dir)
+
+        pending_ids = [r["id"] for r in list_pending()]
+        assert request_id in pending_ids  # boss can see the pending request
+
+        _write_decision_atomic(
+            os.path.join(decisions_dir, f"{request_id}.json"),
+            {"id": request_id, "verdict": "allow", "scope": "once"},
+        )
+        await asyncio.wait_for(gate_task, timeout=2.0)
+
+    @pytest.mark.asyncio
+    async def test_enqueue_write_failure_fails_closed_with_deny(self, culture_root, monkeypatch):
+        # SILENT-DROP REPRODUCTION: make the perm-queue write fail (disk full /
+        # EACCES / read-only ~/.culture). Before the fix, the OSError escaped
+        # gate() and the request was dropped with no queue entry. The gate must
+        # instead return a deny so the worker's tool call fails closed.
+        import culture.clients._perm_broker as broker_mod
+
+        write_default_policy("local-helper")
+        real_write = broker_mod._atomic_write_json
+
+        def failing_write(dest: str, payload: dict) -> None:
+            if "perm-queue" in dest:
+                raise OSError("simulated disk-full on enqueue")
+            return real_write(dest, payload)
+
+        monkeypatch.setattr(broker_mod, "_atomic_write_json", failing_write)
+
+        broker = PermissionBroker(nick="local-helper")
+        result = await asyncio.wait_for(
+            broker.gate("Edit", {"file_path": "/x"}, _empty_context()),
+            timeout=2.0,
+        )
+        # Fail closed: deny, not allow, and definitely not a raised exception.
+        assert isinstance(result, PermissionResultDeny)
+        assert result.interrupt is False
+        assert "enqueue" in result.message.lower() or "could not" in result.message.lower()
+        # No half-written request lingers in the queue.
+        queue_dir = os.path.join(str(culture_root), "perm-queue")
+        entries = (
+            [e for e in os.listdir(queue_dir) if not e.startswith(".")]
+            if os.path.exists(queue_dir)
+            else []
+        )
+        assert entries == []
+
+    @pytest.mark.asyncio
+    async def test_enqueue_mkdir_failure_fails_closed_with_deny(self, culture_root, monkeypatch):
+        # The queue directory itself may be uncreatable (parent read-only).
+        # The mkdir failure must also fail closed, not escape the gate.
+        import culture.clients._perm_broker as broker_mod
+
+        write_default_policy("local-helper")
+
+        def failing_mkdir(path: str) -> None:
+            if "perm-queue" in path:
+                raise OSError("simulated EACCES creating perm-queue")
+
+        monkeypatch.setattr(broker_mod, "_mkdir_secure", failing_mkdir)
+
+        broker = PermissionBroker(nick="local-helper")
+        result = await asyncio.wait_for(
+            broker.gate("Edit", {"file_path": "/x"}, _empty_context()),
+            timeout=2.0,
+        )
+        assert isinstance(result, PermissionResultDeny)
+        assert result.interrupt is False
+
+
 # ---------------------------------------------------------------------------
 # Helpers — boss-side simulation
 # ---------------------------------------------------------------------------
