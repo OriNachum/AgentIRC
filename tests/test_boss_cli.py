@@ -584,3 +584,73 @@ class TestRecordWorkerBossChannels:
         assert "#joint-fixes" in entry["channels"]
         assert "#team" in entry["channels"]
         assert "#task-alpha" in entry["channels"]
+
+
+# ---------------------------------------------------------------------------
+# v8.19.37 — `culture boss tier` shows model + effort per agent
+# ---------------------------------------------------------------------------
+
+
+class TestBossTierCmd:
+    def test_reads_flat_helper_yaml(self, tmp_path, monkeypatch):
+        from culture.cli.boss import _read_agent_tier
+
+        monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
+        helpers = tmp_path / "helpers" / "foo-w"
+        helpers.mkdir(parents=True)
+        (helpers / "culture.yaml").write_text(
+            "suffix: foo-w\nbackend: claude\nmodel: claude-opus-4-8\nthinking: max\n"
+        )
+        model, effort = _read_agent_tier("local-foo-w")
+        assert model == "claude-opus-4-8"
+        assert effort == "max"
+
+    def test_reads_legacy_root_yaml(self, tmp_path, monkeypatch):
+        from culture.cli.boss import _read_agent_tier
+
+        monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
+        boss_dir = tmp_path / "boss"
+        boss_dir.mkdir(parents=True)
+        (boss_dir / "culture.yaml").write_text(
+            "suffix: boss\nbackend: claude\nmodel: claude-opus-4-8\nthinking: max\n"
+        )
+        model, effort = _read_agent_tier("local-boss")
+        assert model == "claude-opus-4-8"
+        assert effort == "max"
+
+    def test_reads_multi_agent_list(self, tmp_path, monkeypatch):
+        from culture.cli.boss import _read_agent_tier
+
+        monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
+        helpers = tmp_path / "helpers" / "w1"
+        helpers.mkdir(parents=True)
+        (helpers / "culture.yaml").write_text(
+            "agents:\n"
+            "  - suffix: w1\n"
+            "    model: claude-opus-4-8\n"
+            "    thinking: high\n"
+            "  - suffix: w2\n"
+            "    model: claude-sonnet-4-6\n"
+        )
+        model, effort = _read_agent_tier("local-w1")
+        assert model == "claude-opus-4-8"
+        assert effort == "high"
+
+    def test_missing_fields_render_as_inherit_default(self, tmp_path, monkeypatch):
+        from culture.cli.boss import _read_agent_tier
+
+        monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
+        helpers = tmp_path / "helpers" / "bare-w"
+        helpers.mkdir(parents=True)
+        (helpers / "culture.yaml").write_text("suffix: bare-w\nbackend: claude\n")
+        model, effort = _read_agent_tier("local-bare-w")
+        assert model == "(inherit)"
+        assert effort == "(default)"
+
+    def test_unknown_agent_returns_question_marks(self, tmp_path, monkeypatch):
+        from culture.cli.boss import _read_agent_tier
+
+        monkeypatch.setenv("CULTURE_HOME", str(tmp_path))
+        model, effort = _read_agent_tier("local-ghost-w")
+        assert model == "?"
+        assert effort == "?"

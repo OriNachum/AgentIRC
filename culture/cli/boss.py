@@ -43,7 +43,7 @@ from .shared.ipc import agent_socket_path, get_observer, ipc_request
 
 NAME = "boss"
 
-_ALL_CMDS = "init|spawn|brief|read|pending|approve|deny|audit|log|status|close|cleanup"
+_ALL_CMDS = "init|spawn|brief|read|pending|approve|deny|audit|log|status|tier|close|cleanup"
 
 _MANAGER_PROMPT = """\
 You are {nick}, a manager agent on the culture mesh. A human briefs you in your
@@ -158,6 +158,11 @@ def register(subparsers: argparse._SubParsersAction) -> None:
 
     sub.add_parser("status", help="Summarize workers + pending perms")
 
+    sub.add_parser(
+        "tier",
+        help="Show model + effort tier per worker (catches accidental tier mismatches)",
+    )
+
     close_p = sub.add_parser("close", help="Stop a worker daemon")
     close_p.add_argument("name", help="Worker suffix")
 
@@ -183,6 +188,7 @@ def dispatch(args: argparse.Namespace) -> None:
         "audit": _cmd_audit,
         "log": _cmd_log,
         "status": _cmd_status,
+        "tier": _cmd_tier,
         "close": _cmd_close,
         "cleanup": _cmd_cleanup,
     }
@@ -607,6 +613,85 @@ def _cmd_status(args: argparse.Namespace) -> None:
     reqs = list_pending()
     if reqs:
         print(f"\n{len(reqs)} pending permission request(s) — run: culture boss pending")
+
+
+def _read_agent_tier(nick: str) -> tuple[str, str]:
+    """Return (model, thinking) for an agent by reading its yaml.
+
+    Looks first at ``~/.culture/helpers/<suffix>/culture.yaml`` (the
+    canonical agent home for boss-spawned workers); falls back to
+    ``~/.culture/<suffix>/culture.yaml`` (for non-helpers like the boss
+    itself). Returns ("?", "?") if the yaml can't be read or parsed.
+
+    Boss-spawned workers' yaml is a flat mapping (``suffix: X``,
+    ``model: Y``, ``thinking: Z``). The yaml at the agent's working
+    directory may instead be a multi-agent list (``agents: [...]``) —
+    handled by walking the list and matching on ``suffix``.
+    """
+    import yaml as _yaml
+
+    suffix = nick.split("-", 1)[1] if "-" in nick else nick
+    candidates = [
+        os.path.join(culture_home(), "helpers", suffix, "culture.yaml"),
+        os.path.join(culture_home(), suffix, "culture.yaml"),
+    ]
+    for path in candidates:
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = _yaml.safe_load(fh) or {}
+        except (OSError, _yaml.YAMLError):
+            continue
+        if isinstance(data, dict) and data.get("suffix") == suffix:
+            return (data.get("model", "") or "(inherit)", data.get("thinking", "") or "(default)")
+        if isinstance(data, dict) and isinstance(data.get("agents"), list):
+            for entry in data["agents"]:
+                if isinstance(entry, dict) and entry.get("suffix") == suffix:
+                    return (
+                        entry.get("model", "") or "(inherit)",
+                        entry.get("thinking", "") or "(default)",
+                    )
+    return ("?", "?")
+
+
+def _cmd_tier(args: argparse.Namespace) -> None:  # noqa: ARG001 — argparse signature
+    """Show each registered agent's model + effort tier.
+
+    Surfaces accidental tier mismatches — e.g. a worker still on
+    ``claude-opus-4-6`` after the boss bumped to ``4-8``, or a worker
+    with ``thinking: high`` while the boss runs ``thinking: max``.
+    The fix in v8.19.27 (``thinking:`` → SDK ``--effort``) made the
+    yaml field load-bearing; this verb makes the loaded values legible
+    without having to ``cat`` each yaml by hand.
+    """
+    from culture.pidfile import is_process_alive, read_pid
+
+    _boss_nick()  # validate CULTURE_NICK is set so the verb is boss-scoped
+    config = load_config_or_default(DEFAULT_CONFIG)
+    agents = list(getattr(config, "agents", []) or [])
+    print(f"{'NICK':<32} {'STATE':<10} {'MODEL':<22} {'EFFORT'}")
+    print("-" * 75)
+    for agent in sorted(agents, key=lambda a: getattr(a, "nick", "")):
+        nick = getattr(agent, "nick", "?")
+        if not nick:
+            continue
+        pid = read_pid(f"agent-{nick}")
+        state = "running" if pid and is_process_alive(pid) else "stopped"
+        # Prefer the manifest-loaded fields (already parsed); fall back to
+        # walking the agent's culture.yaml if the manifest omitted them
+        # (e.g. older entries before v8.19.27).
+        model = getattr(agent, "model", "") or ""
+        thinking = getattr(agent, "thinking", "") or ""
+        if not model or not thinking:
+            yaml_model, yaml_thinking = _read_agent_tier(nick)
+            model = model or yaml_model
+            thinking = thinking or yaml_thinking
+        if not model:
+            model = "(inherit)"
+        if not thinking:
+            thinking = "(default)"
+        print(f"{nick:<32} {state:<10} {model:<22} {thinking}")
 
 
 def _cmd_spawn(args: argparse.Namespace) -> None:

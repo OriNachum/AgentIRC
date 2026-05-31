@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [8.19.37] - 2026-06-01
+
+### Added — `culture boss tier` surfaces model + effort per agent
+
+The v8.19.27 fix made the ``thinking:`` yaml field actually drive the
+SDK's ``--effort`` flag — meaning a mismatch between boss and worker
+yamls now has real consequences (workers thinking less / more than
+the boss expects). ``culture boss tier`` prints one row per
+registered agent showing model + effort tier so the boss can spot
+mismatches without ``cat``-ing each yaml::
+
+    NICK                             STATE      MODEL                  EFFORT
+    ---------------------------------------------------------------------------
+    local-boss                       running    claude-opus-4-8        max
+    local-foo-w                      running    claude-opus-4-8        max
+    local-bar-w                      stopped    claude-opus-4-6        high   ← mismatch
+
+Reads the agent's ``culture.yaml`` (helpers/<suffix>/ or the legacy
+flat layout under ``~/.culture/<suffix>/``); handles both the per-agent
+mapping shape and the multi-agent ``agents: [...]`` list. Missing /
+unset fields render as ``(inherit)`` / ``(default)`` so the operator
+sees explicitly what the SDK will fall through to.
+
 ## [8.19.25] - 2026-05-31
 
 ### Fixed — SDK inactivity hangs the agent runner
